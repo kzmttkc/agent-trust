@@ -117,7 +117,7 @@ Background job populates `funder_wallets` for sybil cluster detection (read-only
 
 ```bash
 npm run indexer:funders
-# or Vercel cron: GET /api/cron/index-funders (every 6h)
+# or Vercel cron: GET /api/cron/index-funders (daily 04:00 UTC)
 ```
 
 ## Log retention
