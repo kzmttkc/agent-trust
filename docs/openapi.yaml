@@ -1,0 +1,324 @@
+openapi: 3.1.0
+info:
+  title: Vouch Trust API
+  version: 0.1.0
+  description: |
+    Agent trust scoring API for ERC-8004 agents on Base.
+    Returns a 0-100 trust score and ALLOW/WARN/BLOCK recommendation for x402 API gateways.
+
+    **Disclaimer:** Scores are informational only and do not constitute a guarantee,
+    credit assessment, or investment advice.
+
+  contact:
+    name: Vouch API Support
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.vouch.dev/v1
+    description: Production (planned)
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Scores
+    description: Trust score lookups
+  - name: System
+    description: Health and metadata
+
+paths:
+  /agents/{agentId}/score:
+    get:
+      operationId: getAgentScore
+      tags: [Scores]
+      summary: Get trust score by ERC-8004 agent ID
+      description: |
+        Returns trust score for a registered ERC-8004 agent.
+        Pass `wallet` query param to verify the agent's registered wallet matches.
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - $ref: "#/components/parameters/VerifyWallet"
+      responses:
+        "200":
+          description: Trust score result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrustScoreResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /wallets/{address}/score:
+    get:
+      operationId: getWalletScore
+      tags: [Scores]
+      summary: Get trust score by wallet address
+      description: |
+        Primary integration path for x402 API middleware.
+        Resolves wallet to agent when indexed; otherwise returns wallet heuristics.
+      parameters:
+        - $ref: "#/components/parameters/WalletAddress"
+      responses:
+        "200":
+          description: Trust score result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrustScoreResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /scores/batch:
+    post:
+      operationId: batchScore
+      tags: [Scores]
+      summary: Batch trust score lookup
+      description: Score up to 50 agents in a single request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchScoreRequest"
+      responses:
+        "200":
+          description: Batch results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchScoreResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /agents/{agentId}/history:
+    get:
+      operationId: getAgentScoreHistory
+      tags: [Scores]
+      summary: Get score history (Pro+)
+      description: Returns historical score snapshots. Requires Pro or Scale plan.
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Score history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agentId:
+                    type: string
+                  history:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrustScoreResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Plan upgrade required
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key issued from the developer dashboard
+
+  parameters:
+    AgentId:
+      name: agentId
+      in: path
+      required: true
+      description: ERC-8004 agent token ID (uint256 as decimal string)
+      schema:
+        type: string
+        example: "42"
+    WalletAddress:
+      name: address
+      in: path
+      required: true
+      description: EVM wallet address (checksummed or lowercase)
+      schema:
+        type: string
+        pattern: "^0x[a-fA-F0-9]{40}$"
+        example: "0x1234567890123456789012345678901234567890"
+    VerifyWallet:
+      name: wallet
+      in: query
+      required: false
+      description: Optional wallet to verify against agent's registered wallet
+      schema:
+        type: string
+        pattern: "^0x[a-fA-F0-9]{40}$"
+
+  schemas:
+    Recommendation:
+      type: string
+      enum: [ALLOW, WARN, BLOCK]
+
+    TrustSignals:
+      type: object
+      required: [identity, reputation, wallet, sybil, manual]
+      properties:
+        identity:
+          type: object
+          properties:
+            registered: { type: boolean }
+            hasMetadataUri:
+              type: boolean
+              description: Whether the agent has a metadata URI on-chain (not a validation of URI contents)
+        reputation:
+          type: object
+          properties:
+            feedbackCount: { type: integer }
+            avgScore: { type: number }
+            onChainAvgScore:
+              type: number
+              description: Raw on-chain reputation average before normalization
+        wallet:
+          type: object
+          properties:
+            ageDays: { type: integer }
+            txCount: { type: integer }
+            isBurner: { type: boolean }
+        sybil:
+          type: object
+          properties:
+            risk:
+              type: string
+              enum: [low, medium, high]
+            flags:
+              type: array
+              items: { type: string }
+        manual:
+          type: object
+          properties:
+            list:
+              type: string
+              enum: [none, whitelist, blacklist]
+
+    TrustScoreResult:
+      type: object
+      required:
+        - agentId
+        - trustScore
+        - recommendation
+        - signals
+        - scoredAt
+        - cacheExpiresAt
+        - disclaimer
+      properties:
+        agentId:
+          type: string
+          description: ERC-8004 agent ID; "0" if wallet-only lookup
+        wallet:
+          type: string
+          nullable: true
+        trustScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        recommendation:
+          $ref: "#/components/schemas/Recommendation"
+        signals:
+          $ref: "#/components/schemas/TrustSignals"
+        scoredAt:
+          type: string
+          format: date-time
+        cacheExpiresAt:
+          type: string
+          format: date-time
+        disclaimer:
+          type: string
+        manualOverride:
+          type: boolean
+          description: True when customer WL/BL changed the recommendation
+        blockReason:
+          type: string
+          description: Present when recommendation is BLOCK (e.g. wallet_mismatch, operator_policy)
+
+    BatchScoreRequest:
+      type: object
+      required: [agents]
+      properties:
+        agents:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            required: [agentId]
+            properties:
+              agentId:
+                type: string
+              wallet:
+                type: string
+
+    BatchScoreResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/TrustScoreResult"
+              - type: object
+                properties:
+                  agentId: { type: string }
+                  error: { type: string }
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: rate_limit_exceeded
+              retryAfter:
+                type: integer

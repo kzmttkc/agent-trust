@@ -1,0 +1,48 @@
+{
+  "name": "agent-trust",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "api-key:create": "tsx scripts/create-api-key.ts",
+    "check:env": "tsx scripts/check-production-env.ts",
+    "indexer:funders": "tsx scripts/index-funders.ts",
+    "cron:purge-logs": "tsx scripts/purge-logs.ts",
+    "setup:stripe": "tsx scripts/setup-stripe-products.ts",
+    "setup:stripe-webhook": "tsx scripts/setup-stripe-webhook.ts",
+    "mcp:build": "npm run build --prefix packages/mcp-server",
+    "mcp:dev": "npm run dev --prefix packages/mcp-server",
+    "x402:demo": "npm run demo --prefix examples/x402-trust-gate"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "16.2.10",
+    "postgres": "^3.4.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "stripe": "^22.3.1",
+    "uuid": "^14.0.1",
+    "viem": "^2.55.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "^4",
+    "tsx": "^4.20.3",
+    "typescript": "^5"
+  }
+}

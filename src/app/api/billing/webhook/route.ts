@@ -1,0 +1,89 @@
+import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
+import { planFromStripePriceId } from "@/lib/billing/plans";
+import { getStripe } from "@/lib/billing/stripe";
+import {
+  getAccountByStripeCustomerId,
+  setAccountStripeIds,
+  updateAccountPlan,
+} from "@/lib/db/accounts";
+
+export const runtime = "nodejs";
+
+async function applyPlanFromSubscription(subscription: Stripe.Subscription): Promise<void> {
+  const customerId =
+    typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
+
+  const account = await getAccountByStripeCustomerId(customerId);
+  if (!account) return;
+
+  const priceId = subscription.items.data[0]?.price.id;
+  const plan = priceId ? planFromStripePriceId(priceId) : null;
+
+  if (subscription.status === "active" || subscription.status === "trialing") {
+    if (plan) {
+      await updateAccountPlan(account.id, plan);
+      await setAccountStripeIds(account.id, {
+        stripeSubscriptionId: subscription.id,
+      });
+    }
+    return;
+  }
+
+  await updateAccountPlan(account.id, "free");
+  await setAccountStripeIds(account.id, { stripeSubscriptionId: null });
+}
+
+export async function POST(request: NextRequest) {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "webhook_not_configured" }, { status: 503 });
+  }
+
+  const body = await request.text();
+  const signature = request.headers.get("stripe-signature");
+  if (!signature) {
+    return NextResponse.json({ error: "missing_signature" }, { status: 400 });
+  }
+
+  const stripe = getStripe();
+  let event: Stripe.Event;
+
+  try {
+    event = stripe.webhooks.constructEvent(body, signature, secret);
+  } catch {
+    return NextResponse.json({ error: "invalid_signature" }, { status: 400 });
+  }
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const accountId = session.metadata?.accountId;
+      const plan = session.metadata?.plan;
+      const customerId =
+        typeof session.customer === "string" ? session.customer : session.customer?.id;
+
+      if (accountId && customerId) {
+        await setAccountStripeIds(accountId, {
+          stripeCustomerId: customerId,
+          stripeSubscriptionId:
+            typeof session.subscription === "string" ? session.subscription : null,
+        });
+        if (plan === "pro" || plan === "scale") {
+          await updateAccountPlan(accountId, plan);
+        }
+      }
+      break;
+    }
+    case "customer.subscription.updated":
+    case "customer.subscription.deleted": {
+      const subscription = event.data.object as Stripe.Subscription;
+      await applyPlanFromSubscription(subscription);
+      break;
+    }
+    default:
+      break;
+  }
+
+  return NextResponse.json({ received: true });
+}

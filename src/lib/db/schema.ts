@@ -1,0 +1,167 @@
+import {
+  bigint,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+export const agents = pgTable(
+  "agents",
+  {
+    agentId: bigint("agent_id", { mode: "bigint" }).primaryKey(),
+    wallet: text("wallet"),
+    chainId: bigint("chain_id", { mode: "number" }).notNull().default(8453),
+    metadataUri: text("metadata_uri"),
+    lastIndexed: timestamp("last_indexed", { withTimezone: true }),
+  },
+  (t) => [index("agents_wallet_idx").on(t.wallet)],
+);
+
+export const scoreSnapshots = pgTable("score_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  agentId: bigint("agent_id", { mode: "bigint" }),
+  trustScore: bigint("trust_score", { mode: "number" }),
+  recommendation: text("recommendation"),
+  signals: jsonb("signals"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const trustEvents = pgTable(
+  "trust_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    apiKeyId: uuid("api_key_id"),
+    agentId: bigint("agent_id", { mode: "bigint" }),
+    wallet: text("wallet"),
+    trustScore: bigint("trust_score", { mode: "number" }),
+    recommendation: text("recommendation"),
+    signals: jsonb("signals"),
+    manualOverride: text("manual_override"),
+    blockReason: text("block_reason"),
+    disclaimer: text("disclaimer"),
+    cacheExpiresAt: timestamp("cache_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("trust_events_api_key_created_idx").on(t.apiKeyId, t.createdAt),
+    index("trust_events_agent_id_idx").on(t.agentId),
+  ],
+);
+
+export const ownerUsage = pgTable(
+  "owner_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull(),
+    period: text("period").notNull(),
+    count: bigint("count", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [uniqueIndex("owner_usage_user_period_unique").on(t.userId, t.period)],
+);
+
+export const ipRateLimits = pgTable("ip_rate_limits", {
+  bucketKey: text("bucket_key").primaryKey(),
+  count: bigint("count", { mode: "number" }).notNull().default(0),
+  resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+});
+
+export const cacheEpochs = pgTable("cache_epochs", {
+  scope: text("scope").primaryKey(),
+  epoch: bigint("epoch", { mode: "number" }).notNull().default(0),
+});
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: text("email").notNull(),
+    plan: text("plan").notNull().default("free"),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [uniqueIndex("accounts_email_unique").on(t.email)],
+);
+
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id"),
+    name: text("name"),
+    keyHash: text("key_hash").notNull(),
+    plan: text("plan").notNull().default("free"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("api_keys_key_hash_idx").on(t.keyHash)],
+);
+
+export const apiUsage = pgTable(
+  "api_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    period: text("period").notNull(),
+    count: bigint("count", { mode: "number" }).notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex("api_usage_key_period_unique").on(t.apiKeyId, t.period),
+    index("api_usage_period_idx").on(t.period),
+  ],
+);
+
+export const customerLists = pgTable(
+  "customer_lists",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    apiKeyId: uuid("api_key_id"),
+    wallet: text("wallet").notNull(),
+    listType: text("list_type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("customer_lists_wallet_idx").on(t.wallet),
+    index("customer_lists_api_key_idx").on(t.apiKeyId),
+    uniqueIndex("customer_lists_scope_unique").on(t.apiKeyId, t.wallet),
+  ],
+);
+
+export const funderWallets = pgTable(
+  "funder_wallets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    funder: text("funder").notNull(),
+    wallet: text("wallet").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [uniqueIndex("funder_wallets_unique").on(t.funder, t.wallet)],
+);
+
+export const dashboardSessions = pgTable(
+  "dashboard_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tokenHash: text("token_hash").notNull(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dashboard_sessions_token_hash_idx").on(t.tokenHash),
+    index("dashboard_sessions_api_key_idx").on(t.apiKeyId),
+  ],
+);
+
+export const x402Payments = pgTable("x402_payments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  wallet: text("wallet"),
+  amount: text("amount"),
+  txHash: text("tx_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
