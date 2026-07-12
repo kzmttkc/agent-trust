@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/index-funders",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 4 * * *"
     },
     {
       "path": "/api/cron/purge-logs",
