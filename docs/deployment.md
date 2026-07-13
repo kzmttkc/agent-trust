@@ -89,7 +89,7 @@ npm run api-key:create -- --plan free --name "ops"
 | `/api/cron/index-funders` | daily 04:00 UTC | Populate `funder_wallets` |
 | `/api/cron/index-owners` | daily 05:00 UTC | Index `owner_agents` for sybil `multi_agent_owner` |
 | `/api/cron/purge-logs` | daily 03:00 UTC | Delete expired `trust_events` (90d free / 1y pro+), sessions, rate-limit buckets |
-| `/api/cron/monitor-health` | hourly | Deep health probe; **503 only** on env/DB/RPC failure (indexer lag is informational) |
+| `/api/cron/monitor-health` | daily 06:00 UTC | Deep health probe; **503 only** on env/DB/RPC failure (indexer lag is informational). For sub-daily checks use an external uptime monitor (Hobby forbids hourly crons). |
 
 Vercel sends `Authorization: Bearer $CRON_SECRET` automatically when `CRON_SECRET` is set in project env.
 
@@ -106,7 +106,7 @@ curl -H "Authorization: Bearer $ADMIN_SECRET" \
 
 Response includes `checks.env`, `checks.owner_indexer` (`ok` | `partial` | `lagging`), and `indexer.blocksBehind` / `liveTip`. HTTP **503** only when `criticalFailure` (env / database / rpc). Indexer catch-up alone returns **200** so uptime monitors are not trained to ignore alerts for weeks.
 
-**Scheduled probe** (Vercel cron, uses `CRON_SECRET`):
+**Scheduled probe** (Vercel cron daily 06:00 UTC on Hobby, or external uptime every N minutes with `CRON_SECRET`):
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" \
