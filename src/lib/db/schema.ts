@@ -143,6 +143,27 @@ export const funderWallets = pgTable(
   (t) => [uniqueIndex("funder_wallets_unique").on(t.funder, t.wallet)],
 );
 
+export const ownerAgents = pgTable(
+  "owner_agents",
+  {
+    owner: text("owner").notNull(),
+    agentId: bigint("agent_id", { mode: "bigint" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("owner_agents_unique").on(t.owner, t.agentId),
+    index("owner_agents_owner_idx").on(t.owner),
+    index("owner_agents_agent_idx").on(t.agentId),
+  ],
+);
+
+export const indexerCheckpoints = pgTable("indexer_checkpoints", {
+  scope: text("scope").primaryKey(),
+  lastBlock: bigint("last_block", { mode: "bigint" }).notNull(),
+  chainTipAtRun: bigint("chain_tip_at_run", { mode: "bigint" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const dashboardSessions = pgTable(
   "dashboard_sessions",
   {

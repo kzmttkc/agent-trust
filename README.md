@@ -120,6 +120,17 @@ npm run indexer:funders
 # or Vercel cron: GET /api/cron/index-funders (daily 04:00 UTC)
 ```
 
+## Owner agent indexer (sybil F-03)
+
+Indexes ERC-8004 `Registered` / `Transfer` events into `owner_agents` so `multi_agent_owner` sybil checks avoid wide `eth_getLogs` on every score request:
+
+```bash
+npm run indexer:owners
+# or Vercel cron: GET /api/cron/index-owners (daily 05:00 UTC)
+```
+
+Live scoring uses chunked `eth_getLogs` until the indexer catches up (`indexer_checkpoints`).
+
 ## Log retention
 
 `trust_events` are purged by plan: **90 days** (free) / **1 year** (pro, scale). Expired dashboard sessions and stale IP rate-limit buckets are also cleaned.

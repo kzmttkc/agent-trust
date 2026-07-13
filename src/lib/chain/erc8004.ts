@@ -1,5 +1,6 @@
 import { type Address, isAddress, parseAbi, parseAbiItem, zeroAddress } from "viem";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
+import { getLogsChunked } from "./chunked-logs";
 import { getPublicClient } from "./client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "./config";
 
@@ -136,13 +137,13 @@ export async function fetchRecentFeedbackStats(
         ? latestBlock - blocksPerDay * BigInt(windowDays)
         : IDENTITY_REGISTRY_FROM_BLOCK;
 
-    const logs = await client.getLogs({
+    const logs = (await getLogsChunked(client, {
       address: ERC8004_ADDRESSES.reputationRegistry,
       event: newFeedbackEvent,
       args: { agentId },
       fromBlock,
       toBlock: "latest",
-    });
+    })) as Array<{ args: { clientAddress?: Address } }>;
 
     const clients = new Set<string>();
     for (const log of logs) {

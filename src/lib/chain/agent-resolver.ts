@@ -1,8 +1,10 @@
 import { type Address, parseAbiItem } from "viem";
+import { getLogsChunked } from "@/lib/chain/chunked-logs";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { readCanonicalAgentWallet } from "./agent-wallet";
 import { getPublicClient, isValidAddress } from "./client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "./config";
+import { getOwnerAgentCountFromIndex } from "@/lib/db/owner-index";
 import { walletsMatch } from "@/lib/scoring/helpers";
 import { LruCache } from "@/lib/util/lru-cache";
 
@@ -17,6 +19,28 @@ const resolverCache = new LruCache<string, { agentId: bigint | null; expiresAt: 
 const RESOLVER_POSITIVE_TTL_MS = 60 * 60 * 1000;
 const RESOLVER_NEGATIVE_TTL_MS = 5 * 60 * 1000;
 
+type IdentityRegistryLog = {
+  args: {
+    agentId?: bigint;
+    owner?: Address;
+    wallet?: Address;
+  };
+};
+
+function agentIdFromLog(log: IdentityRegistryLog): bigint | undefined {
+  return log.args.agentId;
+}
+
+const identityOwnerAbi = [
+  {
+    type: "function",
+    name: "ownerOf",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
 async function resolveWalletForAgent(agentId: bigint): Promise<Address | null> {
   const canonical = await readCanonicalAgentWallet(agentId);
   if (canonical) return canonical;
@@ -25,15 +49,7 @@ async function resolveWalletForAgent(agentId: bigint): Promise<Address | null> {
   try {
     const owner = await client.readContract({
       address: ERC8004_ADDRESSES.identityRegistry,
-      abi: [
-        {
-          type: "function",
-          name: "ownerOf",
-          stateMutability: "view",
-          inputs: [{ name: "tokenId", type: "uint256" }],
-          outputs: [{ name: "", type: "address" }],
-        },
-      ] as const,
+      abi: identityOwnerAbi,
       functionName: "ownerOf",
       args: [agentId],
     });
@@ -70,28 +86,25 @@ export async function resolveAgentIdByWallet(wallet: Address): Promise<bigint | 
   }
 
   const client = getPublicClient();
-  const fromBlock = IDENTITY_REGISTRY_FROM_BLOCK;
 
-  let walletSetLogs, registeredLogs;
+  let walletSetLogs: IdentityRegistryLog[];
+  let registeredLogs: IdentityRegistryLog[];
   try {
     [walletSetLogs, registeredLogs] = await Promise.all([
-      client.getLogs({
+      getLogsChunked(client, {
         address: ERC8004_ADDRESSES.identityRegistry,
         event: walletSetEvent,
         args: { wallet },
-        fromBlock,
-        toBlock: "latest",
-      }),
-      client.getLogs({
+        fromBlock: IDENTITY_REGISTRY_FROM_BLOCK,
+      }) as Promise<IdentityRegistryLog[]>,
+      getLogsChunked(client, {
         address: ERC8004_ADDRESSES.identityRegistry,
         event: registeredEvent,
         args: { owner: wallet },
-        fromBlock,
-        toBlock: "latest",
-      }),
+        fromBlock: IDENTITY_REGISTRY_FROM_BLOCK,
+      }) as Promise<IdentityRegistryLog[]>,
     ]);
   } catch {
-    // RPC getLogs range limit exceeded or unavailable — cannot resolve wallet to agent.
     resolverCache.set(cacheKey, {
       agentId: null,
       expiresAt: Date.now() + RESOLVER_NEGATIVE_TTL_MS,
@@ -101,10 +114,12 @@ export async function resolveAgentIdByWallet(wallet: Address): Promise<bigint | 
 
   const candidates = new Set<bigint>();
   for (const log of walletSetLogs) {
-    if (log.args.agentId !== undefined) candidates.add(log.args.agentId);
+    const agentId = agentIdFromLog(log);
+    if (agentId !== undefined) candidates.add(agentId);
   }
   for (const log of registeredLogs) {
-    if (log.args.agentId !== undefined) candidates.add(log.args.agentId);
+    const agentId = agentIdFromLog(log);
+    if (agentId !== undefined) candidates.add(agentId);
   }
 
   const sorted = [...candidates].sort((a, b) => (a > b ? -1 : 1));
@@ -128,27 +143,19 @@ export async function resolveAgentIdByWallet(wallet: Address): Promise<bigint | 
   return resolved;
 }
 
-export async function countAgentsByOwner(owner: Address): Promise<number> {
-  if (isSkipChainReadsEnabled()) return 0;
-
+async function countAgentsByOwnerFromChain(owner: Address): Promise<number> {
   const client = getPublicClient();
-  let logs;
-  try {
-    logs = await client.getLogs({
-      address: ERC8004_ADDRESSES.identityRegistry,
-      event: registeredEvent,
-      args: { owner },
-      fromBlock: IDENTITY_REGISTRY_FROM_BLOCK,
-      toBlock: "latest",
-    });
-  } catch {
-    // RPC getLogs range limit exceeded or unavailable — skip multi-agent-owner signal.
-    return 0;
-  }
+  const logs = (await getLogsChunked(client, {
+    address: ERC8004_ADDRESSES.identityRegistry,
+    event: registeredEvent,
+    args: { owner },
+    fromBlock: IDENTITY_REGISTRY_FROM_BLOCK,
+  })) as IdentityRegistryLog[];
 
   const uniqueAgents = new Set<bigint>();
   for (const log of logs) {
-    if (log.args.agentId !== undefined) uniqueAgents.add(log.args.agentId);
+    const agentId = agentIdFromLog(log);
+    if (agentId !== undefined) uniqueAgents.add(agentId);
   }
 
   let ownedCount = 0;
@@ -156,15 +163,7 @@ export async function countAgentsByOwner(owner: Address): Promise<number> {
     try {
       const currentOwner = await client.readContract({
         address: ERC8004_ADDRESSES.identityRegistry,
-        abi: [
-          {
-            type: "function",
-            name: "ownerOf",
-            stateMutability: "view",
-            inputs: [{ name: "tokenId", type: "uint256" }],
-            outputs: [{ name: "", type: "address" }],
-          },
-        ] as const,
+        abi: identityOwnerAbi,
         functionName: "ownerOf",
         args: [agentId],
       });
@@ -181,4 +180,17 @@ export async function countAgentsByOwner(owner: Address): Promise<number> {
   }
 
   return ownedCount;
+}
+
+export async function countAgentsByOwner(owner: Address): Promise<number> {
+  if (isSkipChainReadsEnabled()) return 0;
+
+  const indexed = await getOwnerAgentCountFromIndex(owner);
+  if (indexed !== null) return indexed;
+
+  try {
+    return await countAgentsByOwnerFromChain(owner);
+  } catch {
+    return 0;
+  }
 }

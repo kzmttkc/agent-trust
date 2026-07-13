@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/purge-logs",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/index-owners",
+      "schedule": "0 5 * * *"
     }
   ]
 }

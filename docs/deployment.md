@@ -83,7 +83,8 @@ npm run api-key:create -- --plan free --name "ops"
 
 | Path | Schedule | Purpose |
 |------|----------|---------|
-| `/api/cron/index-funders` | daily 04:00 UTC | Populate `funder_wallets` (Hobby: max 1×/day per cron) |
+| `/api/cron/index-funders` | daily 04:00 UTC | Populate `funder_wallets` |
+| `/api/cron/index-owners` | daily 05:00 UTC | Index `owner_agents` for sybil `multi_agent_owner` |
 | `/api/cron/purge-logs` | daily 03:00 UTC | Delete expired `trust_events` (90d free / 1y pro+), sessions, rate-limit buckets |
 
 Vercel sends `Authorization: Bearer $CRON_SECRET` automatically when `CRON_SECRET` is set in project env.
@@ -102,6 +103,7 @@ Local CLI:
 
 ```bash
 npm run indexer:funders
+npm run indexer:owners
 npm run cron:purge-logs
 ```
 
