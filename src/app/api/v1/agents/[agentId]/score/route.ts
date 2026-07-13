@@ -40,7 +40,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
     );
 
     return withRateLimitHeaders(NextResponse.json(result), limited.rateLimit);
-  } catch {
+  } catch (error) {
+    logServerError("score_agent", error);
     return NextResponse.json({ error: "scoring_unavailable" }, { status: 503 });
   }
 }
