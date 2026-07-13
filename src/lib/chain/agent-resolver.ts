@@ -72,22 +72,32 @@ export async function resolveAgentIdByWallet(wallet: Address): Promise<bigint | 
   const client = getPublicClient();
   const fromBlock = IDENTITY_REGISTRY_FROM_BLOCK;
 
-  const [walletSetLogs, registeredLogs] = await Promise.all([
-    client.getLogs({
-      address: ERC8004_ADDRESSES.identityRegistry,
-      event: walletSetEvent,
-      args: { wallet },
-      fromBlock,
-      toBlock: "latest",
-    }),
-    client.getLogs({
-      address: ERC8004_ADDRESSES.identityRegistry,
-      event: registeredEvent,
-      args: { owner: wallet },
-      fromBlock,
-      toBlock: "latest",
-    }),
-  ]);
+  let walletSetLogs, registeredLogs;
+  try {
+    [walletSetLogs, registeredLogs] = await Promise.all([
+      client.getLogs({
+        address: ERC8004_ADDRESSES.identityRegistry,
+        event: walletSetEvent,
+        args: { wallet },
+        fromBlock,
+        toBlock: "latest",
+      }),
+      client.getLogs({
+        address: ERC8004_ADDRESSES.identityRegistry,
+        event: registeredEvent,
+        args: { owner: wallet },
+        fromBlock,
+        toBlock: "latest",
+      }),
+    ]);
+  } catch {
+    // RPC getLogs range limit exceeded or unavailable — cannot resolve wallet to agent.
+    resolverCache.set(cacheKey, {
+      agentId: null,
+      expiresAt: Date.now() + RESOLVER_NEGATIVE_TTL_MS,
+    });
+    return null;
+  }
 
   const candidates = new Set<bigint>();
   for (const log of walletSetLogs) {
@@ -122,13 +132,19 @@ export async function countAgentsByOwner(owner: Address): Promise<number> {
   if (isSkipChainReadsEnabled()) return 0;
 
   const client = getPublicClient();
-  const logs = await client.getLogs({
-    address: ERC8004_ADDRESSES.identityRegistry,
-    event: registeredEvent,
-    args: { owner },
-    fromBlock: IDENTITY_REGISTRY_FROM_BLOCK,
-    toBlock: "latest",
-  });
+  let logs;
+  try {
+    logs = await client.getLogs({
+      address: ERC8004_ADDRESSES.identityRegistry,
+      event: registeredEvent,
+      args: { owner },
+      fromBlock: IDENTITY_REGISTRY_FROM_BLOCK,
+      toBlock: "latest",
+    });
+  } catch {
+    // RPC getLogs range limit exceeded or unavailable — skip multi-agent-owner signal.
+    return 0;
+  }
 
   const uniqueAgents = new Set<bigint>();
   for (const log of logs) {
