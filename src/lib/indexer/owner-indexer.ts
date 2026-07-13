@@ -1,6 +1,6 @@
 import { parseAbiItem, zeroAddress, type Address } from "viem";
 import { getLogsChunked } from "@/lib/chain/chunked-logs";
-import { getPublicClient, isValidAddress } from "@/lib/chain/client";
+import { getIndexerPublicClient, isValidAddress } from "@/lib/chain/client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "@/lib/chain/config";
 import {
   getIndexerCheckpoint,
@@ -43,7 +43,7 @@ export type OwnerIndexResult = {
 const DEFAULT_MAX_BLOCKS = 150_000n;
 
 async function verifyCurrentOwner(owner: Address, agentId: bigint): Promise<boolean> {
-  const client = getPublicClient();
+  const client = getIndexerPublicClient();
   try {
     const currentOwner = await client.readContract({
       address: ERC8004_ADDRESSES.identityRegistry,
@@ -69,7 +69,7 @@ async function syncOwnerAgent(owner: Address, agentId: bigint): Promise<boolean>
 export async function indexOwnerAgents(options?: {
   maxBlocks?: bigint;
 }): Promise<OwnerIndexResult> {
-  const client = getPublicClient();
+  const client = getIndexerPublicClient();
   const chainTip = await client.getBlockNumber();
   const fromBlock = (await getIndexerCheckpoint(OWNER_INDEX_CHECKPOINT)) ?? IDENTITY_REGISTRY_FROM_BLOCK;
 
@@ -91,20 +91,18 @@ export async function indexOwnerAgents(options?: {
     return { ...empty, caughtUp: true };
   }
 
-  const [registeredLogs, transferLogs] = await Promise.all([
-    getLogsChunked(client, {
-      address: ERC8004_ADDRESSES.identityRegistry,
-      event: registeredEvent,
-      fromBlock,
-      toBlock,
-    }),
-    getLogsChunked(client, {
-      address: ERC8004_ADDRESSES.identityRegistry,
-      event: transferEvent,
-      fromBlock,
-      toBlock,
-    }),
-  ]);
+  const registeredLogs = await getLogsChunked(client, {
+    address: ERC8004_ADDRESSES.identityRegistry,
+    event: registeredEvent,
+    fromBlock,
+    toBlock,
+  });
+  const transferLogs = await getLogsChunked(client, {
+    address: ERC8004_ADDRESSES.identityRegistry,
+    event: transferEvent,
+    fromBlock,
+    toBlock,
+  });
 
   let upserted = 0;
   let removed = 0;

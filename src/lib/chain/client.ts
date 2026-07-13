@@ -10,6 +10,16 @@ export function getPublicClient() {
   });
 }
 
+/** Separate RPC endpoint for the batch indexers so they don't compete with live API traffic for the same app's CU/s budget. */
+export function getIndexerPublicClient() {
+  const rpcUrl =
+    process.env.INDEXER_RPC_URL ?? process.env.BASE_RPC_URL ?? "https://mainnet.base.org";
+  return createPublicClient({
+    chain: base,
+    transport: http(rpcUrl),
+  });
+}
+
 export function isValidAddress(value: string): value is Address {
   return /^0x[a-fA-F0-9]{40}$/.test(value);
 }

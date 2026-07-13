@@ -42,11 +42,20 @@ async function resolveToBlock(
   return client.getBlockNumber();
 }
 
+function isRateLimitError(error: unknown): boolean {
+  const err = error as { status?: number; code?: number; cause?: { code?: number } };
+  return err?.status === 429 || err?.code === 429 || err?.cause?.code === 429;
+}
+
+const RATE_LIMIT_MAX_RETRIES = 7;
+const RATE_LIMIT_BASE_DELAY_MS = 800;
+
 async function fetchRange(
   client: ChainClient,
   params: Omit<ChainGetLogsParams, "fromBlock" | "toBlock">,
   fromBlock: bigint,
   toBlock: bigint,
+  rateLimitRetries = 0,
 ): Promise<ChainLog[]> {
   if (fromBlock > toBlock) return [];
 
@@ -57,6 +66,11 @@ async function fetchRange(
       toBlock,
     } as ChainGetLogsParams);
   } catch (error) {
+    if (isRateLimitError(error) && rateLimitRetries < RATE_LIMIT_MAX_RETRIES) {
+      await sleep(RATE_LIMIT_BASE_DELAY_MS * 2 ** rateLimitRetries);
+      return fetchRange(client, params, fromBlock, toBlock, rateLimitRetries + 1);
+    }
+
     const span = toBlock - fromBlock;
     if (span <= 0n) throw error;
 
