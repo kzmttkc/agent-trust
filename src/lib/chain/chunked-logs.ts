@@ -17,6 +17,17 @@ export function getLogsChunkSize(): bigint {
   }
 }
 
+function getLogsChunkDelayMs(): number {
+  const raw = process.env.GET_LOGS_CHUNK_DELAY_MS;
+  if (!raw) return 0;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function resolveToBlock(
   client: ChainClient,
   toBlock: bigint | BlockTag | undefined,
@@ -76,12 +87,16 @@ export async function getLogsChunked(
 
   const results: ChainLog[] = [];
   let start = fromBlock;
+  const delayMs = getLogsChunkDelayMs();
 
   while (start <= toBlock) {
     const end = start + chunkSize - 1n > toBlock ? toBlock : start + chunkSize - 1n;
     const logs = await fetchRange(client, rest, start, end);
     results.push(...logs);
     start = end + 1n;
+    if (delayMs > 0 && start <= toBlock) {
+      await sleep(delayMs);
+    }
   }
 
   return results;
