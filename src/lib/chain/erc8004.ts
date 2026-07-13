@@ -44,25 +44,28 @@ export async function fetchAgentIdentity(agentId: bigint): Promise<AgentIdentity
       args: [agentId],
     });
 
-    const [tokenUri, agentWalletRaw] = await Promise.all([
-      client.readContract({
-        address: ERC8004_ADDRESSES.identityRegistry,
-        abi: identityRegistryAbi,
-        functionName: "tokenURI",
-        args: [agentId],
-      }),
-      client.readContract({
+    const tokenUri = await client.readContract({
+      address: ERC8004_ADDRESSES.identityRegistry,
+      abi: identityRegistryAbi,
+      functionName: "tokenURI",
+      args: [agentId],
+    });
+
+    let agentWallet: Address | null = null;
+    try {
+      const agentWalletRaw = await client.readContract({
         address: ERC8004_ADDRESSES.identityRegistry,
         abi: identityRegistryAbi,
         functionName: "getAgentWallet",
         args: [agentId],
-      }),
-    ]);
-
-    const agentWallet =
-      isAddress(agentWalletRaw) && agentWalletRaw !== zeroAddress
-        ? (agentWalletRaw as Address)
-        : (owner as Address);
+      });
+      agentWallet =
+        isAddress(agentWalletRaw) && agentWalletRaw !== zeroAddress
+          ? (agentWalletRaw as Address)
+          : null;
+    } catch (error) {
+      throw new Error("agent_wallet_read_unavailable", { cause: error });
+    }
 
     return {
       agentId,
@@ -71,7 +74,26 @@ export async function fetchAgentIdentity(agentId: bigint): Promise<AgentIdentity
       tokenUri: tokenUri as string,
       registered: true,
     };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "agent_wallet_read_unavailable" ||
+        error.message === "agent_resolve_unavailable")
+    ) {
+      throw error;
+    }
+
+    const message = String((error as Error)?.message ?? error).toLowerCase();
+    const missingToken =
+      message.includes("reverted") ||
+      message.includes("nonexistent") ||
+      message.includes("invalid token") ||
+      message.includes("owner query for nonexistent");
+
+    if (!missingToken) {
+      throw new Error("agent_identity_unavailable", { cause: error });
+    }
+
     return {
       agentId,
       owner: null,
@@ -104,8 +126,8 @@ export async function fetchReputationSummary(agentId: bigint) {
       summaryValue: Number(summaryValue),
       summaryValueDecimals: Number(summaryValueDecimals),
     };
-  } catch {
-    return { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
+  } catch (error) {
+    throw new Error("reputation_summary_unavailable", { cause: error });
   }
 }
 
@@ -157,7 +179,9 @@ export async function fetchRecentFeedbackStats(
       uniqueClients: clients.size,
       windowDays,
     };
-  } catch {
-    return { recentCount: 0, uniqueClients: 0, windowDays };
+  } catch (error) {
+    throw error instanceof Error
+      ? error
+      : new Error("feedback_stats_unavailable");
   }
 }

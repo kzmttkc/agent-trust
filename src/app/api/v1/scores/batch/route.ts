@@ -11,7 +11,7 @@ import { logServerError } from "@/lib/util/log";
 import { scoreAgentById } from "@/lib/scoring/engine";
 import { mapWithConcurrency } from "@/lib/util/concurrency";
 
-const BATCH_CONCURRENCY = 5;
+const BATCH_CONCURRENCY = 3;
 
 const batchSchema = z.object({
   agents: z
@@ -22,7 +22,7 @@ const batchSchema = z.object({
       }),
     )
     .min(1)
-    .max(50),
+    .max(25),
 });
 
 export async function POST(request: NextRequest) {

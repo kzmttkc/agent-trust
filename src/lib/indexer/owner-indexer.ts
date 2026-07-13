@@ -41,29 +41,73 @@ export type OwnerIndexResult = {
 };
 
 const DEFAULT_MAX_BLOCKS = 150_000n;
+const OWNER_VERIFY_BATCH = 200;
 
-async function verifyCurrentOwner(owner: Address, agentId: bigint): Promise<boolean> {
-  const client = getIndexerPublicClient();
-  try {
-    const currentOwner = await client.readContract({
-      address: ERC8004_ADDRESSES.identityRegistry,
-      abi: identityOwnerAbi,
-      functionName: "ownerOf",
-      args: [agentId],
+type OwnerLookup = Address | null | "unavailable";
+
+async function fetchCurrentOwners(
+  client: ReturnType<typeof getIndexerPublicClient>,
+  agentIds: bigint[],
+): Promise<Map<string, OwnerLookup>> {
+  const owners = new Map<string, OwnerLookup>();
+  const unique = [...new Set(agentIds.map((id) => id.toString()))].map((id) => BigInt(id));
+
+  for (let i = 0; i < unique.length; i += OWNER_VERIFY_BATCH) {
+    const chunk = unique.slice(i, i + OWNER_VERIFY_BATCH);
+    const results = await client.multicall({
+      contracts: chunk.map((agentId) => ({
+        address: ERC8004_ADDRESSES.identityRegistry,
+        abi: identityOwnerAbi,
+        functionName: "ownerOf",
+        args: [agentId],
+      })),
+      allowFailure: true,
     });
-    return (
-      isValidAddress(currentOwner) &&
-      currentOwner.toLowerCase() === owner.toLowerCase()
-    );
-  } catch {
-    return false;
+
+    for (let j = 0; j < chunk.length; j++) {
+      const agentId = chunk[j]!;
+      const result = results[j];
+      if (result?.status === "success" && isValidAddress(result.result)) {
+        owners.set(agentId.toString(), result.result);
+      } else if (result?.status === "success") {
+        owners.set(agentId.toString(), null);
+      } else {
+        // Transient multicall failure — do not treat as burned / unowned.
+        owners.set(agentId.toString(), "unavailable");
+      }
+    }
   }
+
+  return owners;
 }
 
-async function syncOwnerAgent(owner: Address, agentId: bigint): Promise<boolean> {
-  if (!(await verifyCurrentOwner(owner, agentId))) return false;
+function ownerMatches(
+  agentId: bigint,
+  owner: Address,
+  owners: Map<string, OwnerLookup>,
+): boolean {
+  const current = owners.get(agentId.toString());
+  return Boolean(
+    current &&
+      current !== "unavailable" &&
+      current.toLowerCase() === owner.toLowerCase(),
+  );
+}
+
+async function syncOwnerAgent(
+  owner: Address,
+  agentId: bigint,
+  owners: Map<string, OwnerLookup>,
+): Promise<"upserted" | "skipped" | "unavailable"> {
+  if (!owners.has(agentId.toString())) {
+    const fetched = await fetchCurrentOwners(getIndexerPublicClient(), [agentId]);
+    for (const [id, value] of fetched) owners.set(id, value);
+  }
+  const current = owners.get(agentId.toString());
+  if (current === "unavailable") return "unavailable";
+  if (!ownerMatches(agentId, owner, owners)) return "skipped";
   await upsertOwnerAgent(owner, agentId);
-  return true;
+  return "upserted";
 }
 
 export async function indexOwnerAgents(options?: {
@@ -91,28 +135,50 @@ export async function indexOwnerAgents(options?: {
     return { ...empty, caughtUp: true };
   }
 
+  const t0 = Date.now();
   const registeredLogs = await getLogsChunked(client, {
     address: ERC8004_ADDRESSES.identityRegistry,
     event: registeredEvent,
     fromBlock,
     toBlock,
   });
+  console.log(`[owner-indexer] registeredLogs=${registeredLogs.length} in ${Date.now() - t0}ms`);
+  const t1 = Date.now();
   const transferLogs = await getLogsChunked(client, {
     address: ERC8004_ADDRESSES.identityRegistry,
     event: transferEvent,
     fromBlock,
     toBlock,
   });
+  console.log(`[owner-indexer] transferLogs=${transferLogs.length} in ${Date.now() - t1}ms`);
 
   let upserted = 0;
   let removed = 0;
 
+  const registeredPairs: { owner: Address; agentId: bigint }[] = [];
   for (const log of registeredLogs) {
     const agentId = (log as { args: { agentId?: bigint; owner?: Address } }).args.agentId;
     const owner = (log as { args: { agentId?: bigint; owner?: Address } }).args.owner;
     if (agentId === undefined || !owner || !isValidAddress(owner)) continue;
-    if (await syncOwnerAgent(owner, agentId)) upserted++;
+    registeredPairs.push({ owner, agentId });
   }
+
+  const t2 = Date.now();
+  const owners = await fetchCurrentOwners(
+    client,
+    registeredPairs.map((pair) => pair.agentId),
+  );
+  for (const { owner, agentId } of registeredPairs) {
+    const outcome = await syncOwnerAgent(owner, agentId, owners);
+    if (outcome === "upserted") {
+      upserted++;
+    } else if (outcome === "unavailable") {
+      // Event-based upsert when ownerOf is temporarily unavailable — avoid index holes.
+      await upsertOwnerAgent(owner, agentId);
+      upserted++;
+    }
+  }
+  console.log(`[owner-indexer] verified ${registeredPairs.length} registered owners in ${Date.now() - t2}ms`);
 
   const transferOrdered = [...transferLogs].sort((a, b) => {
     const aBlock = a.blockNumber ?? 0n;
@@ -121,6 +187,20 @@ export async function indexOwnerAgents(options?: {
     if (blockDelta !== 0) return blockDelta;
     return (a.logIndex ?? 0) - (b.logIndex ?? 0);
   });
+
+  const transferAgentIds: bigint[] = [];
+  for (const log of transferOrdered) {
+    const args = (log as { args: { tokenId?: bigint; to?: Address } }).args;
+    const agentId = args.tokenId;
+    const to = args.to;
+    if (agentId !== undefined && to && isValidAddress(to) && to !== zeroAddress) {
+      transferAgentIds.push(agentId);
+    }
+  }
+  const transferOwners = await fetchCurrentOwners(client, transferAgentIds);
+  for (const [id, owner] of transferOwners) owners.set(id, owner);
+
+  let verifyUnavailable = 0;
 
   for (const log of transferOrdered) {
     const args = (log as {
@@ -137,12 +217,35 @@ export async function indexOwnerAgents(options?: {
     }
 
     if (to && isValidAddress(to) && to !== zeroAddress) {
-      await removeAgentFromIndex(agentId);
-      if (await syncOwnerAgent(to, agentId)) upserted++;
+      const verified = owners.get(agentId.toString());
+      if (verified === "unavailable") {
+        // Do not wipe the agent row on transient ownerOf failure — event-based upsert only.
+        await upsertOwnerAgent(to, agentId);
+        upserted++;
+        verifyUnavailable++;
+      } else if (verified && verified !== null && verified.toLowerCase() === to.toLowerCase()) {
+        await removeAgentFromIndex(agentId);
+        await upsertOwnerAgent(to, agentId);
+        upserted++;
+      } else if (verified === null) {
+        await removeAgentFromIndex(agentId);
+        removed++;
+      } else if (verified) {
+        // Live ownerOf differs from transfer `to` — trust ownerOf.
+        await removeAgentFromIndex(agentId);
+        await upsertOwnerAgent(verified, agentId);
+        upserted++;
+      }
     } else {
       await removeAgentFromIndex(agentId);
       removed++;
     }
+  }
+
+  if (verifyUnavailable > 0) {
+    console.log(
+      `[owner-indexer] ${verifyUnavailable} transfer updates used event-based upsert due to ownerOf failures`,
+    );
   }
 
   const nextBlock = toBlock + 1n;

@@ -13,6 +13,10 @@ const identityRegistryAbi = [
   },
 ] as const;
 
+/**
+ * Returns bound agent wallet, or null when unbound (zero address).
+ * Throws on RPC/transport failure — callers must not treat that as unbound.
+ */
 export async function readCanonicalAgentWallet(agentId: bigint): Promise<Address | null> {
   if (isSkipChainReadsEnabled()) return null;
 
@@ -31,7 +35,7 @@ export async function readCanonicalAgentWallet(agentId: bigint): Promise<Address
     }
 
     return wallet;
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error("agent_wallet_read_unavailable", { cause: error });
   }
 }

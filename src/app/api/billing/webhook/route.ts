@@ -59,18 +59,22 @@ export async function POST(request: NextRequest) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
       const accountId = session.metadata?.accountId;
-      const plan = session.metadata?.plan;
       const customerId =
         typeof session.customer === "string" ? session.customer : session.customer?.id;
 
       if (accountId && customerId) {
+        const subscriptionId =
+          typeof session.subscription === "string" ? session.subscription : null;
+
         await setAccountStripeIds(accountId, {
           stripeCustomerId: customerId,
-          stripeSubscriptionId:
-            typeof session.subscription === "string" ? session.subscription : null,
+          stripeSubscriptionId: subscriptionId,
         });
-        if (plan === "pro" || plan === "scale") {
-          await updateAccountPlan(accountId, plan);
+
+        // Derive plan from Stripe price ID — never trust session.metadata.plan alone.
+        if (subscriptionId) {
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          await applyPlanFromSubscription(subscription);
         }
       }
       break;

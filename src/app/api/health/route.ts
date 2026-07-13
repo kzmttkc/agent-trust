@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "drizzle-orm";
 import { secureCompare } from "@/lib/util/secure-compare";
-import { isDevelopment } from "@/lib/config/env";
-import { getDb } from "@/lib/db/client";
+import { runDeepHealthChecks } from "@/lib/health/deep-checks";
 
 function authorizeAdmin(request: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET;
@@ -29,36 +27,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(payload);
   }
 
-  if (!isDevelopment() && !authorizeAdmin(request)) {
+  // Always require admin for deep health — never gate on APP_ENV alone.
+  if (!authorizeAdmin(request)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const checks: Record<string, string> = {};
+  const deepResult = await runDeepHealthChecks();
+  payload.status = deepResult.status;
+  payload.checks = deepResult.checks;
+  if (deepResult.env) payload.env = deepResult.env;
+  if (deepResult.indexer) payload.indexer = deepResult.indexer;
 
-  try {
-    const db = getDb();
-    if (!db) {
-      checks.database = "unconfigured";
-    } else {
-      await db.execute(sql`SELECT 1`);
-      checks.database = "ok";
-    }
-  } catch {
-    checks.database = "error";
-    payload.status = "degraded";
-  }
-
-  try {
-    const { getPublicClient } = await import("@/lib/chain/client");
-    const client = getPublicClient();
-    await client.getBlockNumber();
-    checks.rpc = "ok";
-  } catch {
-    checks.rpc = "error";
-    payload.status = "degraded";
-  }
-
-  payload.checks = checks;
-  const statusCode = payload.status === "ok" ? 200 : 503;
+  const statusCode = deepResult.criticalFailure ? 503 : 200;
   return NextResponse.json(payload, { status: statusCode });
 }

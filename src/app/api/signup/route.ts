@@ -6,6 +6,7 @@ import { createApiKey } from "@/lib/db/api-keys";
 import { validateDashboardOrigin } from "@/lib/dashboard/csrf";
 import { setDashboardSessionCookie } from "@/lib/dashboard/auth";
 import { createDashboardSession } from "@/lib/dashboard/session";
+import { secureCompare } from "@/lib/util/secure-compare";
 
 const SIGNUP_LIMIT = 5;
 const SIGNUP_WINDOW_MS = 60 * 60 * 1000;
@@ -23,7 +24,8 @@ function inviteRequired(): boolean {
 function inviteValid(code: string | undefined): boolean {
   const expected = process.env.BETA_INVITE_CODE;
   if (!expected) return true;
-  return code === expected;
+  if (!code) return false;
+  return secureCompare(code, expected);
 }
 
 export async function POST(request: NextRequest) {

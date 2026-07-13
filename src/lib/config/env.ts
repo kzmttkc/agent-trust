@@ -1,10 +1,4 @@
-const WEAK_SECRET_PATTERNS = [
-  /^change_me/i,
-  /^dev_/i,
-  /^test_/i,
-  /^password$/i,
-  /^secret$/i,
-];
+import { getProductionEnvErrors } from "./production-env";
 
 export type AppEnv = "development" | "production" | "test";
 
@@ -32,46 +26,39 @@ export function isSkipChainReadsEnabled(): boolean {
   return process.env.SKIP_CHAIN_READS === "true" && !isProduction();
 }
 
-function assertSecret(name: string, value: string | undefined, minLength = 32): void {
-  if (!value || value.length < minLength) {
-    throw new Error(`${name} is required in production (min ${minLength} chars)`);
-  }
-  if (WEAK_SECRET_PATTERNS.some((pattern) => pattern.test(value))) {
-    throw new Error(`${name} must not use a default or placeholder value in production`);
-  }
-}
-
 let validated = false;
 
+/**
+ * Fail fast on boot when production env is incomplete or unsafe.
+ * Mirrors scripts/check-production-env.ts (single source of truth).
+ */
 export function assertProductionConfig(): void {
+  // Soft-prod trap: Vercel-like NODE_ENV=production with APP_ENV=development|test.
+  if (
+    process.env.NODE_ENV === "production" &&
+    (process.env.APP_ENV === "development" || process.env.APP_ENV === "test")
+  ) {
+    throw new Error(
+      "APP_ENV=development|test is not allowed when NODE_ENV=production (mislabeled deploy)",
+    );
+  }
+
   if (!isProduction()) return;
 
   if (process.env.APP_ENV !== "production") {
     throw new Error("APP_ENV must be set to production in production deployments");
   }
 
-  if (process.env.DATABASE_URL && !process.env.APP_ENV) {
-    throw new Error("APP_ENV must be set explicitly when DATABASE_URL is configured");
+  const errors = getProductionEnvErrors();
+  if (errors.length > 0) {
+    throw new Error(errors.join("; "));
   }
-
-  if (process.env.DEV_API_KEY) {
-    throw new Error("DEV_API_KEY must not be set in production");
-  }
-
-  if (process.env.SKIP_CHAIN_READS === "true") {
-    throw new Error("SKIP_CHAIN_READS must not be enabled in production");
-  }
-
-  assertSecret("API_KEY_PEPPER", process.env.API_KEY_PEPPER);
-  assertSecret("DASHBOARD_SESSION_SECRET", process.env.DASHBOARD_SESSION_SECRET);
-  assertSecret("ADMIN_SECRET", process.env.ADMIN_SECRET);
-  assertSecret("DATABASE_URL", process.env.DATABASE_URL, 16);
 }
 
 export function ensureProductionConfig(): void {
   if (validated) return;
-  validated = true;
   assertProductionConfig();
+  validated = true;
 }
 
 export function secureCookiesEnabled(): boolean {
@@ -79,3 +66,5 @@ export function secureCookiesEnabled(): boolean {
   if (process.env.FORCE_SECURE_COOKIES === "true") return true;
   return false;
 }
+
+export { getProductionEnvErrors, getProductionEnvWarnings } from "./production-env";

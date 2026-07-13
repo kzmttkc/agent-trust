@@ -1,6 +1,7 @@
 import { desc, eq, and } from "drizzle-orm";
 import { getDb } from "./client";
 import { trustEvents } from "./schema";
+import { getDataCoverage } from "@/lib/health/data-coverage";
 import type { TrustScoreResult } from "@/lib/scoring/types";
 
 export async function persistScoreResult(
@@ -42,6 +43,8 @@ export async function getScoreHistory(
     .orderBy(desc(trustEvents.createdAt))
     .limit(limit);
 
+  const dataCoverage = await getDataCoverage();
+
   return rows.map((row) => ({
     agentId: row.agentId?.toString() ?? "0",
     wallet: row.wallet,
@@ -49,12 +52,16 @@ export async function getScoreHistory(
     recommendation: (row.recommendation ?? "BLOCK") as TrustScoreResult["recommendation"],
     signals: (row.signals as TrustScoreResult["signals"]) ?? defaultSignals(),
     scoredAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-    cacheExpiresAt: row.cacheExpiresAt?.toISOString() ?? row.createdAt?.toISOString() ?? new Date().toISOString(),
+    cacheExpiresAt:
+      row.cacheExpiresAt?.toISOString() ??
+      row.createdAt?.toISOString() ??
+      new Date().toISOString(),
     disclaimer:
       row.disclaimer ??
       "Scores are informational only and do not constitute a guarantee, credit assessment, or investment advice.",
     blockReason: row.blockReason ?? undefined,
     manualOverride: row.manualOverride === "true",
+    dataCoverage,
   }));
 }
 

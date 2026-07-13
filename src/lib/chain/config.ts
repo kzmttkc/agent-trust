@@ -19,8 +19,8 @@ export const CACHE_TTL_MS = 5 * 60 * 1000;
 /** Aligned with score cache so wallet metrics cannot outlive chain score freshness. */
 export const WALLET_METRICS_CACHE_TTL_MS = CACHE_TTL_MS;
 
-/** Base block when ERC-8004 Identity Registry was deployed (approx). */
-export const IDENTITY_REGISTRY_FROM_BLOCK = BigInt(26_000_000);
+/** Base block when ERC-8004 Identity Registry was deployed (verified on-chain). */
+export const IDENTITY_REGISTRY_FROM_BLOCK = BigInt(41_663_783);
 
 export const SCORE_WEIGHTS = {
   identity: 0.2,

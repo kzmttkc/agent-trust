@@ -85,27 +85,4 @@ function consumeMemoryIpRateLimit(
   return { allowed: true };
 }
 
-/**
- * Client IP for rate limiting. Headers are only trusted when TRUST_PROXY_HEADERS=true
- * and the deployment sits behind a proxy that strips spoofed values.
- */
-export function getClientIp(request: Request): string {
-  if (process.env.TRUST_PROXY_HEADERS === "true") {
-    const vercelIp = request.headers.get("x-vercel-forwarded-for");
-    if (vercelIp) {
-      const first = vercelIp.split(",")[0]?.trim();
-      if (first) return first;
-    }
-
-    const realIp = request.headers.get("x-real-ip");
-    if (realIp) return realIp.trim();
-
-    const forwarded = request.headers.get("x-forwarded-for");
-    if (forwarded) {
-      const parts = forwarded.split(",").map((part) => part.trim()).filter(Boolean);
-      if (parts.length > 0) return parts[0]!;
-    }
-  }
-
-  return "unknown";
-}
+export { getClientIp } from "@/lib/api/client-ip";

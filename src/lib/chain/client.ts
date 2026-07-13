@@ -3,7 +3,8 @@ import { base } from "viem/chains";
 import { BASE_CHAIN_ID } from "./config";
 
 export function getPublicClient() {
-  const rpcUrl = process.env.BASE_RPC_URL ?? "https://mainnet.base.org";
+  const raw = process.env.BASE_RPC_URL?.trim();
+  const rpcUrl = raw && raw.length > 0 ? raw : "https://mainnet.base.org";
   return createPublicClient({
     chain: base,
     transport: http(rpcUrl),
@@ -12,8 +13,12 @@ export function getPublicClient() {
 
 /** Separate RPC endpoint for the batch indexers so they don't compete with live API traffic for the same app's CU/s budget. */
 export function getIndexerPublicClient() {
+  const indexer = process.env.INDEXER_RPC_URL?.trim();
+  const baseRpc = process.env.BASE_RPC_URL?.trim();
   const rpcUrl =
-    process.env.INDEXER_RPC_URL ?? process.env.BASE_RPC_URL ?? "https://mainnet.base.org";
+    (indexer && indexer.length > 0 ? indexer : null) ??
+    (baseRpc && baseRpc.length > 0 ? baseRpc : null) ??
+    "https://mainnet.base.org";
   return createPublicClient({
     chain: base,
     transport: http(rpcUrl),

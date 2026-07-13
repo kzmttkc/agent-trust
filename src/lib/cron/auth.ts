@@ -1,6 +1,9 @@
 import { secureCompare } from "@/lib/util/secure-compare";
+import { ensureProductionConfig } from "@/lib/config/env";
 
 export function authorizeCron(request: Request): boolean {
+  ensureProductionConfig();
+
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
 

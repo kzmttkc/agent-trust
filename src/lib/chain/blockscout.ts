@@ -15,8 +15,25 @@ type BlockscoutResponse<T> = {
   result: T;
 };
 
+export class BlockscoutUnavailableError extends Error {
+  constructor(message = "blockscout_unavailable", cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined);
+    this.name = "BlockscoutUnavailableError";
+  }
+}
+
 function getBlockscoutBaseUrl(): string {
   return process.env.BLOCKSCOUT_API_URL ?? "https://base.blockscout.com/api";
+}
+
+function isEmptyResultMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("no transactions") ||
+    lower.includes("no records") ||
+    lower.includes("no token") ||
+    lower.includes("not found")
+  );
 }
 
 async function blockscoutGet<T>(params: Record<string, string>): Promise<T | null> {
@@ -30,20 +47,39 @@ async function blockscoutGet<T>(params: Record<string, string>): Promise<T | nul
     url.searchParams.set("apikey", apiKey);
   }
 
+  let response: Response;
   try {
-    const response = await fetch(url.toString(), {
+    response = await fetch(url.toString(), {
       headers: { Accept: "application/json" },
       next: { revalidate: 0 },
     });
+  } catch (error) {
+    throw new BlockscoutUnavailableError("blockscout_network_error", error);
+  }
 
-    if (!response.ok) return null;
+  if (!response.ok) {
+    throw new BlockscoutUnavailableError(`blockscout_http_${response.status}`);
+  }
 
-    const data = (await response.json()) as BlockscoutResponse<T>;
-    if (data.status !== "1" || !data.result) return null;
+  let data: BlockscoutResponse<T>;
+  try {
+    data = (await response.json()) as BlockscoutResponse<T>;
+  } catch (error) {
+    throw new BlockscoutUnavailableError("blockscout_invalid_json", error);
+  }
+
+  if (data.status === "1" && data.result) {
     return data.result;
-  } catch {
+  }
+
+  if (isEmptyResultMessage(data.message ?? "")) {
     return null;
   }
+
+  // Ambiguous status=0 without an empty-result message → treat as outage/rate-limit.
+  throw new BlockscoutUnavailableError(
+    `blockscout_api_error:${data.message || data.status || "unknown"}`,
+  );
 }
 
 export async function fetchWalletTransactions(

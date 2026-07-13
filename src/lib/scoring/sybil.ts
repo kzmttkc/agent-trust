@@ -48,16 +48,23 @@ export async function detectReputationSybilFlags(
   }
 
   if (ctx.identity.owner) {
-    const ownerAgentCount = await countAgentsByOwner(ctx.identity.owner);
-    if (ownerAgentCount >= 3) {
-      flags.push("multi_agent_owner");
+    try {
+      const ownerAgentCount = await countAgentsByOwner(ctx.identity.owner);
+      if (ownerAgentCount >= 3) {
+        flags.push("multi_agent_owner");
+      }
+    } catch {
+      // Cannot verify ownership (RPC outage + index not caught up) — fail closed.
+      flags.push("owner_count_unavailable");
     }
   }
 
   const { recentCount, uniqueClients } = ctx.feedbackStats;
+  // Velocity anomaly: high recent volume with low unique clients only.
+  // Do not flag healthy high-volume agents with many distinct reviewers.
   if (recentCount >= 5 && uniqueClients <= 2) {
     flags.push("review_velocity_anomaly");
-  } else if (recentCount >= 10 && ctx.totalFeedbackCount >= 10) {
+  } else if (recentCount >= 10 && uniqueClients <= 3) {
     flags.push("review_velocity_anomaly");
   }
 
@@ -69,6 +76,10 @@ export function assessSybilRisk(
 ): "low" | "medium" | "high" {
   if (flags.includes("wallet_mismatch")) return "high";
   if (flags.includes("wallet_verification_failed")) return "high";
+  if (flags.includes("owner_count_unavailable")) return "high";
+  if (flags.includes("feedback_stats_unavailable")) return "high";
+  if (flags.includes("reputation_summary_unavailable")) return "high";
+  if (flags.includes("wallet_metrics_unavailable")) return "high";
   if (flags.includes("no_bound_wallet") && flags.includes("review_velocity_anomaly")) {
     return "high";
   }

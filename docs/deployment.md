@@ -39,7 +39,8 @@ openssl rand -hex 32   # CRON_SECRET
 | `ADMIN_SECRET` | Yes | global blacklist admin |
 | `CRON_SECRET` | Yes | Vercel cron auth (min 32 chars) |
 | `BASE_RPC_URL` | Yes | Base mainnet RPC |
-| `TRUST_PROXY_HEADERS` | Yes | `true` on Vercel |
+| `TRUST_PROXY_HEADERS` | Yes | `true` on Vercel (uses `x-vercel-forwarded-for` only) |
+| `TRUST_GENERIC_FORWARDED_FOR` | No | `true` only behind a stripping proxy that rewrites XFF (dangerous) |
 | `BLOCKSCOUT_API_URL` | Recommended | `https://base.blockscout.com/api` |
 | `BLOCKSCOUT_API_KEY` | Optional | higher rate limits |
 | `BETA_INVITE_CODE` | Closed β | omit for public β |
@@ -54,10 +55,12 @@ openssl rand -hex 32   # CRON_SECRET
 ## 5. Deploy
 
 ```bash
-# Verify env locally before first deploy
-APP_ENV=production DATABASE_URL=... API_KEY_PEPPER=... \
+# Verify env locally before first deploy (all production required vars)
+APP_ENV=production \
+  DATABASE_URL=... API_KEY_PEPPER=... \
   DASHBOARD_SESSION_SECRET=... ADMIN_SECRET=... CRON_SECRET=... \
-  npx tsx scripts/check-production-env.ts
+  BASE_RPC_URL=https://... TRUST_PROXY_HEADERS=true \
+  npm run check:env
 
 # Push to main — Vercel auto-deploys
 git push origin main
@@ -86,8 +89,35 @@ npm run api-key:create -- --plan free --name "ops"
 | `/api/cron/index-funders` | daily 04:00 UTC | Populate `funder_wallets` |
 | `/api/cron/index-owners` | daily 05:00 UTC | Index `owner_agents` for sybil `multi_agent_owner` |
 | `/api/cron/purge-logs` | daily 03:00 UTC | Delete expired `trust_events` (90d free / 1y pro+), sessions, rate-limit buckets |
+| `/api/cron/monitor-health` | hourly | Deep health probe; **503 only** on env/DB/RPC failure (indexer lag is informational) |
 
 Vercel sends `Authorization: Bearer $CRON_SECRET` automatically when `CRON_SECRET` is set in project env.
+
+## 7.1 Monitoring & alerts
+
+Production boot validates **all** required env vars (`BASE_RPC_URL`, `CRON_SECRET`, `TRUST_PROXY_HEADERS`, etc.) via `assertProductionConfig()` — same rules as `npm run check:env`.
+
+**Deep health** (always requires `ADMIN_SECRET`):
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_SECRET" \
+  "https://your-domain.com/api/health?deep=1"
+```
+
+Response includes `checks.env`, `checks.owner_indexer` (`ok` | `partial` | `lagging`), and `indexer.blocksBehind` / `liveTip`. HTTP **503** only when `criticalFailure` (env / database / rpc). Indexer catch-up alone returns **200** so uptime monitors are not trained to ignore alerts for weeks.
+
+**Scheduled probe** (Vercel cron, uses `CRON_SECRET`):
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  https://your-domain.com/api/cron/monitor-health
+```
+
+Wire an external uptime monitor to alert on **503**. Optionally alert separately on `checks.owner_indexer === "lagging"` without treating it as an outage.
+
+Indexer lag flag threshold: `HEALTH_INDEXER_LAG_BLOCKS` (default `500000`). Scores remain available during partial sync; API responses include `dataCoverage.ownerIndexer` (`synced` | `partial`, plus `staleRisk`).
+
+Partial ownership index: sybil `multi_agent_owner` uses ERC-721 `balanceOf` (not truncated log scans) cross-checked with the DB index.
 
 Manual run:
 

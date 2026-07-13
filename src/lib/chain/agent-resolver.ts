@@ -1,10 +1,12 @@
-import { type Address, parseAbiItem } from "viem";
+import { parseAbiItem, type Address } from "viem";
 import { getLogsChunked } from "@/lib/chain/chunked-logs";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { readCanonicalAgentWallet } from "./agent-wallet";
 import { getPublicClient, isValidAddress } from "./client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "./config";
-import { getOwnerAgentCountFromIndex } from "@/lib/db/owner-index";
+import {
+  getOwnerAgentCountFromIndex,
+} from "@/lib/db/owner-index";
 import { walletsMatch } from "@/lib/scoring/helpers";
 import { LruCache } from "@/lib/util/lru-cache";
 
@@ -41,6 +43,31 @@ const identityOwnerAbi = [
   },
 ] as const;
 
+const identityBalanceAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+function isLikelyMissingTokenError(error: unknown): boolean {
+  const message = String((error as Error)?.message ?? error).toLowerCase();
+  return (
+    message.includes("reverted") ||
+    message.includes("nonexistent") ||
+    message.includes("invalid token") ||
+    message.includes("owner query for nonexistent")
+  );
+}
+
+/**
+ * Wallet used to bind a candidate agentId during resolve:
+ * prefer getAgentWallet; else NFT owner (Registered-as-owner path).
+ * Throws on RPC failure so callers do not negative-cache as "no agent".
+ */
 async function resolveWalletForAgent(agentId: bigint): Promise<Address | null> {
   const canonical = await readCanonicalAgentWallet(agentId);
   if (canonical) return canonical;
@@ -57,11 +84,11 @@ async function resolveWalletForAgent(agentId: bigint): Promise<Address | null> {
     if (isValidAddress(owner)) {
       return owner as Address;
     }
-  } catch {
-    // burned or missing token
+    return null;
+  } catch (error) {
+    if (isLikelyMissingTokenError(error)) return null;
+    throw new Error("agent_resolve_unavailable", { cause: error });
   }
-
-  return null;
 }
 
 export function invalidateResolverCache(wallet?: string): void {
@@ -105,11 +132,8 @@ export async function resolveAgentIdByWallet(wallet: Address): Promise<bigint | 
       }) as Promise<IdentityRegistryLog[]>,
     ]);
   } catch {
-    resolverCache.set(cacheKey, {
-      agentId: null,
-      expiresAt: Date.now() + RESOLVER_NEGATIVE_TTL_MS,
-    });
-    return null;
+    // Do not cache a negative miss on RPC failure — that silently demotes agent wallets.
+    throw new Error("agent_resolve_unavailable");
   }
 
   const candidates = new Set<bigint>();
@@ -126,6 +150,7 @@ export async function resolveAgentIdByWallet(wallet: Address): Promise<bigint | 
   let resolved: bigint | null = null;
 
   for (const agentId of sorted) {
+    // RPC failures while verifying candidates must propagate (no negative cache).
     const boundWallet = await resolveWalletForAgent(agentId);
     if (boundWallet && walletsMatch(boundWallet, wallet)) {
       resolved = agentId;
@@ -143,54 +168,38 @@ export async function resolveAgentIdByWallet(wallet: Address): Promise<bigint | 
   return resolved;
 }
 
-async function countAgentsByOwnerFromChain(owner: Address): Promise<number> {
+/** Authoritative ERC-721 ownership count — O(1), not pad-able via Transfer spam. */
+async function balanceOfOwner(owner: Address): Promise<number> {
   const client = getPublicClient();
-  const logs = (await getLogsChunked(client, {
+  const balance = await client.readContract({
     address: ERC8004_ADDRESSES.identityRegistry,
-    event: registeredEvent,
-    args: { owner },
-    fromBlock: IDENTITY_REGISTRY_FROM_BLOCK,
-  })) as IdentityRegistryLog[];
+    abi: identityBalanceAbi,
+    functionName: "balanceOf",
+    args: [owner],
+  });
 
-  const uniqueAgents = new Set<bigint>();
-  for (const log of logs) {
-    const agentId = agentIdFromLog(log);
-    if (agentId !== undefined) uniqueAgents.add(agentId);
+  if (balance > BigInt(Number.MAX_SAFE_INTEGER)) {
+    return Number.MAX_SAFE_INTEGER;
   }
-
-  let ownedCount = 0;
-  for (const agentId of uniqueAgents) {
-    try {
-      const currentOwner = await client.readContract({
-        address: ERC8004_ADDRESSES.identityRegistry,
-        abi: identityOwnerAbi,
-        functionName: "ownerOf",
-        args: [agentId],
-      });
-
-      if (
-        isValidAddress(currentOwner) &&
-        currentOwner.toLowerCase() === owner.toLowerCase()
-      ) {
-        ownedCount++;
-      }
-    } catch {
-      // burned or missing token
-    }
-  }
-
-  return ownedCount;
+  return Number(balance);
 }
 
+/**
+ * Prefer ERC-721 balanceOf (authoritative). Cross-check with indexer when present.
+ * Never trust a lagging index when live balanceOf is unavailable.
+ */
 export async function countAgentsByOwner(owner: Address): Promise<number> {
   if (isSkipChainReadsEnabled()) return 0;
 
   const indexed = await getOwnerAgentCountFromIndex(owner);
-  if (indexed !== null) return indexed;
 
   try {
-    return await countAgentsByOwnerFromChain(owner);
+    const onChain = await balanceOfOwner(owner);
+    if (indexed === null) return onChain;
+    // Index can lag by a few blocks; never under-count vs live balanceOf.
+    return Math.max(indexed, onChain);
   } catch {
-    return 0;
+    // Never trust a lagging index without live balanceOf — fail closed for enforcement.
+    throw new Error("owner_count_unavailable");
   }
 }

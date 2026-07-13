@@ -25,6 +25,7 @@ import {
 } from "./helpers";
 import { assessSybilRisk, detectReputationSybilFlags, detectSybilFlags } from "./sybil";
 import type { AgentIdentity } from "@/lib/chain/erc8004";
+import { getDataCoverage } from "@/lib/health/data-coverage";
 import type { ScoreRequestContext, TrustScoreResult, TrustSignals } from "./types";
 
 const CACHE_MAX_ENTRIES = 10_000;
@@ -98,12 +99,40 @@ export async function scoreAgentById(
     memoryCache.delete(cacheKey);
   }
 
-  const reputation = await fetchReputationSummary(agentId);
-  const feedbackStats = await fetchRecentFeedbackStats(agentId);
+  let reputation: Awaited<ReturnType<typeof fetchReputationSummary>>;
+  let reputationUnavailable = false;
+  try {
+    reputation = await fetchReputationSummary(agentId);
+  } catch {
+    reputationUnavailable = true;
+    reputation = { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
+  }
 
-  const walletMetrics = walletAddress
-    ? await fetchWalletMetrics(walletAddress as Address)
-    : null;
+  let feedbackStats: Awaited<ReturnType<typeof fetchRecentFeedbackStats>>;
+  let feedbackStatsUnavailable = false;
+  try {
+    feedbackStats = await fetchRecentFeedbackStats(agentId);
+  } catch {
+    feedbackStatsUnavailable = true;
+    feedbackStats = { recentCount: 0, uniqueClients: 0, windowDays: 7 };
+  }
+
+  let walletMetrics: Awaited<ReturnType<typeof fetchWalletMetrics>> | null = null;
+  let walletMetricsUnavailable = false;
+  if (walletAddress) {
+    try {
+      walletMetrics = await fetchWalletMetrics(walletAddress as Address);
+    } catch {
+      walletMetricsUnavailable = true;
+      walletMetrics = {
+        address: walletAddress as Address,
+        ageDays: 0,
+        txCount: 0,
+        funder: null,
+        firstTxTimestamp: null,
+      };
+    }
+  }
 
   const walletScore = normalizeWalletScore({
     ageDays: walletMetrics?.ageDays ?? 0,
@@ -135,6 +164,16 @@ export async function scoreAgentById(
           feedbackStats,
           totalFeedbackCount: reputation.count,
         });
+
+  if (feedbackStatsUnavailable) {
+    sybilFlags.push("feedback_stats_unavailable");
+  }
+  if (reputationUnavailable) {
+    sybilFlags.push("reputation_summary_unavailable");
+  }
+  if (walletMetricsUnavailable) {
+    sybilFlags.push("wallet_metrics_unavailable");
+  }
 
   const sybilRisk = assessSybilRisk(sybilFlags);
   reputationScore = dampenReputationForSybil(reputationScore, sybilFlags);
@@ -177,7 +216,10 @@ export async function scoreAgentById(
     expiresAt: now + CACHE_TTL_MS,
   };
 
-  memoryCache.set(cacheKey, payload);
+  const availabilityFlags = sybilFlags.some((flag) => flag.endsWith("_unavailable"));
+  if (!availabilityFlags) {
+    memoryCache.set(cacheKey, payload);
+  }
   return applyPolicyLayer(payload, ctx);
 }
 
@@ -206,7 +248,21 @@ export async function scoreWallet(
     memoryCache.delete(cacheKey);
   }
 
-  const walletMetrics = await fetchWalletMetrics(wallet);
+  let walletMetrics: Awaited<ReturnType<typeof fetchWalletMetrics>>;
+  let walletMetricsUnavailable = false;
+  try {
+    walletMetrics = await fetchWalletMetrics(wallet);
+  } catch {
+    walletMetricsUnavailable = true;
+    walletMetrics = {
+      address: wallet,
+      ageDays: 0,
+      txCount: 0,
+      funder: null,
+      firstTxTimestamp: null,
+    };
+  }
+
   const walletScore = normalizeWalletScore({
     ageDays: walletMetrics.ageDays,
     txCount: walletMetrics.txCount,
@@ -224,6 +280,9 @@ export async function scoreWallet(
     feedbackStats: { recentCount: 0, uniqueClients: 0, windowDays: 7 },
     totalFeedbackCount: 0,
   });
+  if (walletMetricsUnavailable) {
+    sybilFlags.push("wallet_metrics_unavailable");
+  }
 
   const sybilRisk = assessSybilRisk(sybilFlags);
   const prePolicyScore = applySybilPenalty(
@@ -257,7 +316,9 @@ export async function scoreWallet(
     expiresAt: now + CACHE_TTL_MS,
   };
 
-  memoryCache.set(cacheKey, payload);
+  if (!sybilFlags.some((flag) => flag.endsWith("_unavailable"))) {
+    memoryCache.set(cacheKey, payload);
+  }
   return applyPolicyLayer(payload, ctx);
 }
 
@@ -286,7 +347,7 @@ async function applyPolicyLayer(
   };
 
   const now = Date.now();
-  return buildResult({
+  const result = buildResult({
     agentId: payload.agentId,
     wallet: payload.wallet,
     trustScore,
@@ -297,6 +358,8 @@ async function applyPolicyLayer(
     scoredAt: new Date(now).toISOString(),
     cacheExpiresAt: new Date(payload.expiresAt).toISOString(),
   });
+  result.dataCoverage = await getDataCoverage();
+  return result;
 }
 
 async function verifyWalletBinding(
@@ -334,13 +397,13 @@ async function verifyWalletBinding(
   return null;
 }
 
-function buildBlockedResult(
+async function buildBlockedResult(
   agentId: bigint,
   wallet: string,
   reason: string,
   flags: string[],
-): TrustScoreResult {
-  return {
+): Promise<TrustScoreResult> {
+  const result: TrustScoreResult = {
     ...buildResult({
       agentId,
       wallet,
@@ -354,6 +417,8 @@ function buildBlockedResult(
     }),
     blockReason: reason,
   };
+  result.dataCoverage = await getDataCoverage();
+  return result;
 }
 
 function resolveRecommendation(
@@ -363,6 +428,11 @@ function resolveRecommendation(
   override?: TrustScoreResult["recommendation"],
 ): TrustScoreResult["recommendation"] {
   if (override) return override;
+
+  // Incomplete or high-risk sybil checks must not clear x402 ALLOW gates.
+  if (sybilRisk === "high") {
+    return "BLOCK";
+  }
 
   const recommendation = toRecommendation(trustScore, false);
   if (effectiveList === "whitelist" && recommendation === "WARN" && sybilRisk === "low") {

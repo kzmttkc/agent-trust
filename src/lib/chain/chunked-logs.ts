@@ -67,18 +67,27 @@ async function fetchRange(
     } as ChainGetLogsParams);
   } catch (error) {
     if (isRateLimitError(error) && rateLimitRetries < RATE_LIMIT_MAX_RETRIES) {
+      console.log(
+        `[chunked-logs] rate-limited ${fromBlock}-${toBlock}, retry ${rateLimitRetries + 1}/${RATE_LIMIT_MAX_RETRIES}`,
+      );
       await sleep(RATE_LIMIT_BASE_DELAY_MS * 2 ** rateLimitRetries);
       return fetchRange(client, params, fromBlock, toBlock, rateLimitRetries + 1);
     }
 
     const span = toBlock - fromBlock;
-    if (span <= 0n) throw error;
+    if (span <= 0n) {
+      console.log(
+        `[chunked-logs] giving up on block ${fromBlock}: ${(error as Error)?.constructor?.name} ${(error as Error)?.message?.slice(0, 200)}`,
+      );
+      throw error;
+    }
+    console.log(
+      `[chunked-logs] bisecting ${fromBlock}-${toBlock} due to: ${(error as Error)?.constructor?.name} ${(error as Error)?.message?.slice(0, 150)}`,
+    );
 
     const mid = fromBlock + span / 2n;
-    const [left, right] = await Promise.all([
-      fetchRange(client, params, fromBlock, mid),
-      fetchRange(client, params, mid + 1n, toBlock),
-    ]);
+    const left = await fetchRange(client, params, fromBlock, mid);
+    const right = await fetchRange(client, params, mid + 1n, toBlock);
     return [...left, ...right];
   }
 }

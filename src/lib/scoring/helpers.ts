@@ -44,7 +44,11 @@ export function scoreReputation(count: number, summaryValue: number, decimals: n
 }
 
 export function dampenReputationForSybil(reputationScore: number, flags: string[]): number {
-  if (flags.includes("review_velocity_anomaly")) {
+  if (
+    flags.includes("review_velocity_anomaly") ||
+    flags.includes("feedback_stats_unavailable") ||
+    flags.includes("reputation_summary_unavailable")
+  ) {
     return Math.min(reputationScore, 35);
   }
   return reputationScore;
@@ -63,6 +67,10 @@ export function computeWeightedScore(
 export function applySybilPenalty(baseScore: number, flags: string[]): number {
   let score = baseScore;
   if (flags.includes("review_velocity_anomaly")) score -= 15;
+  if (flags.includes("feedback_stats_unavailable")) score -= 15;
+  if (flags.includes("reputation_summary_unavailable")) score -= 20;
+  if (flags.includes("owner_count_unavailable")) score -= 25;
+  if (flags.includes("wallet_metrics_unavailable")) score -= 20;
   if (flags.includes("funding_cluster")) score -= 20;
   if (flags.includes("multi_agent_owner")) score -= 10;
   return clamp(score);

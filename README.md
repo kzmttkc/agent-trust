@@ -122,14 +122,16 @@ npm run indexer:funders
 
 ## Owner agent indexer (sybil F-03)
 
-Indexes ERC-8004 `Registered` / `Transfer` events into `owner_agents` so `multi_agent_owner` sybil checks avoid wide `eth_getLogs` on every score request:
+Indexes ERC-8004 `Registered` / `Transfer` events into `owner_agents` for `multi_agent_owner` sybil checks:
 
 ```bash
 npm run indexer:owners
 # or Vercel cron: GET /api/cron/index-owners (daily 05:00 UTC)
 ```
 
-Live scoring uses chunked `eth_getLogs` until the indexer catches up (`indexer_checkpoints`).
+**Partial sync is supported** — scores ship while the indexer catches up. Responses include `dataCoverage.ownerIndexer` (`synced` only at tip; otherwise `partial` + `staleRisk`). Sybil `multi_agent_owner` uses ERC-721 `balanceOf` (authoritative) cross-checked with `max(index, balanceOf)`. Full catch-up can take weeks; do not gate product launch on it.
+
+Monitor critical outages: `GET /api/cron/monitor-health` (503 = env/DB/RPC only). Indexer lag is reported in the payload without forcing 503.
 
 ## Log retention
 
