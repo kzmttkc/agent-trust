@@ -40,10 +40,8 @@ export async function POST(request: NextRequest) {
 
   for (const item of parsed.data.agents) {
     if (item.wallet && !isValidAddress(item.wallet)) {
-      return NextResponse.json(
-        { error: "invalid_wallet_address", agentId: item.agentId },
-        { status: 400 },
-      );
+      invalidResults.push({ agentId: item.agentId, error: "invalid_wallet_address" });
+      continue;
     }
 
     const agentId = parseAgentId(item.agentId);

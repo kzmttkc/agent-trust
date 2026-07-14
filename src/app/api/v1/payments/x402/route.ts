@@ -6,6 +6,7 @@ import {
   withRateLimitHeaders,
 } from "@/lib/api/guard";
 import { isValidAddress } from "@/lib/chain/client";
+import { verifyX402PaymentOnChain } from "@/lib/chain/x402-verify";
 import { recordX402Payment } from "@/lib/db/x402-payments";
 import { invalidateScoreCacheForListChange } from "@/lib/scoring/cache-invalidation";
 import { logServerError } from "@/lib/util/log";
@@ -57,13 +58,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_tx_hash" }, { status: 400 });
   }
 
+  const resolvedNetwork = network ?? "base";
+
+  // Anyone can POST a well-formed wallet + regex-shaped txHash; without an
+  // on-chain check that would be enough to fabricate settlement history for
+  // an arbitrary wallet. Verify the tx is real, succeeded, and is actually
+  // attributable to the claimed wallet before it can influence trust scores.
+  // Fail-closed: any RPC failure or mismatch is rejected, never recorded.
+  const verification = await verifyX402PaymentOnChain(
+    txHash as `0x${string}`,
+    wallet,
+    resolvedNetwork,
+  );
+  if (!verification.ok) {
+    return NextResponse.json(
+      { error: "attestation_unverifiable", reason: verification.reason },
+      { status: 422 },
+    );
+  }
+
   try {
     const result = await recordX402Payment({
       wallet,
       txHash,
       amount: amount ?? null,
       apiKeyId: auth.ctx.apiKeyId,
-      network: network ?? "base",
+      network: resolvedNetwork,
       resource: resource ?? null,
     });
 

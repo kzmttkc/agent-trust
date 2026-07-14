@@ -14,6 +14,7 @@ Scores agents 0–100 with `ALLOW` / `WARN` / `BLOCK` recommendations. Built for
 - [x402 integration](./docs/x402-integration.md)
 - [x402 Foundation (optional)](./docs/ecosystem-x402-foundation.md)
 - [Brand / naming](./docs/brand.md)
+- [Marketing kit (Dev.to / Zenn)](./docs/marketing/README.md)
 
 ## Stack
 

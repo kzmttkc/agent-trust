@@ -36,10 +36,18 @@ async function resolveToBlock(
   if (toBlock === undefined || toBlock === "latest" || toBlock === "pending") {
     return client.getBlockNumber();
   }
-  if (toBlock === "earliest" || toBlock === "safe" || toBlock === "finalized") {
+  if (toBlock === "earliest") {
     return 0n;
   }
-  return client.getBlockNumber();
+  if (toBlock === "safe" || toBlock === "finalized") {
+    // "safe"/"finalized" refer to the latest safe/finalized block, not
+    // genesis — resolve the actual block number via the tag rather than
+    // defaulting to 0n (which would silently collapse the range to nothing
+    // useful, or worse, to "from genesis").
+    const block = await client.getBlock({ blockTag: toBlock });
+    return block.number ?? (await client.getBlockNumber());
+  }
+  throw new Error(`resolveToBlock: unsupported block tag "${String(toBlock)}"`);
 }
 
 function isRateLimitError(error: unknown): boolean {

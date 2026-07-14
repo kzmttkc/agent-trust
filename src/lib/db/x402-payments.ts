@@ -53,6 +53,21 @@ export async function recordX402Payment(
   return { created: true, id: inserted[0]!.id };
 }
 
+/**
+ * Intentionally global (not scoped by apiKeyId/customer): x402 settlement
+ * history is a cross-provider trust signal by design (docs/x402-integration.md,
+ * docs/ecosystem-x402-foundation.md) — a wallet that has paid other x402
+ * providers should read as more trustworthy everywhere, the same way
+ * ERC-8004 reputation and wallet-age signals are global on-chain facts
+ * rather than per-customer counters. Scoping this per API key would defeat
+ * that cross-provider network effect.
+ *
+ * The integrity guarantee instead lives at write time: `POST
+ * /v1/payments/x402` (src/app/api/v1/payments/x402/route.ts) now requires
+ * `verifyX402PaymentOnChain` to confirm the tx is real, succeeded, and is
+ * attributable to the claimed wallet before a row can ever be inserted here.
+ * Only genuinely-settled payments can contribute to this aggregate.
+ */
 export async function getX402PaymentStats(wallet: string): Promise<X402PaymentStats> {
   const db = getDb();
   if (!db) {
