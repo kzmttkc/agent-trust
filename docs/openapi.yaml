@@ -370,8 +370,29 @@ components:
       properties:
         error:
           type: string
+          description: |
+            Stable machine-readable error code. Request/body validation failures
+            (malformed JSON, failed schema checks, empty/oversized batches, etc.)
+            always use `invalid_request`.
+          enum:
+            - invalid_request
+            - invalid_agent_id
+            - invalid_wallet_address
+            - invalid_tx_hash
+            - attestation_unverifiable
+            - missing_api_key
+            - invalid_api_key
+            - auth_unavailable
+            - rate_limit_exceeded
+            - plan_upgrade_required
+            - scoring_unavailable
+            - payment_ingest_unavailable
         details:
           type: object
+          description: Present for `invalid_request` — Zod validation error detail (flattened).
+        reason:
+          type: string
+          description: Present for `attestation_unverifiable` — human-readable reason the on-chain check failed.
 
   responses:
     BadRequest:

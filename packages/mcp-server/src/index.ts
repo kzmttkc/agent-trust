@@ -3,7 +3,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { explainTrustScore } from "./explain.js";
-import { attestX402Payment, fetchAgentScore, fetchWalletScore } from "./vouch-client.js";
+import {
+  attestX402Payment,
+  fetchAgentScore,
+  fetchWalletScore,
+  VouchApiError,
+} from "./vouch-client.js";
 
 const server = new McpServer({
   name: "vouch-trust",
@@ -14,19 +19,29 @@ const AGENT_ID = z.string().max(78).describe("ERC-8004 agent ID (tokenId)");
 const WALLET = z.string().max(42).describe("EVM wallet address (0x...)");
 const TX_HASH = z.string().max(66).describe("Payment transaction hash (0x + 64 hex)");
 
+// Every error code the Vouch API can return for the endpoints this MCP server calls
+// (agents/:id/score, wallets/:address/score, payments/x402). Keep in sync with
+// src/app/api/v1/* and docs/openapi.yaml ErrorResponse.error enum.
+const KNOWN_ERROR_CODES = new Set([
+  "invalid_request",
+  "invalid_agent_id",
+  "invalid_wallet_address",
+  "invalid_tx_hash",
+  "attestation_unverifiable",
+  "missing_api_key",
+  "invalid_api_key",
+  "auth_unavailable",
+  "rate_limit_exceeded",
+  "scoring_unavailable",
+  "payment_ingest_unavailable",
+]);
+
 function sanitizeToolError(error: unknown): string {
   if (!(error instanceof Error)) return "request_failed";
-  const known = new Set([
-    "invalid_agent_id",
-    "invalid_wallet_address",
-    "invalid_tx_hash",
-    "missing_api_key",
-    "invalid_api_key",
-    "rate_limit_exceeded",
-    "scoring_unavailable",
-    "payment_ingest_unavailable",
-  ]);
-  return known.has(error.message) ? error.message : "request_failed";
+  if (!KNOWN_ERROR_CODES.has(error.message)) return "request_failed";
+
+  const reason = error instanceof VouchApiError ? error.reason : undefined;
+  return reason ? `${error.message}: ${reason}` : error.message;
 }
 
 server.tool(

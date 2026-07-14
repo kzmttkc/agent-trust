@@ -19,6 +19,15 @@ function assertWallet(wallet) {
         throw new Error("invalid_wallet_address");
     }
 }
+export class VouchApiError extends Error {
+    /** Present for some error codes (e.g. attestation_unverifiable) with a human-readable detail. */
+    reason;
+    constructor(code, reason) {
+        super(code);
+        this.name = "VouchApiError";
+        this.reason = reason;
+    }
+}
 async function vouchFetch(path, init) {
     const { apiUrl, apiKey } = getConfig();
     const response = await fetch(`${apiUrl}${path}`, {
@@ -31,7 +40,7 @@ async function vouchFetch(path, init) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new Error(data.error ?? `vouch_api_error_${response.status}`);
+        throw new VouchApiError(data.error ?? `vouch_api_error_${response.status}`, data.reason);
     }
     return data;
 }

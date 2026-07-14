@@ -63,6 +63,11 @@ export type X402PaymentAttestation = {
     network?: string;
     resource?: string;
 };
+export declare class VouchApiError extends Error {
+    /** Present for some error codes (e.g. attestation_unverifiable) with a human-readable detail. */
+    reason?: string;
+    constructor(code: string, reason?: string);
+}
 export declare function fetchAgentScore(agentId: string, wallet?: string): Promise<TrustScoreResult>;
 export declare function fetchWalletScore(wallet: string): Promise<TrustScoreResult>;
 export declare function attestX402Payment(attestation: X402PaymentAttestation): Promise<{

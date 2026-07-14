@@ -14,15 +14,15 @@ type Log = {
 };
 
 export default function DashboardLogsPage() {
-  const [logs, setLogs] = useState<Log[]>([]);
+  const [data, setData] = useState<{ logs: Log[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     dashboardFetch<{ logs: Log[] }>("/api/dashboard/logs")
-      .then((data) => {
-        if (!cancelled) setLogs(data.logs);
+      .then((result) => {
+        if (!cancelled) setData(result);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "load_failed");
@@ -36,6 +36,12 @@ export default function DashboardLogsPage() {
   if (error) {
     return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
   }
+
+  if (!data) {
+    return <p className="text-sm text-zinc-600">Loading query logs...</p>;
+  }
+
+  const { logs } = data;
 
   return (
     <div className="space-y-6">

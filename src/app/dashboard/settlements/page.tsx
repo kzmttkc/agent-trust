@@ -15,15 +15,15 @@ type Settlement = {
 };
 
 export default function DashboardSettlementsPage() {
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [data, setData] = useState<{ settlements: Settlement[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     dashboardFetch<{ settlements: Settlement[] }>("/api/dashboard/settlements")
-      .then((data) => {
-        if (!cancelled) setSettlements(data.settlements);
+      .then((result) => {
+        if (!cancelled) setData(result);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "load_failed");
@@ -37,6 +37,12 @@ export default function DashboardSettlementsPage() {
   if (error) {
     return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
   }
+
+  if (!data) {
+    return <p className="text-sm text-zinc-600">Loading settlements...</p>;
+  }
+
+  const { settlements } = data;
 
   return (
     <div className="space-y-6">

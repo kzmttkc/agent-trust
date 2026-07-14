@@ -101,6 +101,22 @@ await vouch.getWalletScore("0x...");
 
 Customer whitelist can override WARN → ALLOW. Blacklist always → BLOCK.
 
+## Score weights
+
+The `trustScore` is a weighted sum of chain signals, plus a manual whitelist/blacklist
+policy layer applied afterward:
+
+| Signal | Weight | Source |
+|---|---|---|
+| Identity | 20% | ERC-8004 Identity Registry (`signals.identity`) |
+| Reputation | 30% | ERC-8004 Reputation Registry feedback (`signals.reputation`) |
+| Wallet | 20% | Wallet age / tx history / burner heuristics (`signals.wallet`) |
+| x402 settlements | 10% | Attested x402 payments (`signals.x402`) |
+| Manual (WL/BL) | 20% | Customer whitelist/blacklist policy layer, applied post-score |
+
+Identity, Reputation, Wallet, and x402 sum to the chain-derived score; Manual is a
+policy override layer, not blended into that sum.
+
 ## Links
 
 - [OpenAPI spec](./openapi.yaml)

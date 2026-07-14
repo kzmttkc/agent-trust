@@ -13,29 +13,24 @@ type KeyInfo = {
   revokedAt: string | null;
 };
 
+type KeysData = { keys: KeyInfo[]; currentKeyId: string };
+
 export default function DashboardKeysPage() {
-  const [keys, setKeys] = useState<KeyInfo[]>([]);
-  const [currentKeyId, setCurrentKeyId] = useState<string | null>(null);
+  const [data, setData] = useState<KeysData | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function reload() {
-    const data = await dashboardFetch<{ keys: KeyInfo[]; currentKeyId: string }>(
-      "/api/dashboard/keys",
-    );
-    setKeys(data.keys);
-    setCurrentKeyId(data.currentKeyId);
+    const result = await dashboardFetch<KeysData>("/api/dashboard/keys");
+    setData(result);
   }
 
   useEffect(() => {
     let cancelled = false;
 
-    dashboardFetch<{ keys: KeyInfo[]; currentKeyId: string }>("/api/dashboard/keys")
-      .then((data) => {
-        if (!cancelled) {
-          setKeys(data.keys);
-          setCurrentKeyId(data.currentKeyId);
-        }
+    dashboardFetch<KeysData>("/api/dashboard/keys")
+      .then((result) => {
+        if (!cancelled) setData(result);
       })
       .catch((err) => {
         if (!cancelled) {
@@ -76,6 +71,16 @@ export default function DashboardKeysPage() {
       setError(err instanceof Error ? err.message : "revoke_failed");
     }
   }
+
+  if (error && !data) {
+    return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
+  }
+
+  if (!data) {
+    return <p className="text-sm text-zinc-600">Loading API keys...</p>;
+  }
+
+  const { keys, currentKeyId } = data;
 
   return (
     <div className="space-y-6">

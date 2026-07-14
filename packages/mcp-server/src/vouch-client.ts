@@ -73,6 +73,17 @@ function assertWallet(wallet: string): void {
   }
 }
 
+export class VouchApiError extends Error {
+  /** Present for some error codes (e.g. attestation_unverifiable) with a human-readable detail. */
+  reason?: string;
+
+  constructor(code: string, reason?: string) {
+    super(code);
+    this.name = "VouchApiError";
+    this.reason = reason;
+  }
+}
+
 async function vouchFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const { apiUrl, apiKey } = getConfig();
   const response = await fetch(`${apiUrl}${path}`, {
@@ -86,7 +97,7 @@ async function vouchFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error ?? `vouch_api_error_${response.status}`);
+    throw new VouchApiError(data.error ?? `vouch_api_error_${response.status}`, data.reason);
   }
 
   return data as T;

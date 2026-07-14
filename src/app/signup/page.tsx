@@ -55,6 +55,15 @@ export default function SignupPage() {
   }
 
   if (apiKey) {
+    // Fallback URL is the current production deployment. A custom domain
+    // (e.g. api.vouch.dev) is not registered yet — replace this once it is.
+    const base =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/api/v1`
+        : "https://agent-trust-tawny.vercel.app/api/v1";
+    const curlExample = `curl -H "Authorization: Bearer ${apiKey}" \\
+  ${base}/wallets/0x1234567890123456789012345678901234567890/score`;
+
     return (
       <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-6 p-8">
         <div className="space-y-2">
@@ -66,6 +75,17 @@ export default function SignupPage() {
         <code className="block break-all rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs">
           {apiKey}
         </code>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-zinc-700">Try it now</p>
+          <p className="text-sm text-zinc-600">
+            Score any wallet address (replace the placeholder below with a real one):
+          </p>
+          <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-900 p-4 text-xs text-zinc-100">
+            <code>{curlExample}</code>
+          </pre>
+        </div>
+
         <button
           type="button"
           onClick={() => router.push("/dashboard")}

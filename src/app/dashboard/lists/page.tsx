@@ -13,23 +13,23 @@ type Entry = {
 };
 
 export default function DashboardListsPage() {
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [data, setData] = useState<{ entries: Entry[] } | null>(null);
   const [wallet, setWallet] = useState("");
   const [listType, setListType] = useState<"whitelist" | "blacklist">("whitelist");
   const [csv, setCsv] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const data = await dashboardFetch<{ entries: Entry[] }>("/api/dashboard/lists");
-    setEntries(data.entries);
+    const result = await dashboardFetch<{ entries: Entry[] }>("/api/dashboard/lists");
+    setData(result);
   }
 
   useEffect(() => {
     let cancelled = false;
 
     dashboardFetch<{ entries: Entry[] }>("/api/dashboard/lists")
-      .then((data) => {
-        if (!cancelled) setEntries(data.entries);
+      .then((result) => {
+        if (!cancelled) setData(result);
       })
       .catch((err) => {
         if (!cancelled) {
@@ -83,6 +83,16 @@ export default function DashboardListsPage() {
       setError(err instanceof Error ? err.message : "delete_failed");
     }
   }
+
+  if (error && !data) {
+    return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
+  }
+
+  if (!data) {
+    return <p className="text-sm text-zinc-600">Loading lists...</p>;
+  }
+
+  const { entries } = data;
 
   return (
     <div className="space-y-6">

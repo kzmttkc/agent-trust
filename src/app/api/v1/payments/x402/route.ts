@@ -38,13 +38,13 @@ export async function POST(request: NextRequest) {
   try {
     json = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "invalid_body", details: parsed.error.flatten() },
+      { error: "invalid_request", details: parsed.error.flatten() },
       { status: 400 },
     );
   }
