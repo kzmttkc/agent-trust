@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       ok: !result.criticalFailure,
-      service: "agent-trust-api",
+      service: "vouch-trust-api",
       monitor: "deep",
       ...result,
     },

@@ -9,6 +9,8 @@ cd packages/sdk && npm install && npm run build
 ```typescript
 import { createVouchClient } from "@vouch/sdk";
 
+// apiUrl below is the current production deployment. A custom domain
+// (e.g. api.vouch.dev) is not registered yet — swap this in once it is.
 const vouch = createVouchClient({
   apiUrl: "https://agent-trust-tawny.vercel.app/api/v1",
   apiKey: process.env.VOUCH_API_KEY!,

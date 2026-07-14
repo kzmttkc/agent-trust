@@ -15,8 +15,10 @@ info:
     name: Proprietary
 
 servers:
-  - url: https://api.vouch.dev/v1
-    description: Production (planned)
+  - url: https://agent-trust-tawny.vercel.app/api/v1
+    description: Production
+    # Custom domain (e.g. api.vouch.dev) not yet registered.
+    # Replace this URL once one is acquired.
   - url: http://localhost:3000/api/v1
     description: Local development
 
@@ -86,7 +88,7 @@ paths:
       operationId: batchScore
       tags: [Scores]
       summary: Batch trust score lookup
-      description: Score up to 50 agents in a single request.
+      description: Score up to 25 agents in a single request.
       requestBody:
         required: true
         content:
@@ -340,7 +342,7 @@ components:
         agents:
           type: array
           minItems: 1
-          maxItems: 50
+          maxItems: 25
           items:
             type: object
             required: [agentId]

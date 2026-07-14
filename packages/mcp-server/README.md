@@ -73,13 +73,16 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "node",
       "args": ["/absolute/path/to/agent-trust/packages/mcp-server/dist/index.js"],
       "env": {
-        "VOUCH_API_URL": "https://api.vouch.dev/v1",
+        "VOUCH_API_URL": "https://agent-trust-tawny.vercel.app/api/v1",
         "VOUCH_API_KEY": "vouch_live_your_key_here"
       }
     }
   }
 }
 ```
+
+> `VOUCH_API_URL` above points at the current production deployment. A custom domain
+> (e.g. `api.vouch.dev`) is not registered yet — swap this in once it is.
 
 ## Example prompts
 

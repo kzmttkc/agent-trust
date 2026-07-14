@@ -1,6 +1,8 @@
 "use client";
 
 export default function DashboardIntegrationsPage() {
+  // Fallback URL is the current production deployment. A custom domain
+  // (e.g. api.vouch.dev) is not registered yet — replace this once it is.
   const base =
     typeof window !== "undefined"
       ? `${window.location.origin}/api/v1`

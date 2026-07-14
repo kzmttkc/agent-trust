@@ -2,6 +2,10 @@
 
 How x402 API providers use Vouch to verify agents **before** accepting payment.
 
+> Examples below use the current production URL `https://agent-trust-tawny.vercel.app/api/v1`.
+> A custom domain (e.g. `api.vouch.dev`) is not yet registered — once it is, replace this base
+> URL throughout this file (and set `VOUCH_API_URL` accordingly).
+
 ## Problem
 
 x402 tells you *who paid*, but not whether that wallet is trustworthy. ERC-8004 reputation alone is sybil-vulnerable. Vouch adds wallet history, sybil detection, and customer WL/BL on top.
@@ -26,7 +30,7 @@ x402 tells you *who paid*, but not whether that wallet is trustworthy. ERC-8004 
 PAYER=0x1234567890123456789012345678901234567890
 
 curl -s -H "Authorization: Bearer $VOUCH_API_KEY" \
-  "https://api.vouch.dev/v1/wallets/${PAYER}/score" | jq .
+  "https://agent-trust-tawny.vercel.app/api/v1/wallets/${PAYER}/score" | jq .
 ```
 
 Response:
@@ -88,7 +92,7 @@ When the agent sends both agent ID and wallet (recommended):
 
 ```bash
 curl -H "Authorization: Bearer $VOUCH_API_KEY" \
-  "https://api.vouch.dev/v1/agents/42/score?wallet=0x..."
+  "https://agent-trust-tawny.vercel.app/api/v1/agents/42/score?wallet=0x..."
 ```
 
 This verifies the wallet matches the agent's on-chain `agentWallet` metadata.
@@ -110,7 +114,7 @@ Before a batch job touches many agents:
 curl -X POST -H "Authorization: Bearer $VOUCH_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"agents":[{"agentId":"1"},{"agentId":"2","wallet":"0x..."}]}' \
-  https://api.vouch.dev/v1/scores/batch
+  https://agent-trust-tawny.vercel.app/api/v1/scores/batch
 ```
 
 ## Rate limits
@@ -140,7 +144,7 @@ See [MCP setup](./mcp-setup.md).
 After x402 verifies payment, POST an attestation so settlement history weights into the score (10% today):
 
 ```bash
-curl -X POST https://api.vouch.dev/v1/payments/x402 \
+curl -X POST https://agent-trust-tawny.vercel.app/api/v1/payments/x402 \
   -H "Authorization: Bearer $VOUCH_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   const deep = request.nextUrl.searchParams.get("deep") === "1";
   const payload: Record<string, unknown> = {
     status: "ok",
-    service: "agent-trust-api",
+    service: "vouch-trust-api",
     version: "0.1.0",
     chain: "base",
     erc8004: true,
