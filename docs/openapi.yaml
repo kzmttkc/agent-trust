@@ -30,6 +30,8 @@ tags:
     description: Trust score lookups
   - name: Settlements
     description: x402 payment attestations
+  - name: Outcomes
+    description: Result-label reporting for past trust score verdicts
   - name: System
     description: Health and metadata
 
@@ -185,6 +187,64 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: Plan upgrade required
+
+  /events/{trustEventId}/outcome:
+    post:
+      operationId: reportVerdictOutcome
+      tags: [Outcomes]
+      summary: Report what actually happened after a trust score verdict
+      description: |
+        Partner-reported result label for a past `/score` verdict — e.g. confirmed
+        fraud, a chargeback, or confirmation the agent was legitimate. Idempotent
+        on `(trustEventId, outcomeType, caller's API key)`: reporting the same
+        `outcomeType` again for the same event returns the existing row (`200`)
+        instead of creating a duplicate.
+
+        This feeds Vouch's score-accuracy measurement; it does not affect the
+        reported agent's live trust score.
+      parameters:
+        - name: trustEventId
+          in: path
+          required: true
+          description: The `id` from a prior `/score` response's persisted trust event
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outcomeType]
+              properties:
+                outcomeType:
+                  type: string
+                  enum: [confirmed_fraud, confirmed_legitimate, chargeback_dispute, other]
+                relatedWallet:
+                  type: string
+                  pattern: "^0x[a-fA-F0-9]{40}$"
+                  description: Defaults to the wallet on the original trust event if omitted
+                notes:
+                  type: string
+                  maxLength: 1000
+                evidenceUrl:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+      responses:
+        "201":
+          description: Outcome recorded
+        "200":
+          description: Already reported (idempotent)
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: trustEventId not found
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
 components:
   securitySchemes:

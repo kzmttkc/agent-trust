@@ -1,0 +1,266 @@
+import type { Address } from "viem";
+import { fetchWalletTransactions } from "@/lib/chain/blockscout";
+import { fetchRecentFeedbackStats, fetchReputationSummary } from "@/lib/chain/erc8004";
+import { getDb } from "@/lib/db/client";
+import {
+  collectWatchedTrustEvents,
+  recordAutoOutcome,
+  type AutoOutcomeType,
+  type TrustEventRow,
+} from "@/lib/db/outcome-writer";
+import { ownerAgents } from "@/lib/db/schema";
+import { desc, eq } from "drizzle-orm";
+import type { TrustSignals } from "@/lib/scoring/types";
+
+export type OutcomeDetectResult = {
+  scanned: number;
+  recorded: number;
+  errors: number;
+};
+
+const DEFAULT_BATCH = 50;
+const DELAY_MS = 200;
+const WATCH_WINDOW_DAYS = 7;
+
+// Activity classification thresholds. These are phase-1 heuristics, not
+// tuned statistics — they exist to get real result labels flowing so score
+// accuracy can be measured later, not to be a definitive fraud detector.
+const DORMANT_THRESHOLD_MINUTES = 24 * 60; // no tx at all since the event for a full day
+const RUG_PULL_QUIET_MINUTES = 12 * 60; // quiet period after an outgoing transfer
+const HEALTHY_MIN_TX_COUNT = 5;
+const HEALTHY_MIN_DISTINCT_DAYS = 2;
+const HEALTHY_MIN_WINDOW_MINUTES = 24 * 60; // don't call it "healthy" before a day has passed
+const FEEDBACK_AVG_DROP_EPSILON = 0.01;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function minutesBetween(from: Date, to: Date): number {
+  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / 60_000));
+}
+
+type ActivityVerdict = {
+  outcomeType: "rug_pull_outflow" | "wallet_dormant" | "sustained_healthy_activity";
+  evidence: Record<string, unknown>;
+};
+
+/**
+ * Classifies wallet activity since a trust event using the most recent 100
+ * transactions (Blockscout, sorted desc). Returns null when there isn't yet
+ * enough signal to call a terminal verdict — the event stays "watched" and
+ * gets re-checked on a later run.
+ */
+async function classifyWalletActivity(
+  wallet: Address,
+  eventCreatedAt: Date,
+  now: Date,
+): Promise<ActivityVerdict | null> {
+  const windowMinutes = minutesBetween(eventCreatedAt, now);
+  const createdAtSec = Math.floor(eventCreatedAt.getTime() / 1000);
+
+  const txs = await fetchWalletTransactions(wallet, { sort: "desc", offset: 100, page: 1 });
+  const sinceTxs = txs.filter((tx) => Number(tx.timeStamp) >= createdAtSec);
+
+  if (sinceTxs.length === 0) {
+    if (windowMinutes >= DORMANT_THRESHOLD_MINUTES) {
+      return {
+        outcomeType: "wallet_dormant",
+        evidence: { windowMinutes, txCountSinceEvent: 0 },
+      };
+    }
+    return null;
+  }
+
+  // sinceTxs[0] is the most recent (desc order).
+  const lastTxTimestampMs = Number(sinceTxs[0]!.timeStamp) * 1000;
+  const quietMinutes = minutesBetween(new Date(lastTxTimestampMs), now);
+
+  const walletLower = wallet.toLowerCase();
+  const outgoing = sinceTxs.filter(
+    (tx) => tx.from.toLowerCase() === walletLower && BigInt(tx.value) > BigInt(0),
+  );
+
+  if (outgoing.length > 0 && quietMinutes >= RUG_PULL_QUIET_MINUTES) {
+    return {
+      outcomeType: "rug_pull_outflow",
+      evidence: {
+        windowMinutes,
+        quietMinutes,
+        outgoingCount: outgoing.length,
+        lastOutgoingTxHash: outgoing[0]!.hash,
+      },
+    };
+  }
+
+  const distinctDays = new Set(
+    sinceTxs.map((tx) => new Date(Number(tx.timeStamp) * 1000).toISOString().slice(0, 10)),
+  ).size;
+
+  if (
+    sinceTxs.length >= HEALTHY_MIN_TX_COUNT &&
+    distinctDays >= HEALTHY_MIN_DISTINCT_DAYS &&
+    windowMinutes >= HEALTHY_MIN_WINDOW_MINUTES &&
+    quietMinutes < RUG_PULL_QUIET_MINUTES
+  ) {
+    return {
+      outcomeType: "sustained_healthy_activity",
+      evidence: { windowMinutes, txCountSinceEvent: sinceTxs.length, distinctDays },
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Ownership change since the trust event, per the owner-indexer's current
+ * (owner, agentId) state. We don't retain historical Transfer rows, so this
+ * compares the trust event's timestamp against the owner-index row's
+ * updatedAt — which only advances when the owner-indexer actually processes
+ * a Registered/Transfer event for that agent (src/lib/indexer/owner-indexer.ts).
+ */
+async function checkOwnershipChanged(
+  agentId: bigint,
+  eventCreatedAt: Date,
+): Promise<{ relatedWallet: string; evidence: Record<string, unknown> } | null> {
+  const db = getDb();
+  if (!db) return null;
+
+  const rows = await db
+    .select({ owner: ownerAgents.owner, updatedAt: ownerAgents.updatedAt })
+    .from(ownerAgents)
+    .where(eq(ownerAgents.agentId, agentId))
+    .orderBy(desc(ownerAgents.updatedAt))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row || !row.updatedAt) return null;
+  if (row.updatedAt.getTime() <= eventCreatedAt.getTime()) return null;
+
+  return {
+    relatedWallet: row.owner,
+    evidence: { newOwner: row.owner, changedAt: row.updatedAt.toISOString() },
+  };
+}
+
+/**
+ * New negative feedback since the trust event: fetchRecentFeedbackStats
+ * confirms *something* landed in the window, and a drop in the cumulative
+ * on-chain average (vs. what was captured in trust_events.signals at score
+ * time) is the signal that what landed skewed negative.
+ */
+async function checkReputationNegativeFeedback(
+  agentId: bigint,
+  eventCreatedAt: Date,
+  now: Date,
+): Promise<{ evidence: Record<string, unknown>; currentAvg: number } | null> {
+  const windowMinutes = minutesBetween(eventCreatedAt, now);
+  const windowDays = Math.min(30, Math.max(1, Math.ceil(windowMinutes / (24 * 60))));
+
+  const recent = await fetchRecentFeedbackStats(agentId, windowDays);
+  if (recent.recentCount === 0) return null;
+
+  const reputation = await fetchReputationSummary(agentId);
+  const currentAvg =
+    reputation.count > 0 ? reputation.summaryValue / 10 ** reputation.summaryValueDecimals : 0;
+
+  return { evidence: { recentCount: recent.recentCount, currentAvg }, currentAvg };
+}
+
+function extractStoredOnChainAvg(signals: unknown): number | null {
+  const parsed = signals as TrustSignals | null;
+  const value = parsed?.reputation?.onChainAvgScore;
+  return typeof value === "number" ? value : null;
+}
+
+async function detectForTrustEvent(row: TrustEventRow, now: Date): Promise<number> {
+  let recorded = 0;
+  const windowMinutes = minutesBetween(row.createdAt, now);
+
+  // Terminal activity classification (mutually exclusive; stops future scans
+  // once one lands — see TERMINAL_ACTIVITY_OUTCOME_TYPES).
+  if (row.wallet) {
+    try {
+      const verdict = await classifyWalletActivity(row.wallet as Address, row.createdAt, now);
+      if (verdict) {
+        const ok = await recordAutoOutcome({
+          trustEventId: row.id,
+          outcomeType: verdict.outcomeType,
+          relatedWallet: row.wallet,
+          windowMinutes,
+          evidence: verdict.evidence,
+        });
+        if (ok) recorded++;
+      }
+    } catch (err) {
+      console.error(`outcome-detector: activity classification failed for ${row.id}`, err);
+    }
+  }
+
+  // Ownership change (independent side-signal).
+  if (row.agentId !== null && row.agentId !== BigInt(0)) {
+    try {
+      const ownership = await checkOwnershipChanged(row.agentId, row.createdAt);
+      if (ownership) {
+        const outcomeType: AutoOutcomeType = "ownership_changed";
+        const ok = await recordAutoOutcome({
+          trustEventId: row.id,
+          outcomeType,
+          relatedWallet: ownership.relatedWallet,
+          windowMinutes,
+          evidence: ownership.evidence,
+        });
+        if (ok) recorded++;
+      }
+    } catch (err) {
+      console.error(`outcome-detector: ownership check failed for ${row.id}`, err);
+    }
+
+    // Reputation drop (independent side-signal).
+    try {
+      const storedAvg = extractStoredOnChainAvg(row.signals);
+      if (storedAvg !== null) {
+        const negative = await checkReputationNegativeFeedback(row.agentId, row.createdAt, now);
+        if (negative && negative.currentAvg < storedAvg - FEEDBACK_AVG_DROP_EPSILON) {
+          const outcomeType: AutoOutcomeType = "reputation_negative_feedback";
+          const ok = await recordAutoOutcome({
+            trustEventId: row.id,
+            outcomeType,
+            relatedWallet: row.wallet,
+            windowMinutes,
+            evidence: { ...negative.evidence, storedAvg },
+          });
+          if (ok) recorded++;
+        }
+      }
+    } catch (err) {
+      console.error(`outcome-detector: reputation check failed for ${row.id}`, err);
+    }
+  }
+
+  return recorded;
+}
+
+export async function detectOutcomes(options?: {
+  limit?: number;
+  delayMs?: number;
+}): Promise<OutcomeDetectResult> {
+  const limit = options?.limit ?? DEFAULT_BATCH;
+  const delayMs = options?.delayMs ?? DELAY_MS;
+
+  const events = await collectWatchedTrustEvents(WATCH_WINDOW_DAYS, limit);
+  const result: OutcomeDetectResult = { scanned: events.length, recorded: 0, errors: 0 };
+  const now = new Date();
+
+  for (const row of events) {
+    try {
+      result.recorded += await detectForTrustEvent(row, now);
+    } catch (err) {
+      result.errors++;
+      console.error(`outcome-detector: unexpected failure for trust_event ${row.id}`, err);
+    }
+    await sleep(delayMs);
+  }
+
+  return result;
+}

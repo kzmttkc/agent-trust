@@ -14,6 +14,7 @@
     "check:env": "tsx scripts/check-production-env.ts",
     "indexer:funders": "tsx scripts/index-funders.ts",
     "indexer:owners": "tsx scripts/index-owners.ts",
+    "indexer:outcomes": "tsx scripts/index-outcomes.ts",
     "cron:purge-logs": "tsx scripts/purge-logs.ts",
     "setup:stripe": "tsx scripts/setup-stripe-products.ts",
     "setup:stripe-webhook": "tsx scripts/setup-stripe-webhook.ts",

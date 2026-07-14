@@ -196,6 +196,37 @@ export const dashboardSessions = pgTable(
   ],
 );
 
+/**
+ * Result-label collection (phase 1): what actually happened to an agent/wallet
+ * after a trust_events verdict was issued. Populated two ways — auto-detected
+ * by the outcome-detector indexer (src/lib/indexer/outcome-detector.ts) and
+ * partner-reported via POST /v1/events/{trustEventId}/outcome. This is the
+ * foundation for measuring score accuracy later; nothing reads from it yet.
+ */
+export const verdictOutcomes = pgTable(
+  "verdict_outcomes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    trustEventId: uuid("trust_event_id").notNull(),
+    outcomeType: text("outcome_type").notNull(),
+    relatedWallet: text("related_wallet"),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    windowMinutes: integer("window_minutes").notNull(),
+    /** 'auto' | 'partner:{apiKeyId}' */
+    source: text("source").notNull().default("auto"),
+    /** Set only when source is a partner report. */
+    apiKeyId: uuid("api_key_id"),
+    /** tx hash / feedback log / notes+evidenceUrl, depending on outcomeType. */
+    evidence: jsonb("evidence"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("verdict_outcomes_trust_event_idx").on(t.trustEventId),
+    index("verdict_outcomes_type_detected_idx").on(t.outcomeType, t.detectedAt),
+    uniqueIndex("verdict_outcomes_unique").on(t.trustEventId, t.outcomeType, t.source),
+  ],
+);
+
 export const x402Payments = pgTable(
   "x402_payments",
   {

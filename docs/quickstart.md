@@ -47,6 +47,12 @@ curl -X POST -H "Authorization: Bearer $DEV_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"wallet":"0x1234567890123456789012345678901234567890","txHash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' \
   http://localhost:3000/api/v1/payments/x402
+
+# Report what actually happened after a past score verdict (result label)
+curl -X POST -H "Authorization: Bearer $DEV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"outcomeType":"confirmed_fraud","notes":"chargeback filed by customer"}' \
+  http://localhost:3000/api/v1/events/<trustEventId>/outcome
 ```
 
 Responses include `signals.x402` and `dataCoverage` (indexer + settlement freshness).
