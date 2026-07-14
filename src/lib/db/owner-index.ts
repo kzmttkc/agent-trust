@@ -1,4 +1,4 @@
-import { count, eq } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import type { Address } from "viem";
 import { getDb } from "./client";
 import { indexerCheckpoints, ownerAgents } from "./schema";
@@ -64,7 +64,9 @@ export async function setIndexerCheckpoint(
     .onConflictDoUpdate({
       target: indexerCheckpoints.scope,
       set: {
-        lastBlock,
+        // Guard against regressions: a stale/out-of-order indexer run must
+        // never move the checkpoint backwards.
+        lastBlock: sql`GREATEST(${indexerCheckpoints.lastBlock}, excluded.last_block)`,
         chainTipAtRun: chainTipAtRun ?? null,
         updatedAt: new Date(),
       },

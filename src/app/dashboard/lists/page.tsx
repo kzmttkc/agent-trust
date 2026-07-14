@@ -18,6 +18,7 @@ export default function DashboardListsPage() {
   const [listType, setListType] = useState<"whitelist" | "blacklist">("whitelist");
   const [csv, setCsv] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   async function load() {
     const result = await dashboardFetch<{ entries: Entry[] }>("/api/dashboard/lists");
@@ -61,14 +62,24 @@ export default function DashboardListsPage() {
   async function importCsv(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    setImportMessage(null);
 
     try {
-      await dashboardFetch("/api/dashboard/lists", {
-        method: "PUT",
-        body: JSON.stringify({ csv }),
-      });
+      const result = await dashboardFetch<{ imported: number; skipped: number }>(
+        "/api/dashboard/lists",
+        {
+          method: "PUT",
+          body: JSON.stringify({ csv }),
+        },
+      );
       setCsv("");
       await load();
+      setImportMessage(
+        result.skipped > 0
+          ? `${result.imported}件登録しました（${result.skipped}件はスキップしました）`
+          : `${result.imported}件登録しました`,
+      );
+      setTimeout(() => setImportMessage(null), 6000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "import_failed");
     }
@@ -138,6 +149,7 @@ export default function DashboardListsPage() {
         <button type="submit" className="rounded-md border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50">
           Import CSV
         </button>
+        {importMessage && <p className="text-sm text-green-700">{importMessage}</p>}
       </form>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">

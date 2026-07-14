@@ -3,8 +3,12 @@ import type { Address } from "viem";
 import { isValidAddress } from "@/lib/chain/client";
 import { fetchFirstIncomingTransfer } from "@/lib/chain/blockscout";
 import { getDb } from "@/lib/db/client";
-import { recordFunderWallet } from "@/lib/db/funder-index-writer";
-import { customerLists, funderWallets, trustEvents } from "@/lib/db/schema";
+import {
+  clearFunderIndexSkip,
+  recordFunderIndexSkip,
+  recordFunderWallet,
+} from "@/lib/db/funder-index-writer";
+import { customerLists, funderIndexSkips, funderWallets, trustEvents } from "@/lib/db/schema";
 
 export type FunderIndexResult = {
   scanned: number;
@@ -36,13 +40,36 @@ export async function collectWalletsToIndex(limit = DEFAULT_BATCH): Promise<stri
     db.selectDistinct({ wallet: funderWallets.wallet }).from(funderWallets),
   ]);
 
+  // funder_index_skips is an optional cooldown cache (see
+  // scripts/sql/2026-07-14-funder-index-skips.sql). If its DDL hasn't been
+  // applied to this database yet — or the query fails for any other reason —
+  // degrade to the pre-cache behavior instead of aborting the indexer: treat
+  // the cooldown set as empty so every candidate wallet is rescanned each run.
+  let skips: { wallet: string; nextRetryAt: Date }[] = [];
+  try {
+    skips = await db
+      .select({ wallet: funderIndexSkips.wallet, nextRetryAt: funderIndexSkips.nextRetryAt })
+      .from(funderIndexSkips);
+  } catch (err) {
+    console.error(
+      "funder-indexer: funder_index_skips query failed, degrading to no-cooldown mode",
+      err,
+    );
+  }
+
   const indexedSet = new Set(indexed.map((row) => row.wallet.toLowerCase()));
+  const now = Date.now();
+  // Wallets that failed to resolve recently are excluded until their cooldown
+  // (nextRetryAt) elapses — see recordFunderIndexSkip.
+  const cooldownSet = new Set(
+    skips.filter((row) => row.nextRetryAt.getTime() > now).map((row) => row.wallet.toLowerCase()),
+  );
   const candidates = new Set<string>();
 
   for (const row of [...fromEvents, ...fromLists]) {
     if (!row.wallet || !isValidAddress(row.wallet)) continue;
     const lower = row.wallet.toLowerCase();
-    if (!indexedSet.has(lower)) {
+    if (!indexedSet.has(lower) && !cooldownSet.has(lower)) {
       candidates.add(lower);
     }
   }
@@ -70,11 +97,13 @@ export async function indexFunderWallets(options?: {
       const incoming = await fetchFirstIncomingTransfer(wallet as Address);
       if (!incoming) {
         result.skipped++;
+        await recordFunderIndexSkip(wallet);
         await sleep(delayMs);
         continue;
       }
 
       const inserted = await recordFunderWallet(incoming.funder, wallet);
+      await clearFunderIndexSkip(wallet);
       if (inserted) {
         result.indexed++;
       } else {

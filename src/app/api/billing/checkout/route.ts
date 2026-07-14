@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  changeSubscriptionPlan,
   createBillingPortalSession,
   createCheckoutSession,
+  SubscriptionNotChangeableError,
 } from "@/lib/billing/stripe";
 import { BILLING_PLANS, isStripeConfigured, type PaidPlan } from "@/lib/billing/plans";
-import { getAccountById, setAccountStripeIds } from "@/lib/db/accounts";
+import { getAccountById, setAccountStripeIds, updateAccountPlan } from "@/lib/db/accounts";
 import { ensureOwnerUserId } from "@/lib/db/api-keys";
 import { authorizeDashboardRequest } from "@/lib/dashboard/auth";
 
@@ -38,6 +40,34 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // If the account already has an active subscription, change its plan in
+    // place rather than starting a second Checkout Session — creating a new
+    // subscription here would double-bill the customer while the old one is
+    // still running.
+    if (account.stripeSubscriptionId) {
+      try {
+        await changeSubscriptionPlan({
+          subscriptionId: account.stripeSubscriptionId,
+          plan: parsed.data.plan as PaidPlan,
+        });
+
+        // Reflect the new plan immediately for a snappy UI; the
+        // customer.subscription.updated webhook will re-confirm the same
+        // plan once Stripe finishes processing the change, so both paths
+        // converge on the same state.
+        await updateAccountPlan(account.id, parsed.data.plan);
+
+        return NextResponse.json({ updated: true });
+      } catch (error) {
+        if (!(error instanceof SubscriptionNotChangeableError)) {
+          throw error;
+        }
+        // Subscription exists in our DB but Stripe reports it as no longer
+        // active/changeable (e.g. canceled) — fall through to starting a
+        // fresh checkout below.
+      }
+    }
+
     const { url, customerId } = await createCheckoutSession({
       accountId: account.id,
       email: account.email,

@@ -35,7 +35,7 @@ Add to `~/.cursor/mcp.json` (or project `.cursor/mcp.json`):
   "mcpServers": {
     "vouch": {
       "command": "node",
-      "args": ["/absolute/path/to/agent-trust/packages/mcp-server/dist/index.js"],
+      "args": ["/absolute/path/to/vouch/packages/mcp-server/dist/index.js"],
       "env": {
         "VOUCH_API_URL": "http://localhost:3000/api/v1",
         "VOUCH_API_KEY": "vouch_live_your_key_here"
@@ -52,7 +52,7 @@ For local development with `tsx` (no build step):
   "mcpServers": {
     "vouch": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/agent-trust/packages/mcp-server/src/index.ts"],
+      "args": ["tsx", "/absolute/path/to/vouch/packages/mcp-server/src/index.ts"],
       "env": {
         "VOUCH_API_URL": "http://localhost:3000/api/v1",
         "VOUCH_API_KEY": "vouch_live_your_key_here"
@@ -71,7 +71,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "vouch": {
       "command": "node",
-      "args": ["/absolute/path/to/agent-trust/packages/mcp-server/dist/index.js"],
+      "args": ["/absolute/path/to/vouch/packages/mcp-server/dist/index.js"],
       "env": {
         "VOUCH_API_URL": "https://agent-trust-tawny.vercel.app/api/v1",
         "VOUCH_API_KEY": "vouch_live_your_key_here"

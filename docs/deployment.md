@@ -136,6 +136,8 @@ curl -X POST -H "Authorization: Bearer $VOUCH_API_KEY" \
 
 Schema patch (if upgrading an existing DB): `scripts/sql/2026-07-14-x402-payments.sql`
 
+Schema patch (optional, funder indexer cooldown cache): `scripts/sql/2026-07-14-funder-index-skips.sql`. This table is an optional cache — `collectWalletsToIndex` / `recordFunderIndexSkip` / `clearFunderIndexSkip` all catch DB errors from it and degrade to the pre-cache behavior (no cooldown filtering, every candidate wallet rescanned each run) if the DDL hasn't been applied. The indexer stays fully functional without it; applying the patch only makes repeated failed-lookup wallets skip re-scanning for a while.
+
 Partial ownership index: sybil `multi_agent_owner` uses ERC-721 `balanceOf` (not truncated log scans) cross-checked with the DB index.
 
 Manual run:

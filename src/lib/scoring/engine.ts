@@ -77,7 +77,8 @@ function buildAgentCacheKey(
   ctx: ScoreRequestContext,
 ): string {
   const walletSegment = canonicalWallet?.toLowerCase() ?? "";
-  return `agent:${agentId.toString()}:${walletSegment}:${ctx.verifyWallet ?? ""}:${ctx.apiKeyId ?? ""}`;
+  const verifyWalletSegment = ctx.verifyWallet?.toLowerCase() ?? "";
+  return `agent:${agentId.toString()}:${walletSegment}:${verifyWalletSegment}:${ctx.apiKeyId ?? ""}`;
 }
 
 export async function scoreAgentById(
@@ -141,9 +142,19 @@ export async function scoreAgentById(
     txCount: walletMetrics?.txCount ?? 0,
   });
 
-  const x402Stats = walletAddress
-    ? await getX402PaymentStats(walletAddress)
-    : { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null };
+  let x402Stats: Awaited<ReturnType<typeof getX402PaymentStats>> = {
+    paymentCount: 0,
+    uniqueDays: 0,
+    lastPaymentAt: null,
+  };
+  let x402StatsUnavailable = false;
+  if (walletAddress) {
+    try {
+      x402Stats = await getX402PaymentStats(walletAddress);
+    } catch {
+      x402StatsUnavailable = true;
+    }
+  }
   const x402Score = scoreX402Payments(x402Stats);
 
   const identityScore = scoreIdentity(identity.registered, Boolean(identity.tokenUri));
@@ -180,6 +191,9 @@ export async function scoreAgentById(
   }
   if (walletMetricsUnavailable) {
     sybilFlags.push("wallet_metrics_unavailable");
+  }
+  if (x402StatsUnavailable) {
+    sybilFlags.push("x402_unavailable");
   }
 
   const sybilRisk = assessSybilRisk(sybilFlags);
@@ -280,7 +294,17 @@ export async function scoreWallet(
     txCount: walletMetrics.txCount,
   });
 
-  const x402Stats = await getX402PaymentStats(address);
+  let x402Stats: Awaited<ReturnType<typeof getX402PaymentStats>> = {
+    paymentCount: 0,
+    uniqueDays: 0,
+    lastPaymentAt: null,
+  };
+  let x402StatsUnavailable = false;
+  try {
+    x402Stats = await getX402PaymentStats(address);
+  } catch {
+    x402StatsUnavailable = true;
+  }
   const x402Score = scoreX402Payments(x402Stats);
 
   const sybilFlags = await detectSybilFlags({
@@ -297,6 +321,9 @@ export async function scoreWallet(
   });
   if (walletMetricsUnavailable) {
     sybilFlags.push("wallet_metrics_unavailable");
+  }
+  if (x402StatsUnavailable) {
+    sybilFlags.push("x402_unavailable");
   }
 
   const sybilRisk = assessSybilRisk(sybilFlags);

@@ -1,6 +1,7 @@
 import {
   bigint,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -142,6 +143,22 @@ export const funderWallets = pgTable(
   },
   (t) => [uniqueIndex("funder_wallets_unique").on(t.funder, t.wallet)],
 );
+
+/**
+ * Negative cache for funder indexing: wallets whose first incoming transfer
+ * could not be resolved (fetchFirstIncomingTransfer returned null). Without
+ * this, unresolvable wallets stay in collectWalletsToIndex's candidate set
+ * forever and get re-scanned (and re-billed against the RPC budget) on every
+ * run. Entries are retried with growing backoff rather than excluded
+ * permanently, since resolvability can change once a wallet finally receives
+ * a transfer.
+ */
+export const funderIndexSkips = pgTable("funder_index_skips", {
+  wallet: text("wallet").primaryKey(),
+  attempts: integer("attempts").notNull().default(1),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).defaultNow(),
+  nextRetryAt: timestamp("next_retry_at", { withTimezone: true }).notNull(),
+});
 
 export const ownerAgents = pgTable(
   "owner_agents",

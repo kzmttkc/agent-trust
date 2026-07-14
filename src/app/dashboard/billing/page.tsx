@@ -19,6 +19,7 @@ export default function DashboardBillingPage() {
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("checkout");
   });
+  const [planChanged, setPlanChanged] = useState(false);
 
   useEffect(() => {
     dashboardFetch<BillingInfo>("/api/billing/checkout")
@@ -29,12 +30,26 @@ export default function DashboardBillingPage() {
   async function upgrade(plan: "pro" | "scale") {
     setLoading(plan);
     setError(null);
+    setPlanChanged(false);
     try {
-      const data = await dashboardFetch<{ url: string }>("/api/billing/checkout", {
-        method: "POST",
-        body: JSON.stringify({ plan }),
-      });
-      globalThis.location.assign(data.url);
+      const data = await dashboardFetch<{ url?: string; updated?: boolean }>(
+        "/api/billing/checkout",
+        {
+          method: "POST",
+          body: JSON.stringify({ plan }),
+        },
+      );
+
+      if (data.url) {
+        // No existing subscription — Stripe Checkout will collect payment.
+        globalThis.location.assign(data.url);
+        return;
+      }
+
+      // Existing subscription was changed in place (no redirect needed).
+      setPlanChanged(true);
+      setLoading(null);
+      dashboardFetch<BillingInfo>("/api/billing/checkout").then(setInfo).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "checkout_failed");
       setLoading(null);
@@ -71,6 +86,12 @@ export default function DashboardBillingPage() {
       {checkoutStatus === "success" && (
         <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           Payment successful. Your plan will update shortly.
+        </p>
+      )}
+
+      {planChanged && (
+        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Plan updated. Your subscription was changed without creating a new charge.
         </p>
       )}
 
