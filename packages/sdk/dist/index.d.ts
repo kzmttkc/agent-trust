@@ -1,8 +1,9 @@
+export type Recommendation = "ALLOW" | "WARN" | "BLOCK";
 export type TrustScoreResult = {
     agentId: string;
     wallet: string | null;
     trustScore: number;
-    recommendation: "ALLOW" | "WARN" | "BLOCK";
+    recommendation: Recommendation;
     signals: {
         identity: {
             registered: boolean;
@@ -38,23 +39,24 @@ export type TrustScoreResult = {
     manualOverride?: boolean;
     dataCoverage?: {
         ownerIndexer: {
-            status: string;
+            status: "synced" | "partial" | "unavailable";
             blocksBehind: number | null;
-            lastBlock?: string | null;
-            indexedAgentRows?: number;
+            lastBlock: string | null;
+            indexedAgentRows: number;
             staleRisk: boolean;
         };
         settlement: {
             paymentRows: number;
-            distinctWallets?: number;
-            recentPayments30d?: number;
+            distinctWallets: number;
+            recentPayments30d: number;
             walletHasHistory: boolean;
         };
     };
 };
-export type VouchClientConfig = {
+export type VouchClientOptions = {
     apiUrl: string;
     apiKey: string;
+    fetch?: typeof fetch;
 };
 export type X402PaymentAttestation = {
     wallet: string;
@@ -63,10 +65,28 @@ export type X402PaymentAttestation = {
     network?: string;
     resource?: string;
 };
-export declare function fetchAgentScore(agentId: string, wallet?: string): Promise<TrustScoreResult>;
-export declare function fetchWalletScore(wallet: string): Promise<TrustScoreResult>;
-export declare function attestX402Payment(attestation: X402PaymentAttestation): Promise<{
-    ok: boolean;
-    created: boolean;
-    id: string;
-}>;
+export type BatchScoreItem = {
+    agentId: string;
+    wallet?: string;
+} | {
+    wallet: string;
+    agentId?: never;
+};
+export declare class VouchClient {
+    private readonly apiUrl;
+    private readonly apiKey;
+    private readonly fetchFn;
+    constructor(options: VouchClientOptions);
+    getAgentScore(agentId: string, wallet?: string): Promise<TrustScoreResult>;
+    getWalletScore(wallet: string): Promise<TrustScoreResult>;
+    batchScore(agents: BatchScoreItem[]): Promise<{
+        results: unknown[];
+    }>;
+    attestX402Payment(attestation: X402PaymentAttestation): Promise<{
+        ok: boolean;
+        created: boolean;
+        id: string;
+    }>;
+    private request;
+}
+export declare function createVouchClient(options: VouchClientOptions): VouchClient;

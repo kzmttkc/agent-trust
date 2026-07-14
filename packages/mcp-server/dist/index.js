@@ -3,23 +3,26 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { explainTrustScore } from "./explain.js";
-import { fetchAgentScore, fetchWalletScore } from "./vouch-client.js";
+import { attestX402Payment, fetchAgentScore, fetchWalletScore } from "./vouch-client.js";
 const server = new McpServer({
     name: "vouch-trust",
     version: "0.1.0",
 });
 const AGENT_ID = z.string().max(78).describe("ERC-8004 agent ID (tokenId)");
 const WALLET = z.string().max(42).describe("EVM wallet address (0x...)");
+const TX_HASH = z.string().max(66).describe("Payment transaction hash (0x + 64 hex)");
 function sanitizeToolError(error) {
     if (!(error instanceof Error))
         return "request_failed";
     const known = new Set([
         "invalid_agent_id",
         "invalid_wallet_address",
+        "invalid_tx_hash",
         "missing_api_key",
         "invalid_api_key",
         "rate_limit_exceeded",
         "scoring_unavailable",
+        "payment_ingest_unavailable",
     ]);
     return known.has(error.message) ? error.message : "request_failed";
 }
@@ -69,6 +72,32 @@ server.tool("explain_trust_score", "Explain a trust score breakdown in plain lan
             : await fetchWalletScore(wallet);
         return {
             content: [{ type: "text", text: explainTrustScore(result) }],
+        };
+    }
+    catch (error) {
+        return {
+            content: [{ type: "text", text: sanitizeToolError(error) }],
+            isError: true,
+        };
+    }
+});
+server.tool("attest_x402_payment", "Record an x402 payment attestation after settlement verification (idempotent on txHash).", {
+    wallet: WALLET,
+    txHash: TX_HASH,
+    amount: z.string().max(78).optional(),
+    network: z.string().max(32).optional(),
+    resource: z.string().max(512).optional(),
+}, async ({ wallet, txHash, amount, network, resource }) => {
+    try {
+        const result = await attestX402Payment({
+            wallet,
+            txHash,
+            amount,
+            network,
+            resource,
+        });
+        return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
     }
     catch (error) {

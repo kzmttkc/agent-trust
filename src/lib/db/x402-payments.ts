@@ -1,4 +1,4 @@
-import { count, countDistinct, eq, gte, sql } from "drizzle-orm";
+import { count, countDistinct, desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "./client";
 import { x402Payments } from "./schema";
 
@@ -117,4 +117,38 @@ export async function countDistinctPaymentWallets(): Promise<number> {
 
   const rows = await db.select({ value: countDistinct(x402Payments.wallet) }).from(x402Payments);
   return Number(rows[0]?.value ?? 0);
+}
+
+export type X402PaymentRow = {
+  id: string;
+  wallet: string;
+  amount: string | null;
+  txHash: string;
+  network: string;
+  resource: string | null;
+  createdAt: Date | null;
+};
+
+export async function listX402PaymentsForApiKey(
+  apiKeyId: string,
+  limit = 50,
+): Promise<X402PaymentRow[]> {
+  const db = getDb();
+  if (!db) return [];
+
+  const safeLimit = Math.min(100, Math.max(1, limit));
+  return db
+    .select({
+      id: x402Payments.id,
+      wallet: x402Payments.wallet,
+      amount: x402Payments.amount,
+      txHash: x402Payments.txHash,
+      network: x402Payments.network,
+      resource: x402Payments.resource,
+      createdAt: x402Payments.createdAt,
+    })
+    .from(x402Payments)
+    .where(eq(x402Payments.apiKeyId, apiKeyId))
+    .orderBy(desc(x402Payments.createdAt))
+    .limit(safeLimit);
 }

@@ -27,11 +27,17 @@ export default function Home() {
         >
           Dashboard
         </Link>
+        <Link
+          href="/docs/api"
+          className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+        >
+          API reference
+        </Link>
       </div>
 
       <p className="text-sm text-zinc-500">
-        Docs in repo: <code>docs/quickstart.md</code>, <code>docs/mcp-setup.md</code>,{" "}
-        <code>docs/x402-integration.md</code>
+        Channels: REST · MCP · x402 middleware · TypeScript SDK (
+        <code>packages/sdk</code>)
       </p>
 
       <ul className="space-y-2 text-sm text-zinc-700">
@@ -44,7 +50,16 @@ export default function Home() {
         <li>
           <code className="rounded bg-zinc-100 px-1">POST /api/v1/scores/batch</code>
         </li>
+        <li>
+          <code className="rounded bg-zinc-100 px-1">POST /api/v1/payments/x402</code>
+          <span className="ml-2 text-zinc-500">settlement attestation</span>
+        </li>
       </ul>
+
+      <p className="text-sm text-zinc-500">
+        Docs: <code>docs/quickstart.md</code>, <code>docs/mcp-setup.md</code>,{" "}
+        <code>docs/x402-integration.md</code>
+      </p>
     </main>
   );
 }

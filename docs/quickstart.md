@@ -41,7 +41,15 @@ curl -H "Authorization: Bearer $DEV_API_KEY" \
 # Score by wallet (x402 path)
 curl -H "Authorization: Bearer $DEV_API_KEY" \
   http://localhost:3000/api/v1/wallets/0x1234567890123456789012345678901234567890/score
+
+# Attest an x402 settlement (after payment verification)
+curl -X POST -H "Authorization: Bearer $DEV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"wallet":"0x1234567890123456789012345678901234567890","txHash":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' \
+  http://localhost:3000/api/v1/payments/x402
 ```
+
+Responses include `signals.x402` and `dataCoverage` (indexer + settlement freshness).
 
 ## 5. Production setup (database)
 
@@ -71,6 +79,18 @@ Add to Cursor MCP config — see [mcp-setup.md](./mcp-setup.md).
 
 See [x402-integration.md](./x402-integration.md) and `examples/x402-trust-gate/`.
 
+## 9. TypeScript SDK
+
+```bash
+cd packages/sdk && npm install && npm run build
+```
+
+```typescript
+import { createVouchClient } from "@vouch/sdk";
+const vouch = createVouchClient({ apiUrl: "http://localhost:3000/api/v1", apiKey: process.env.VOUCH_API_KEY! });
+await vouch.getWalletScore("0x...");
+```
+
 ## Score interpretation
 
 | Score | Recommendation | Meaning |
@@ -84,5 +104,7 @@ Customer whitelist can override WARN → ALLOW. Blacklist always → BLOCK.
 ## Links
 
 - [OpenAPI spec](./openapi.yaml)
+- [API page](../src/app/docs/api/page.tsx) (served at `/docs/api`)
 - [Requirements v0.1](./requirements-v0.1.md)
 - [Brand / naming](./brand.md)
+- [x402 Foundation optionality](./ecosystem-x402-foundation.md)

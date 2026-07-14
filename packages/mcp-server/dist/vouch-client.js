@@ -1,4 +1,5 @@
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
+const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
 const AGENT_ID_RE = /^\d+$/;
 function getConfig() {
     const apiUrl = process.env.VOUCH_API_URL ?? "http://localhost:3000/api/v1";
@@ -18,10 +19,15 @@ function assertWallet(wallet) {
         throw new Error("invalid_wallet_address");
     }
 }
-async function vouchFetch(path) {
+async function vouchFetch(path, init) {
     const { apiUrl, apiKey } = getConfig();
     const response = await fetch(`${apiUrl}${path}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+        ...init,
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            ...(init?.body ? { "Content-Type": "application/json" } : {}),
+            ...init?.headers,
+        },
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -39,4 +45,14 @@ export async function fetchAgentScore(agentId, wallet) {
 export async function fetchWalletScore(wallet) {
     assertWallet(wallet);
     return vouchFetch(`/wallets/${wallet}/score`);
+}
+export async function attestX402Payment(attestation) {
+    assertWallet(attestation.wallet);
+    if (!TX_HASH_RE.test(attestation.txHash)) {
+        throw new Error("invalid_tx_hash");
+    }
+    return vouchFetch("/payments/x402", {
+        method: "POST",
+        body: JSON.stringify(attestation),
+    });
 }

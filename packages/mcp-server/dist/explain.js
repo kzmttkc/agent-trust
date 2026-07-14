@@ -24,6 +24,14 @@ export function explainTrustScore(result) {
         `  - Unique days: ${result.signals.x402?.uniqueDays ?? 0}`,
         `  - Component score: ${result.signals.x402?.score ?? 50}`,
         "",
+        "Data coverage:",
+        `  - Owner indexer: ${result.dataCoverage?.ownerIndexer.status ?? "n/a"}` +
+            (result.dataCoverage?.ownerIndexer.blocksBehind != null
+                ? ` (${result.dataCoverage.ownerIndexer.blocksBehind} behind)`
+                : ""),
+        `  - Settlement rows: ${result.dataCoverage?.settlement.paymentRows ?? 0}`,
+        `  - Wallet has settlement history: ${result.dataCoverage?.settlement.walletHasHistory ? "yes" : "no"}`,
+        "",
         "Sybil:",
         `  - Risk: ${result.signals.sybil.risk}`,
         `  - Flags: ${result.signals.sybil.flags.length ? result.signals.sybil.flags.join(", ") : "none"}`,

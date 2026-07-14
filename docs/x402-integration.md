@@ -52,6 +52,7 @@ Decision logic:
 ## Express middleware sample
 
 See [`examples/x402-trust-gate`](../examples/x402-trust-gate/) for a runnable demo.
+TypeScript clients can use [`@vouch/sdk`](../packages/sdk/) (`getWalletScore` + `attestX402Payment`).
 
 ```typescript
 import { createVouchTrustGate, demoWalletFromHeader } from "./middleware";

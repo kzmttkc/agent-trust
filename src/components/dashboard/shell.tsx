@@ -8,10 +8,12 @@ import { dashboardLogout } from "@/lib/dashboard/client";
 const nav = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/lookup", label: "Lookup" },
+  { href: "/dashboard/settlements", label: "Settlements" },
   { href: "/dashboard/lists", label: "WL / BL" },
   { href: "/dashboard/logs", label: "Logs" },
   { href: "/dashboard/keys", label: "API Keys" },
   { href: "/dashboard/billing", label: "Billing" },
+  { href: "/dashboard/integrations", label: "Integrations" },
 ];
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {

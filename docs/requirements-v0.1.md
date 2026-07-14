@@ -158,7 +158,8 @@
 | GET | `/v1/agents/{agentId}/score` | agent ID で照会 |
 | GET | `/v1/wallets/{address}/score` | ウォレットで照会（x402 向け） |
 | GET | `/v1/agents/{agentId}/score?wallet=` | 照合付き照会（推奨） |
-| POST | `/v1/scores/batch` | 最大 50 件バッチ照会 |
+| POST | `/v1/scores/batch` | 最大 25 件バッチ照会 |
+| POST | `/v1/payments/x402` | x402 決済証跡（冪等、スコア加重） |
 | GET | `/v1/agents/{agentId}/history` | スコア履歴（Pro+） |
 
 #### 6.1.3 認証

@@ -39,6 +39,7 @@ npm run build
    - `check_agent_trust`
    - `check_wallet_trust`
    - `explain_trust_score`
+   - `attest_x402_payment` (after payment verification)
 
 ## Claude Desktop
 

@@ -78,6 +78,29 @@ export default function DashboardOverviewPage() {
         </div>
         <p className="mt-2 text-xs text-zinc-500">Period: {data.usage.period}</p>
       </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 text-sm text-zinc-700">
+        <p className="font-medium text-zinc-900">Channels</p>
+        <ul className="mt-2 list-inside list-disc space-y-1">
+          <li>
+            <a className="underline" href="/dashboard/integrations">
+              Integrations
+            </a>{" "}
+            — API, MCP, x402 middleware
+          </li>
+          <li>
+            <a className="underline" href="/dashboard/settlements">
+              Settlements
+            </a>{" "}
+            — attested payment history
+          </li>
+          <li>
+            <a className="underline" href="/docs/api">
+              API reference
+            </a>
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }

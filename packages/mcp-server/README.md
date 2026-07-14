@@ -8,7 +8,8 @@ MCP tools for checking ERC-8004 agent trust scores from Cursor, Claude Desktop, 
 |---|---|
 | `check_agent_trust` | Score by agent ID (optional wallet verification) |
 | `check_wallet_trust` | Score by wallet (x402 payer path) |
-| `explain_trust_score` | Human-readable score breakdown |
+| `explain_trust_score` | Human-readable score breakdown (includes x402 + dataCoverage) |
+| `attest_x402_payment` | Write settlement attestation after payment verification |
 
 ## Setup
 

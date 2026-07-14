@@ -12,6 +12,7 @@ Scores agents 0–100 with `ALLOW` / `WARN` / `BLOCK` recommendations. Built for
 - [OpenAPI spec](./docs/openapi.yaml)
 - [MCP setup](./docs/mcp-setup.md)
 - [x402 integration](./docs/x402-integration.md)
+- [x402 Foundation (optional)](./docs/ecosystem-x402-foundation.md)
 - [Brand / naming](./docs/brand.md)
 
 ## Stack
@@ -50,6 +51,15 @@ curl -H "Authorization: Bearer $DEV_API_KEY" \
 ```bash
 curl -H "Authorization: Bearer $DEV_API_KEY" \
   http://localhost:3000/api/v1/wallets/0x1234567890123456789012345678901234567890/score
+```
+
+### Attest settlement
+
+```bash
+curl -X POST -H "Authorization: Bearer $DEV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"wallet":"0x...","txHash":"0x..."}' \
+  http://localhost:3000/api/v1/payments/x402
 ```
 
 ## Database setup (M2)
@@ -142,16 +152,26 @@ npm run cron:purge-logs
 # or Vercel cron: GET /api/cron/purge-logs (daily 03:00 UTC)
 ```
 
-## MCP Server (M4)
+## MCP Server (M4 / M7)
 
 ```bash
 cd packages/mcp-server
 npm install && npm run build
 ```
 
-Tools: `check_agent_trust`, `check_wallet_trust`, `explain_trust_score`
+Tools: `check_agent_trust`, `check_wallet_trust`, `explain_trust_score`, `attest_x402_payment`
 
 See [MCP setup](./docs/mcp-setup.md) for Cursor / Claude Desktop configuration.
+
+## TypeScript SDK (M7)
+
+```bash
+cd packages/sdk && npm install && npm run build
+```
+
+```typescript
+import { createVouchClient } from "@vouch/sdk";
+```
 
 ## x402 sample middleware (M4)
 
@@ -169,6 +189,7 @@ Express middleware that blocks `BLOCK` recommendations before serving paid route
 ```
 src/
   app/api/v1/          # REST API routes
+  app/docs/api/        # Hosted API reference page
   lib/
     chain/             # viem client, ERC-8004 reads, wallet metrics, agent resolver
     scoring/           # Score engine, sybil detection
@@ -178,11 +199,13 @@ docs/
   quickstart.md
   mcp-setup.md
   x402-integration.md
+  ecosystem-x402-foundation.md
   requirements-v0.1.md
   openapi.yaml
   brand.md
 packages/
   mcp-server/          # MCP tools for Cursor / Claude
+  sdk/                 # Thin TypeScript API client
 examples/
   x402-trust-gate/     # Express middleware sample
 ```
@@ -198,6 +221,7 @@ examples/
 | M4 | ✅ Done | MCP server, x402 sample, docs |
 | M5 | ✅ Done | Closed β deploy, funder indexer, signup + Stripe, log retention |
 | M6 | ✅ Done | x402 payment attestations + 10% score weight |
+| M7 | ✅ Done | Parallel channels: SDK, MCP attest, settlements UI, API docs |
 
 ## License
 
