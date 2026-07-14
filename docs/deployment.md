@@ -115,6 +115,14 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 Wire an external uptime monitor to alert on **503**. Optionally alert separately on `checks.owner_indexer === "lagging"` without treating it as an outage.
 
+**Free option (no paid uptime plan):** [UptimeRobot](https://uptimerobot.com) free tier, or cron from a home/laptop:
+
+```bash
+# Optional local / CI smoke (Hobby-safe)
+./scripts/smoke-production.sh
+CRON_SECRET=... ./scripts/smoke-production.sh
+```
+
 Indexer lag flag threshold: `HEALTH_INDEXER_LAG_BLOCKS` (default `500000`). Scores remain available during partial sync; API responses include `dataCoverage.ownerIndexer` (`synced` | `partial`, plus `staleRisk`) and `dataCoverage.settlement` (attested x402 payment volume).
 
 Settlement write-back (Phase 1.5):
