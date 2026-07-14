@@ -9,6 +9,14 @@ export type DataCoverage = {
     /** True when recent Transfers may not yet be reflected for enforcement. */
     staleRisk: boolean;
   };
+  settlement: {
+    /** Attested x402 payment rows in store (global). */
+    paymentRows: number;
+    distinctWallets: number;
+    recentPayments30d: number;
+    /** True when the wallet being scored has at least one attestation. */
+    walletHasHistory: boolean;
+  };
 };
 
 export type TrustSignals = {
@@ -27,6 +35,12 @@ export type TrustSignals = {
     ageDays: number;
     txCount: number;
     isBurner: boolean;
+  };
+  x402: {
+    paymentCount: number;
+    uniqueDays: number;
+    /** Internal 0–100 settlement component used in scoring. */
+    score: number;
   };
   sybil: {
     risk: "low" | "medium" | "high";

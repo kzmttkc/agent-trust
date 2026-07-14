@@ -43,14 +43,16 @@ export async function getScoreHistory(
     .orderBy(desc(trustEvents.createdAt))
     .limit(limit);
 
-  const dataCoverage = await getDataCoverage();
+  const dataCoverage = await getDataCoverage(
+    rows[0]?.wallet ?? undefined,
+  );
 
   return rows.map((row) => ({
     agentId: row.agentId?.toString() ?? "0",
     wallet: row.wallet,
     trustScore: row.trustScore ?? 0,
     recommendation: (row.recommendation ?? "BLOCK") as TrustScoreResult["recommendation"],
-    signals: (row.signals as TrustScoreResult["signals"]) ?? defaultSignals(),
+    signals: normalizeSignals(row.signals as TrustScoreResult["signals"] | null),
     scoredAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
     cacheExpiresAt:
       row.cacheExpiresAt?.toISOString() ??
@@ -65,11 +67,24 @@ export async function getScoreHistory(
   }));
 }
 
+function normalizeSignals(
+  signals: TrustScoreResult["signals"] | null,
+): TrustScoreResult["signals"] {
+  const base = defaultSignals();
+  if (!signals) return base;
+  return {
+    ...base,
+    ...signals,
+    x402: signals.x402 ?? base.x402,
+  };
+}
+
 function defaultSignals(): TrustScoreResult["signals"] {
   return {
     identity: { registered: false, hasMetadataUri: false },
     reputation: { feedbackCount: 0, avgScore: 0, onChainAvgScore: 0 },
     wallet: { ageDays: 0, txCount: 0, isBurner: false },
+    x402: { paymentCount: 0, uniqueDays: 0, score: 50 },
     sybil: { risk: "low", flags: [] },
     manual: { list: "none" },
   };

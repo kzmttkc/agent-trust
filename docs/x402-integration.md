@@ -129,7 +129,26 @@ check_wallet_trust(wallet="0x...")
 
 See [MCP setup](./mcp-setup.md).
 
-## Next steps (Phase 2)
+## Next steps (Phase 2+)
 
-- x402 payment history weighted into score (schema ready, 0% weight today)
-- On-chain safety gateway (idea 9) with same agent ID space
+- On-chain safety gateway with the same agent ID space
+- Raise `SCORE_WEIGHTS.x402` toward 15–20% once settlement volume is meaningful
+
+## Settlement write-back (Phase 1.5 — live)
+
+After x402 verifies payment, POST an attestation so settlement history weights into the score (10% today):
+
+```bash
+curl -X POST https://api.vouch.dev/v1/payments/x402 \
+  -H "Authorization: Bearer $VOUCH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wallet": "0xpayer...",
+    "txHash": "0xabc...",
+    "amount": "1000000",
+    "network": "base",
+    "resource": "/api/premium/data"
+  }'
+```
+
+Idempotent on `txHash`. The sample middleware supports optional `getPaymentTxHash` for fire-and-forget attestation after ALLOW/WARN.

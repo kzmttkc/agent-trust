@@ -48,6 +48,9 @@ const trustGate = createVouchTrustGate({
   apiUrl: process.env.VOUCH_API_URL!,
   apiKey: process.env.VOUCH_API_KEY!,
   rejectOn: ["BLOCK"], // optionally include "WARN"
+  getWallet: (req) => req.payer,
+  // Optional: write settlement history back into Vouch (10% score weight)
+  getPaymentTxHash: (req) => req.payment?.txHash,
 });
 
 app.use("/api/premium", trustGate);
@@ -57,6 +60,7 @@ app.get("/api/premium/data", (req, res) => {
 });
 ```
 
+Settlement attestations use `POST /v1/payments/x402` (idempotent on `txHash`).
 ## Configuration
 
 | Env | Description |

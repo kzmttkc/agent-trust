@@ -4,6 +4,7 @@ import { currentUsagePeriod } from "@/lib/api/rate-limit";
 import { ensureOwnerUserId } from "@/lib/db/api-keys";
 import { getDb } from "@/lib/db/client";
 import { apiKeys, ownerUsage, trustEvents } from "@/lib/db/schema";
+import { countX402PaymentsForApiKey } from "@/lib/db/x402-payments";
 
 export async function getDashboardOverview(apiKeyId: string) {
   const db = getDb();
@@ -12,7 +13,7 @@ export async function getDashboardOverview(apiKeyId: string) {
   const period = currentUsagePeriod();
   const userId = await ensureOwnerUserId(apiKeyId);
 
-  const [key, ownerUsageRows, recentEvents] = await Promise.all([
+  const [key, ownerUsageRows, recentEvents, settlementAttestations] = await Promise.all([
     db
       .select({
         id: apiKeys.id,
@@ -33,6 +34,7 @@ export async function getDashboardOverview(apiKeyId: string) {
       .select({ value: count() })
       .from(trustEvents)
       .where(eq(trustEvents.apiKeyId, apiKeyId)),
+    countX402PaymentsForApiKey(apiKeyId),
   ]);
 
   const plan = key[0]?.plan ?? "free";
@@ -44,6 +46,7 @@ export async function getDashboardOverview(apiKeyId: string) {
     plan,
     usage: { period, count: usage, limit, remaining: Math.max(0, limit - usage) },
     totalQueries: recentEvents[0]?.value ?? 0,
+    settlementAttestations,
   };
 }
 

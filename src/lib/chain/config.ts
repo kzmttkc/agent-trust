@@ -22,10 +22,16 @@ export const WALLET_METRICS_CACHE_TTL_MS = CACHE_TTL_MS;
 /** Base block when ERC-8004 Identity Registry was deployed (verified on-chain). */
 export const IDENTITY_REGISTRY_FROM_BLOCK = BigInt(41_663_783);
 
+/**
+ * Chain signal weights before manual WL/BL policy.
+ * Manual remains a post-score policy layer (not mixed into this sum).
+ * x402 settlement history starts at 10% (Phase 1.5); wallet reduced from 0.30 → 0.20.
+ */
 export const SCORE_WEIGHTS = {
   identity: 0.2,
   reputation: 0.3,
-  wallet: 0.3,
+  wallet: 0.2,
+  x402: 0.1,
+  /** Policy layer — not included in computeWeightedScore. */
   manual: 0.2,
-  x402: 0,
 } as const;

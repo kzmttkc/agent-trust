@@ -9,6 +9,7 @@ type Overview = {
   plan: string;
   usage: { period: string; count: number; limit: number; remaining: number };
   totalQueries: number;
+  settlementAttestations: number;
 };
 
 export default function DashboardOverviewPage() {
@@ -48,7 +49,7 @@ export default function DashboardOverviewPage() {
         <p className="text-sm text-zinc-600">Monitor usage and plan limits for your API key.</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card title="Plan" value={data.plan} subtitle={data.apiKey?.name ?? "Unnamed key"} />
         <Card
           title="This month"
@@ -59,6 +60,11 @@ export default function DashboardOverviewPage() {
           title="Total lookups"
           value={data.totalQueries.toLocaleString()}
           subtitle="All-time API queries"
+        />
+        <Card
+          title="x402 settlements"
+          value={data.settlementAttestations.toLocaleString()}
+          subtitle="Attestations from this key"
         />
       </div>
 

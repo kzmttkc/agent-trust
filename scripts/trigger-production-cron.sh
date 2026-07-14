@@ -21,12 +21,12 @@ case "$JOB" in
       sleep 3
     done
     ;;
-  index-funders|purge-logs)
+  index-funders|purge-logs|monitor-health)
     curl -s -m 120 -H "Authorization: Bearer $CRON_SECRET" "$PROD_URL/api/cron/$JOB"
     echo ""
     ;;
   *)
-    echo "Unknown job: $JOB" >&2
+    echo "Unknown job: $JOB (index-owners|index-funders|purge-logs|monitor-health)" >&2
     exit 1
     ;;
 esac

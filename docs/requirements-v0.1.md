@@ -80,7 +80,7 @@
 | Reputation Registry への書き込み | ガス・法的責任・Phase 2 |
 | マルチチェーン対応 | Base 深掘り優先 |
 | Gitcoin Passport / World ID 連携 | カバレッジ不足（v1.1 で検討） |
-| x402 支払い履歴のスコア加重 | データ不足（スキーマのみ用意） |
+| x402 支払い履歴 | 10%（Phase 1.5） | `POST /v1/payments/x402` 証跡を加重。将来 15–20% |
 | グラフ分析・ML シビル検知 | Phase 2 |
 | トランザクションシミュレーション（案9） | Phase 2 |
 | エンタープライズ SLA / オンプレ | Phase 3 |
@@ -174,9 +174,9 @@
 |---|---|---|
 | ERC-8004 Identity | 20% | 登録有無、メタデータ整合性 |
 | ERC-8004 Reputation | 30% | フィードバック数・平均（シビル補正後） |
-| ウォレット履歴 | 30% | 年齢、TX数、バーナー判定 |
-| 手動 WL/BL | 20% | WL → floor 80、BL → 0 BLOCK |
-| x402 支払い履歴 | 0%（Phase 1.5） | スキーマのみ、データ蓄積後に加重 |
+| ウォレット履歴 | 20% | 年齢、TX数、バーナー判定 |
+| 手動 WL/BL | 政策レイヤ | WL → floor 80、BL → 0 BLOCK（加重ではなく事後適用） |
+| x402 支払い履歴 | 10%（Phase 1.5） | `POST /v1/payments/x402` で蓄積。将来 15–20% |
 
 #### 6.2.2 キャッシュ
 
@@ -330,12 +330,15 @@ customer_lists (
   created_at     TIMESTAMPTZ
 )
 
--- x402 支払い（Phase 1.5 用、初期は空）
+-- x402 支払い（Phase 1.5）
 x402_payments (
   id             UUID PRIMARY KEY,
-  wallet         TEXT,
-  amount         NUMERIC,
-  tx_hash        TEXT,
+  wallet         TEXT NOT NULL,
+  amount         TEXT,
+  tx_hash        TEXT NOT NULL UNIQUE,
+  api_key_id     UUID,
+  network        TEXT NOT NULL DEFAULT 'base',
+  resource       TEXT,
   created_at     TIMESTAMPTZ
 )
 ```

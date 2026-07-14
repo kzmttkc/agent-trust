@@ -15,8 +15,13 @@ type ScoreResult = {
     identity: { registered: boolean; hasMetadataUri: boolean };
     reputation: { feedbackCount: number; avgScore: number; onChainAvgScore: number };
     wallet: { ageDays: number; txCount: number };
+    x402?: { paymentCount: number; uniqueDays: number; score: number };
     sybil: { risk: string; flags: string[] };
     manual: { list: string };
+  };
+  dataCoverage?: {
+    ownerIndexer: { status: string; blocksBehind: number | null; staleRisk: boolean };
+    settlement: { paymentRows: number; walletHasHistory: boolean };
   };
 };
 
@@ -104,8 +109,27 @@ export default function DashboardLookupPage() {
             <Item label="Feedback count" value={String(result.signals.reputation.feedbackCount)} />
             <Item label="On-chain avg score" value={String(result.signals.reputation.onChainAvgScore)} />
             <Item label="Wallet age (days)" value={String(result.signals.wallet.ageDays)} />
+            <Item
+              label="x402 payments"
+              value={String(result.signals.x402?.paymentCount ?? 0)}
+            />
+            <Item
+              label="x402 score"
+              value={String(result.signals.x402?.score ?? 50)}
+            />
             <Item label="Sybil risk" value={result.signals.sybil.risk} />
           </dl>
+          {result.dataCoverage && (
+            <p className="text-sm text-zinc-600">
+              Coverage: indexer {result.dataCoverage.ownerIndexer.status}
+              {result.dataCoverage.ownerIndexer.blocksBehind !== null
+                ? ` (${result.dataCoverage.ownerIndexer.blocksBehind} behind)`
+                : ""}
+              {" · "}
+              settlement rows {result.dataCoverage.settlement.paymentRows}
+              {result.dataCoverage.settlement.walletHasHistory ? " · wallet has history" : ""}
+            </p>
+          )}
           {result.signals.sybil.flags.length > 0 && (
             <p className="text-sm text-zinc-600">
               Flags: {result.signals.sybil.flags.join(", ")}

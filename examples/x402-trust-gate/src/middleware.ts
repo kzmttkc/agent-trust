@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import {
   fetchWalletTrustScore,
+  reportX402Payment,
   shouldReject,
   type TrustScoreResult,
   type VouchTrustGateConfig,
@@ -14,6 +15,13 @@ export type VouchEnabledRequest = Request & {
 export type TrustGateOptions = VouchTrustGateConfig & {
   /** Required in production: extract payer wallet from x402-verified request only. */
   getWallet: (req: Request) => string | undefined;
+  /**
+   * Optional: extract payment tx hash after x402 verification.
+   * When set, successful (non-rejected) requests attest settlement to Vouch.
+   */
+  getPaymentTxHash?: (req: Request) => string | undefined;
+  getPaymentAmount?: (req: Request) => string | undefined;
+  getPaymentResource?: (req: Request) => string | undefined;
 };
 
 /**
@@ -43,6 +51,23 @@ export function createVouchTrustGate(options: TrustGateOptions) {
           trustScore: trust.trustScore,
           wallet,
           agentId: trust.agentId,
+        });
+      }
+
+      const txHash = options.getPaymentTxHash?.(req);
+      if (txHash) {
+        void reportX402Payment(
+          {
+            wallet,
+            txHash,
+            amount: options.getPaymentAmount?.(req),
+            resource: options.getPaymentResource?.(req) ?? req.path,
+            network: "base",
+          },
+          options,
+        ).catch((error) => {
+          const message = error instanceof Error ? error.message : "attest_failed";
+          console.error("[vouch-trust-gate] settlement attest failed:", message);
         });
       }
 

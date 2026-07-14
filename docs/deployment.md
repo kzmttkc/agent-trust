@@ -115,7 +115,18 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 Wire an external uptime monitor to alert on **503**. Optionally alert separately on `checks.owner_indexer === "lagging"` without treating it as an outage.
 
-Indexer lag flag threshold: `HEALTH_INDEXER_LAG_BLOCKS` (default `500000`). Scores remain available during partial sync; API responses include `dataCoverage.ownerIndexer` (`synced` | `partial`, plus `staleRisk`).
+Indexer lag flag threshold: `HEALTH_INDEXER_LAG_BLOCKS` (default `500000`). Scores remain available during partial sync; API responses include `dataCoverage.ownerIndexer` (`synced` | `partial`, plus `staleRisk`) and `dataCoverage.settlement` (attested x402 payment volume).
+
+Settlement write-back (Phase 1.5):
+
+```bash
+curl -X POST -H "Authorization: Bearer $VOUCH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"wallet":"0x...","txHash":"0x..."}' \
+  https://your-domain.com/api/v1/payments/x402
+```
+
+Schema patch (if upgrading an existing DB): `scripts/sql/2026-07-14-x402-payments.sql`
 
 Partial ownership index: sybil `multi_agent_owner` uses ERC-721 `balanceOf` (not truncated log scans) cross-checked with the DB index.
 

@@ -1,5 +1,5 @@
 import type { Address } from "viem";
-import { SCORE_THRESHOLDS } from "@/lib/chain/config";
+import { SCORE_THRESHOLDS, SCORE_WEIGHTS } from "@/lib/chain/config";
 import type { Recommendation } from "./types";
 
 export function toRecommendation(score: number, isBlacklisted: boolean): Recommendation {
@@ -54,14 +54,45 @@ export function dampenReputationForSybil(reputationScore: number, flags: string[
   return reputationScore;
 }
 
+/**
+ * Weighted chain score. Missing x402 history scores near-neutral (50) so
+ * wallets without settlement attestations are not harshly penalized while the
+ * network is bootstrapping.
+ */
+export function scoreX402Payments(params: {
+  paymentCount: number;
+  uniqueDays: number;
+}): number {
+  if (params.paymentCount <= 0) return 50;
+
+  let score = 55;
+  if (params.paymentCount >= 20) score += 30;
+  else if (params.paymentCount >= 10) score += 22;
+  else if (params.paymentCount >= 5) score += 15;
+  else if (params.paymentCount >= 2) score += 8;
+  else score += 4;
+
+  if (params.uniqueDays >= 14) score += 10;
+  else if (params.uniqueDays >= 7) score += 6;
+  else if (params.uniqueDays >= 3) score += 3;
+
+  return clamp(score);
+}
+
 export function computeWeightedScore(
   identityScore: number,
   reputationScore: number,
   walletScore: number,
+  x402Score = 50,
 ): number {
+  const { identity, reputation, wallet, x402 } = SCORE_WEIGHTS;
+  const weightSum = identity + reputation + wallet + x402;
   const raw =
-    identityScore * 0.2 + reputationScore * 0.3 + walletScore * 0.3;
-  return clamp(raw / 0.8);
+    identityScore * identity +
+    reputationScore * reputation +
+    walletScore * wallet +
+    x402Score * x402;
+  return clamp(raw / weightSum);
 }
 
 export function applySybilPenalty(baseScore: number, flags: string[]): number {

@@ -1,0 +1,93 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  applyRateLimit,
+  authenticateApiRequest,
+  withRateLimitHeaders,
+} from "@/lib/api/guard";
+import { isValidAddress } from "@/lib/chain/client";
+import { recordX402Payment } from "@/lib/db/x402-payments";
+import { invalidateScoreCacheForListChange } from "@/lib/scoring/cache-invalidation";
+import { logServerError } from "@/lib/util/log";
+
+const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
+
+const bodySchema = z.object({
+  wallet: z.string().min(1),
+  txHash: z.string().min(1),
+  amount: z.string().max(78).optional(),
+  network: z.string().max(32).optional(),
+  resource: z.string().max(512).optional(),
+});
+
+/**
+ * POST /api/v1/payments/x402
+ *
+ * Provider write-back after x402 payment verification.
+ * Idempotent on txHash. Weights into trust score (SCORE_WEIGHTS.x402).
+ */
+export async function POST(request: NextRequest) {
+  const auth = await authenticateApiRequest(request);
+  if (!auth.ok) return auth.error;
+
+  const limited = await applyRateLimit(auth.ctx, 1);
+  if (!limited.ok) return limited.error;
+
+  let json: unknown;
+  try {
+    json = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  const parsed = bodySchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "invalid_body", details: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+
+  const { wallet, txHash, amount, network, resource } = parsed.data;
+
+  if (!isValidAddress(wallet)) {
+    return NextResponse.json({ error: "invalid_wallet_address" }, { status: 400 });
+  }
+  if (!TX_HASH_RE.test(txHash)) {
+    return NextResponse.json({ error: "invalid_tx_hash" }, { status: 400 });
+  }
+
+  try {
+    const result = await recordX402Payment({
+      wallet,
+      txHash,
+      amount: amount ?? null,
+      apiKeyId: auth.ctx.apiKeyId,
+      network: network ?? "base",
+      resource: resource ?? null,
+    });
+
+    if (result.created) {
+      void invalidateScoreCacheForListChange(wallet).catch((error) =>
+        logServerError("x402_cache_invalidate", error),
+      );
+    }
+
+    return withRateLimitHeaders(
+      NextResponse.json(
+        {
+          ok: true,
+          created: result.created,
+          id: result.id,
+          wallet: wallet.toLowerCase(),
+          txHash: txHash.toLowerCase(),
+        },
+        { status: result.created ? 201 : 200 },
+      ),
+      limited.rateLimit,
+    );
+  } catch (error) {
+    logServerError("x402_payment_ingest", error);
+    return NextResponse.json({ error: "payment_ingest_unavailable" }, { status: 503 });
+  }
+}

@@ -26,6 +26,8 @@ security:
 tags:
   - name: Scores
     description: Trust score lookups
+  - name: Settlements
+    description: x402 payment attestations
   - name: System
     description: Health and metadata
 
@@ -98,6 +100,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BatchScoreResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /payments/x402:
+    post:
+      operationId: attestX402Payment
+      tags: [Settlements]
+      summary: Attest an x402 payment settlement
+      description: |
+        Call after x402 payment verification. Idempotent on `txHash`.
+        Settlement history is weighted into trust scores (SCORE_WEIGHTS.x402).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet, txHash]
+              properties:
+                wallet:
+                  type: string
+                  pattern: "^0x[a-fA-F0-9]{40}$"
+                txHash:
+                  type: string
+                  pattern: "^0x[a-fA-F0-9]{64}$"
+                amount:
+                  type: string
+                  description: Payment amount as decimal string (smallest unit OK)
+                network:
+                  type: string
+                  default: base
+                resource:
+                  type: string
+                  description: Paid route or resource identifier
+      responses:
+        "201":
+          description: Payment attested
+        "200":
+          description: Already attested (idempotent)
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -180,7 +225,7 @@ components:
 
     TrustSignals:
       type: object
-      required: [identity, reputation, wallet, sybil, manual]
+      required: [identity, reputation, wallet, x402, sybil, manual]
       properties:
         identity:
           type: object
@@ -203,6 +248,14 @@ components:
             ageDays: { type: integer }
             txCount: { type: integer }
             isBurner: { type: boolean }
+        x402:
+          type: object
+          properties:
+            paymentCount: { type: integer }
+            uniqueDays: { type: integer }
+            score:
+              type: number
+              description: Internal 0–100 settlement component
         sybil:
           type: object
           properties:
@@ -258,6 +311,27 @@ components:
         blockReason:
           type: string
           description: Present when recommendation is BLOCK (e.g. wallet_mismatch, operator_policy)
+        dataCoverage:
+          type: object
+          description: Indexer and settlement data freshness
+          properties:
+            ownerIndexer:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [synced, partial, unavailable]
+                blocksBehind:
+                  type: integer
+                  nullable: true
+                staleRisk: { type: boolean }
+            settlement:
+              type: object
+              properties:
+                paymentRows: { type: integer }
+                distinctWallets: { type: integer }
+                recentPayments30d: { type: integer }
+                walletHasHistory: { type: boolean }
 
     BatchScoreRequest:
       type: object

@@ -20,11 +20,13 @@ import {
   normalizeWalletScore,
   scoreIdentity,
   scoreReputation,
+  scoreX402Payments,
   toRecommendation,
   walletsMatch,
 } from "./helpers";
 import { assessSybilRisk, detectReputationSybilFlags, detectSybilFlags } from "./sybil";
 import type { AgentIdentity } from "@/lib/chain/erc8004";
+import { getX402PaymentStats } from "@/lib/db/x402-payments";
 import { getDataCoverage } from "@/lib/health/data-coverage";
 import type { ScoreRequestContext, TrustScoreResult, TrustSignals } from "./types";
 
@@ -139,6 +141,11 @@ export async function scoreAgentById(
     txCount: walletMetrics?.txCount ?? 0,
   });
 
+  const x402Stats = walletAddress
+    ? await getX402PaymentStats(walletAddress)
+    : { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null };
+  const x402Score = scoreX402Payments(x402Stats);
+
   const identityScore = scoreIdentity(identity.registered, Boolean(identity.tokenUri));
   const onChainAvg =
     reputation.count > 0
@@ -179,7 +186,7 @@ export async function scoreAgentById(
   reputationScore = dampenReputationForSybil(reputationScore, sybilFlags);
 
   const prePolicyScore = applySybilPenalty(
-    computeWeightedScore(identityScore, reputationScore, walletScore.score),
+    computeWeightedScore(identityScore, reputationScore, walletScore.score, x402Score),
     sybilFlags,
   );
 
@@ -197,6 +204,11 @@ export async function scoreAgentById(
       ageDays: walletMetrics?.ageDays ?? 0,
       txCount: walletMetrics?.txCount ?? 0,
       isBurner: walletScore.isBurner,
+    },
+    x402: {
+      paymentCount: x402Stats.paymentCount,
+      uniqueDays: x402Stats.uniqueDays,
+      score: x402Score,
     },
     sybil: {
       risk: sybilRisk,
@@ -268,6 +280,9 @@ export async function scoreWallet(
     txCount: walletMetrics.txCount,
   });
 
+  const x402Stats = await getX402PaymentStats(address);
+  const x402Score = scoreX402Payments(x402Stats);
+
   const sybilFlags = await detectSybilFlags({
     identity: {
       agentId: BigInt(0),
@@ -286,7 +301,7 @@ export async function scoreWallet(
 
   const sybilRisk = assessSybilRisk(sybilFlags);
   const prePolicyScore = applySybilPenalty(
-    computeWeightedScore(30, 30, walletScore.score),
+    computeWeightedScore(30, 30, walletScore.score, x402Score),
     sybilFlags,
   );
 
@@ -297,6 +312,11 @@ export async function scoreWallet(
       ageDays: walletMetrics.ageDays,
       txCount: walletMetrics.txCount,
       isBurner: walletScore.isBurner,
+    },
+    x402: {
+      paymentCount: x402Stats.paymentCount,
+      uniqueDays: x402Stats.uniqueDays,
+      score: x402Score,
     },
     sybil: {
       risk: sybilRisk,
@@ -358,7 +378,7 @@ async function applyPolicyLayer(
     scoredAt: new Date(now).toISOString(),
     cacheExpiresAt: new Date(payload.expiresAt).toISOString(),
   });
-  result.dataCoverage = await getDataCoverage();
+  result.dataCoverage = await getDataCoverage(payload.wallet);
   return result;
 }
 
@@ -417,7 +437,7 @@ async function buildBlockedResult(
     }),
     blockReason: reason,
   };
-  result.dataCoverage = await getDataCoverage();
+  result.dataCoverage = await getDataCoverage(wallet);
   return result;
 }
 
@@ -513,6 +533,7 @@ function emptySignals(
       onChainAvgScore: 0,
     },
     wallet: partial.wallet ?? { ageDays: 0, txCount: 0, isBurner: false },
+    x402: partial.x402 ?? { paymentCount: 0, uniqueDays: 0, score: 50 },
     sybil: partial.sybil ?? { risk: "low", flags: [] },
     manual: partial.manual ?? { list: "none" },
   };

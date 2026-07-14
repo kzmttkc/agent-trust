@@ -179,10 +179,21 @@ export const dashboardSessions = pgTable(
   ],
 );
 
-export const x402Payments = pgTable("x402_payments", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  wallet: text("wallet"),
-  amount: text("amount"),
-  txHash: text("tx_hash"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const x402Payments = pgTable(
+  "x402_payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    wallet: text("wallet").notNull(),
+    amount: text("amount"),
+    txHash: text("tx_hash").notNull(),
+    apiKeyId: uuid("api_key_id"),
+    network: text("network").notNull().default("base"),
+    resource: text("resource"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("x402_payments_tx_hash_idx").on(t.txHash),
+    index("x402_payments_wallet_created_idx").on(t.wallet, t.createdAt),
+    index("x402_payments_api_key_idx").on(t.apiKeyId),
+  ],
+);

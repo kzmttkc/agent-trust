@@ -197,6 +197,7 @@ examples/
 | M3 | ✅ Done | Dashboard, WL/BL |
 | M4 | ✅ Done | MCP server, x402 sample, docs |
 | M5 | ✅ Done | Closed β deploy, funder indexer, signup + Stripe, log retention |
+| M6 | ✅ Done | x402 payment attestations + 10% score weight |
 
 ## License
 

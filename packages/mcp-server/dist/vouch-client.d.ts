@@ -18,6 +18,11 @@ export type TrustScoreResult = {
             txCount: number;
             isBurner: boolean;
         };
+        x402?: {
+            paymentCount: number;
+            uniqueDays: number;
+            score: number;
+        };
         sybil: {
             risk: string;
             flags: string[];

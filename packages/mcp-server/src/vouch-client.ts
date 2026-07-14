@@ -7,6 +7,7 @@ export type TrustScoreResult = {
     identity: { registered: boolean; hasMetadataUri: boolean };
     reputation: { feedbackCount: number; avgScore: number; onChainAvgScore: number };
     wallet: { ageDays: number; txCount: number; isBurner: boolean };
+    x402?: { paymentCount: number; uniqueDays: number; score: number };
     sybil: { risk: string; flags: string[] };
     manual: { list: string };
   };
