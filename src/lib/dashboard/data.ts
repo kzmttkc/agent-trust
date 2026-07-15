@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import { getPlanLimit } from "@/lib/api/auth";
 import { currentUsagePeriod } from "@/lib/api/rate-limit";
 import { ensureOwnerUserId } from "@/lib/db/api-keys";
@@ -62,6 +62,9 @@ export async function getTrustEventLogs(apiKeyId: string, limit = 50) {
       trustScore: trustEvents.trustScore,
       recommendation: trustEvents.recommendation,
       createdAt: trustEvents.createdAt,
+      // "payee_score" for buyer-side queries (persistPayeeScoreResult);
+      // NULL for seller-side agent/wallet queries and all legacy rows.
+      kind: sql<string | null>`${trustEvents.signals}->>'kind'`,
     })
     .from(trustEvents)
     .where(eq(trustEvents.apiKeyId, apiKeyId))

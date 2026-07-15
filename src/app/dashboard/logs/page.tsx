@@ -11,6 +11,7 @@ type Log = {
   trustScore: number | null;
   recommendation: string | null;
   createdAt: string | null;
+  kind: string | null;
 };
 
 export default function DashboardLogsPage() {
@@ -55,6 +56,7 @@ export default function DashboardLogsPage() {
           <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
             <tr>
               <th className="px-4 py-3 font-medium">Time</th>
+              <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 font-medium">Agent</th>
               <th className="px-4 py-3 font-medium">Wallet</th>
               <th className="px-4 py-3 font-medium">Score</th>
@@ -67,6 +69,17 @@ export default function DashboardLogsPage() {
                 <td className="px-4 py-3 text-xs text-zinc-600">
                   {log.createdAt ? new Date(log.createdAt).toLocaleString() : "—"}
                 </td>
+                <td className="px-4 py-3">
+                  {log.kind === "payee_score" ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                      Payee
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
+                      Wallet
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 font-mono text-xs">{log.agentId ?? "—"}</td>
                 <td className="px-4 py-3 font-mono text-xs">{log.wallet ?? "—"}</td>
                 <td className="px-4 py-3">{log.trustScore ?? "—"}</td>
@@ -75,7 +88,7 @@ export default function DashboardLogsPage() {
             ))}
             {logs.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                <td colSpan={6} className="px-4 py-6 text-center text-zinc-500">
                   No queries logged yet.
                 </td>
               </tr>
