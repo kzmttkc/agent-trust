@@ -101,6 +101,27 @@ export async function fetchWalletTransactions(
   return result;
 }
 
+/**
+ * Current native-token balance (wei), via Blockscout's Etherscan-compatible
+ * `account/balance` endpoint. This is a live snapshot, not a historical
+ * balance at a given block — used by the outcome detector as a same-call
+ * proxy for "how much is left" when sizing an outflow.
+ */
+export async function fetchWalletBalance(address: Address): Promise<bigint | null> {
+  const result = await blockscoutGet<string>({
+    module: "account",
+    action: "balance",
+    address,
+  });
+
+  if (result === null) return null;
+  try {
+    return BigInt(result);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchFirstIncomingTransfer(
   address: Address,
 ): Promise<{ funder: Address; blockNumber: bigint; timestamp: number } | null> {

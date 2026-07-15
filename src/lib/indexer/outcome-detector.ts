@@ -1,5 +1,5 @@
 import type { Address } from "viem";
-import { fetchWalletTransactions } from "@/lib/chain/blockscout";
+import { fetchWalletBalance, fetchWalletTransactions } from "@/lib/chain/blockscout";
 import { fetchRecentFeedbackStats, fetchReputationSummary } from "@/lib/chain/erc8004";
 import { getDb } from "@/lib/db/client";
 import {
@@ -27,6 +27,24 @@ const WATCH_WINDOW_DAYS = 7;
 // accuracy can be measured later, not to be a definitive fraud detector.
 const DORMANT_THRESHOLD_MINUTES = 24 * 60; // no tx at all since the event for a full day
 const RUG_PULL_QUIET_MINUTES = 12 * 60; // quiet period after an outgoing transfer
+// A single small outgoing transfer followed by a quiet spell is not, on its
+// own, "rug pull"-shaped — plenty of healthy wallets pay out once and go
+// idle. We require the outflow to look like an actual drain: either a
+// pattern of repeated withdrawals, or a single/few withdrawals that took
+// most of the wallet's tracked value with them.
+const RUG_PULL_MIN_OUTFLOW_COUNT = 2; // 2+ separate outgoing transfers since the event
+const RUG_PULL_HIGH_DRAIN_RATIO = 0.8; // outgoing / (outgoing + what's left now) >= 80%
+// drainRatio is a ratio with no absolute-value floor, so a long-dormant
+// wallet sitting on a few wei of dust can hit ratio >= 0.8 by sending out a
+// trivial amount (e.g. 5 wei balance, 100 wei outflow => ratio ~= 0.95) —
+// that's not a rug pull, it's noise. Chain targeted is Base (see
+// src/lib/chain/config.ts BASE_CHAIN_ID), native token ETH, 18 decimals.
+// 0.005 ETH (~$10-20 at typical ETH prices) is comfortably above dust/gas
+// residue — which on Base is routinely sub-cent, many orders of magnitude
+// below this — while still being a low bar for an agent wallet that was
+// actually entrusted with funds worth draining. This is a fixed wei
+// threshold, not a live USD conversion (no external price API called).
+const RUG_PULL_MIN_DRAIN_VALUE_WEI = 5_000_000_000_000_000n; // 0.005 ETH
 const HEALTHY_MIN_TX_COUNT = 5;
 const HEALTHY_MIN_DISTINCT_DAYS = 2;
 const HEALTHY_MIN_WINDOW_MINUTES = 24 * 60; // don't call it "healthy" before a day has passed
@@ -48,8 +66,14 @@ type ActivityVerdict = {
 /**
  * Classifies wallet activity since a trust event using the most recent 100
  * transactions (Blockscout, sorted desc). Returns null when there isn't yet
- * enough signal to call a terminal verdict — the event stays "watched" and
- * gets re-checked on a later run.
+ * enough signal to call a verdict — the event stays "watched" and gets
+ * re-checked on a later run.
+ *
+ * rug_pull_outflow is provisional, not terminal (see
+ * TERMINAL_ACTIVITY_OUTCOME_TYPES in outcome-writer.ts): a wallet that goes
+ * quiet after a drain-shaped outflow can still earn sustained_healthy_activity
+ * on a later scan if it resumes normal activity, which overrides the
+ * rug-pull read for that trust_event.
  */
 async function classifyWalletActivity(
   wallet: Address,
@@ -82,15 +106,52 @@ async function classifyWalletActivity(
   );
 
   if (outgoing.length > 0 && quietMinutes >= RUG_PULL_QUIET_MINUTES) {
-    return {
-      outcomeType: "rug_pull_outflow",
-      evidence: {
-        windowMinutes,
-        quietMinutes,
-        outgoingCount: outgoing.length,
-        lastOutgoingTxHash: outgoing[0]!.hash,
-      },
-    };
+    const outgoingValueTotal = outgoing.reduce(
+      (sum, tx) => sum + BigInt(tx.value),
+      BigInt(0),
+    );
+
+    // drainRatio approximates "what fraction of tracked value left the
+    // wallet": outgoing / (outgoing + current balance). It's a live-balance
+    // proxy, not a true historical balance at the time of the event, but
+    // it's real on-chain data and the best available without per-block
+    // balance queries. A failed balance lookup just drops this signal for
+    // the current scan (repeatedWithdrawals can still trigger); it doesn't
+    // throw, since a single flaky Blockscout call shouldn't block the rest
+    // of detectForTrustEvent.
+    let drainRatio: number | null = null;
+    try {
+      const currentBalance = await fetchWalletBalance(wallet);
+      if (currentBalance !== null) {
+        const denominator = outgoingValueTotal + currentBalance;
+        drainRatio =
+          denominator > BigInt(0)
+            ? Number((outgoingValueTotal * BigInt(10_000)) / denominator) / 10_000
+            : 1;
+      }
+    } catch (err) {
+      console.error(`outcome-detector: balance lookup failed for ${wallet}`, err);
+    }
+
+    const repeatedWithdrawals = outgoing.length >= RUG_PULL_MIN_OUTFLOW_COUNT;
+    const highDrainRatio =
+      drainRatio !== null &&
+      drainRatio >= RUG_PULL_HIGH_DRAIN_RATIO &&
+      outgoingValueTotal >= RUG_PULL_MIN_DRAIN_VALUE_WEI;
+
+    if (repeatedWithdrawals || highDrainRatio) {
+      return {
+        outcomeType: "rug_pull_outflow",
+        evidence: {
+          windowMinutes,
+          quietMinutes,
+          outgoingCount: outgoing.length,
+          outgoingValueTotal: outgoingValueTotal.toString(),
+          drainRatio,
+          lastOutgoingTxHash: outgoing[0]!.hash,
+        },
+      };
+    }
   }
 
   const distinctDays = new Set(

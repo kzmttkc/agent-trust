@@ -7,11 +7,25 @@ import { logServerError } from "@/lib/util/log";
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 const bodySchema = z.object({
   outcomeType: z.enum(["confirmed_fraud", "confirmed_legitimate", "chargeback_dispute", "other"]),
   relatedWallet: z.string().min(1).optional(),
   notes: z.string().max(1000).optional(),
-  evidenceUrl: z.string().url().max(2048).optional(),
+  evidenceUrl: z
+    .string()
+    .url()
+    .max(2048)
+    .refine(isHttpUrl, { message: "evidenceUrl must use http or https" })
+    .optional(),
 });
 
 type RouteContext = { params: Promise<{ trustEventId: string }> };

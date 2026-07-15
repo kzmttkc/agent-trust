@@ -16,15 +16,24 @@ export type PartnerOutcomeType =
   | "other";
 
 /**
- * outcome_type values that are mutually-exclusive terminal verdicts about a
- * wallet's post-score activity. Once one of these is recorded (source=auto)
- * for a trust_event, the outcome-detector stops re-scanning that wallet's
- * transaction history — it has reached a conclusion. ownership_changed and
- * reputation_negative_feedback are independent side-signals and don't gate
- * re-scanning on their own.
+ * outcome_type values that are terminal verdicts about a wallet's post-score
+ * activity: once one of these is recorded (source=auto) for a trust_event,
+ * the outcome-detector stops re-scanning that wallet's transaction history —
+ * it has reached a conclusion that resumed activity can no longer change
+ * (wallet_dormant) or that already required sustained activity to earn
+ * (sustained_healthy_activity).
+ *
+ * rug_pull_outflow is deliberately NOT terminal. It's a provisional verdict:
+ * the event stays in the watched set (see collectWatchedTrustEvents) so a
+ * later scan can still land sustained_healthy_activity if the wallet resumes
+ * normal activity, overriding the rug-pull read. If the wallet never resumes,
+ * the provisional verdict simply stands once the trust_event ages out of
+ * WATCH_WINDOW_DAYS and stops being rescanned — see
+ * src/lib/indexer/outcome-detector.ts for the detection logic.
+ * ownership_changed and reputation_negative_feedback are independent
+ * side-signals and don't gate re-scanning on their own.
  */
 export const TERMINAL_ACTIVITY_OUTCOME_TYPES: AutoOutcomeType[] = [
-  "rug_pull_outflow",
   "wallet_dormant",
   "sustained_healthy_activity",
 ];
