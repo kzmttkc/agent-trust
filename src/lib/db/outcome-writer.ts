@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "./client";
 import { trustEvents, verdictOutcomes } from "./schema";
 
@@ -176,6 +176,53 @@ export async function getTrustEventById(trustEventId: string): Promise<TrustEven
     createdAt: row.createdAt,
     signals: row.signals,
   };
+}
+
+export type WalletOutcomeRow = {
+  outcomeType: string;
+  source: string;
+  detectedAt: Date;
+  evidence: unknown;
+};
+
+/**
+ * Outcome history for a wallet named as `relatedWallet` on any verdict —
+ * used by the payee scoring engine (src/lib/scoring/payee-engine.ts) to
+ * factor in prior fraud/legitimacy labels. Same degrade-to-empty discipline
+ * as collectWatchedTrustEvents: verdict_outcomes may not be migrated in
+ * every environment yet, so a missing table must read as "no history", not
+ * an error.
+ */
+export async function getOutcomesForWallet(
+  wallet: string,
+  limit = 20,
+): Promise<WalletOutcomeRow[]> {
+  const db = getDb();
+  if (!db) return [];
+
+  try {
+    const rows = await db
+      .select({
+        outcomeType: verdictOutcomes.outcomeType,
+        source: verdictOutcomes.source,
+        detectedAt: verdictOutcomes.detectedAt,
+        evidence: verdictOutcomes.evidence,
+      })
+      .from(verdictOutcomes)
+      // relatedWallet is not consistently lowercased at write time (it can
+      // come from a checksummed on-chain address), so compare case-insensitively.
+      .where(sql`lower(${verdictOutcomes.relatedWallet}) = ${wallet.toLowerCase()}`)
+      .orderBy(desc(verdictOutcomes.detectedAt))
+      .limit(limit);
+
+    return rows;
+  } catch (err) {
+    console.error(
+      "outcome-writer: getOutcomesForWallet failed, degrading to no-op (verdict_outcomes likely not migrated yet)",
+      err,
+    );
+    return [];
+  }
 }
 
 export type RecordPartnerOutcomeInput = {

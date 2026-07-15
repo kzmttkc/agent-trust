@@ -237,11 +237,22 @@ export const x402Payments = pgTable(
     apiKeyId: uuid("api_key_id"),
     network: text("network").notNull().default("base"),
     resource: text("resource"),
+    /**
+     * Receiving wallet — the `to` side of the verified ERC20 Transfer log
+     * (see extractPayeeFromReceipt in src/lib/chain/x402-verify.ts). `wallet`
+     * above stays the payer for backward compatibility with existing
+     * payer-side scoring (scoreX402Payments). Nullable: pre-existing rows
+     * predate this column (see scripts/backfill-payee.ts) and a small number
+     * of settlements cannot be resolved to a Transfer log at all (native
+     * transfer edge case — see that function's fallback comment).
+     */
+    payee: text("payee"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [
     uniqueIndex("x402_payments_tx_hash_idx").on(t.txHash),
     index("x402_payments_wallet_created_idx").on(t.wallet, t.createdAt),
     index("x402_payments_api_key_idx").on(t.apiKeyId),
+    index("x402_payments_payee_created_idx").on(t.payee, t.createdAt),
   ],
 );

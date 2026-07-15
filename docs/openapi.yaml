@@ -28,6 +28,8 @@ security:
 tags:
   - name: Scores
     description: Trust score lookups
+  - name: Payees
+    description: Buyer-side screening of payment-receiving wallets
   - name: Settlements
     description: x402 payment attestations
   - name: Outcomes
@@ -78,6 +80,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrustScoreResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /payees/{address}:
+    get:
+      operationId: getPayeeScore
+      tags: [Payees]
+      summary: Get trust score for a payee (payment-receiving wallet)
+      description: |
+        Buyer-side counterpart to `/agents/{agentId}/score` and `/wallets/{address}/score`,
+        which screen the caller of an x402 route. This endpoint screens the *recipient*:
+        "should my agent pay this wallet?" before an x402 payment is sent.
+
+        Combines the wallet's own settlement receiving history (payments attested via
+        `POST /payments/x402` where it was the payee), wallet-age/tx-count health, an
+        exit-scam-shaped outflow check (received funds then drained them), and any prior
+        `verdict_outcomes` labels naming this wallet.
+
+        Never 404s for an unfamiliar wallet — a wallet with little or no receiving
+        history still returns `200` with `dataDepth: "thin"`, so integrators can decide
+        how much to trust a thin-data score rather than being blocked outright.
+      parameters:
+        - $ref: "#/components/parameters/WalletAddress"
+      responses:
+        "200":
+          description: Payee score result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayeeScoreResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -394,6 +430,94 @@ components:
                 distinctWallets: { type: integer }
                 recentPayments30d: { type: integer }
                 walletHasHistory: { type: boolean }
+
+    DataDepth:
+      type: string
+      enum: [thin, moderate, rich]
+      description: |
+        How much receiving history this score could draw on. `thin` wallets lean more
+        heavily on wallet-health and outflow-pattern signals since there isn't much
+        settlement track record yet; `rich` wallets are judged mostly on that track
+        record. Integrators should treat a `thin` score as lower-confidence.
+
+    PayeeSignals:
+      type: object
+      required: [receiving, walletHealth, drainPattern, outcomeHistory, flags]
+      properties:
+        receiving:
+          type: object
+          description: Settlement history where this wallet was the payee (attested via POST /payments/x402)
+          properties:
+            paymentCount: { type: integer }
+            uniqueDays: { type: integer }
+            distinctPayers: { type: integer }
+            score:
+              type: number
+              description: Internal 0-100 receiving-track-record component
+        walletHealth:
+          type: object
+          description: Reused from the same on-chain wallet-age/tx-count/burner heuristics as the seller-side score
+          properties:
+            ageDays: { type: integer }
+            txCount: { type: integer }
+            isBurner: { type: boolean }
+            score:
+              type: number
+              description: Internal 0-100 wallet-health component
+        drainPattern:
+          type: object
+          description: Exit-scam-shaped check — received funds, then pulled out (near-)everything
+          properties:
+            detected: { type: boolean }
+            drainRatio:
+              type: number
+              nullable: true
+              description: outgoing / (outgoing + current balance) over the wallet's recent transactions
+            outgoingCount: { type: integer }
+            incomingCount: { type: integer }
+            score:
+              type: number
+              description: Internal 0-100 drain-pattern component
+        outcomeHistory:
+          type: object
+          description: Prior verdict_outcomes labels naming this wallet (auto-detected or partner-reported)
+          properties:
+            types:
+              type: array
+              items: { type: string }
+            adjustment:
+              type: number
+              description: Net point adjustment applied to the pre-outcome weighted score
+        flags:
+          type: array
+          items: { type: string }
+          description: e.g. wallet_metrics_unavailable, drain_check_unavailable, new_burner_wallet, negative_outcome:rug_pull_outflow
+
+    PayeeScoreResult:
+      type: object
+      required: [payee, score, recommendation, dataDepth, signals, scoredAt, cacheExpiresAt, disclaimer]
+      properties:
+        payee:
+          type: string
+          description: Lowercased wallet address that was scored
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        recommendation:
+          $ref: "#/components/schemas/Recommendation"
+        dataDepth:
+          $ref: "#/components/schemas/DataDepth"
+        signals:
+          $ref: "#/components/schemas/PayeeSignals"
+        scoredAt:
+          type: string
+          format: date-time
+        cacheExpiresAt:
+          type: string
+          format: date-time
+        disclaimer:
+          type: string
 
     BatchScoreRequest:
       type: object

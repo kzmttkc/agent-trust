@@ -9,6 +9,12 @@ type BlockscoutTx = {
   value: string;
 };
 
+type BlockscoutTokenTx = BlockscoutTx & {
+  contractAddress: string;
+  tokenDecimal: string;
+  tokenSymbol: string;
+};
+
 type BlockscoutResponse<T> = {
   status: string;
   message: string;
@@ -99,6 +105,70 @@ export async function fetchWalletTransactions(
 
   if (!result || typeof result === "string") return [];
   return result;
+}
+
+/**
+ * ERC20 transfer history for a wallet, via Blockscout's Etherscan-compatible
+ * `account/tokentx` endpoint (same unauthenticated API family as `txlist`).
+ * When `contractAddress` is given, results are filtered to that token both
+ * server-side (Blockscout honors the param) and client-side (defensive, in
+ * case a proxy or older instance ignores it). `value` is in the token's own
+ * smallest unit (e.g. 6 decimals for USDC), not wei.
+ */
+export async function fetchTokenTransfers(
+  address: Address,
+  options: {
+    contractAddress?: Address;
+    sort?: "asc" | "desc";
+    offset?: number;
+    page?: number;
+  } = {},
+): Promise<BlockscoutTokenTx[]> {
+  const params: Record<string, string> = {
+    module: "account",
+    action: "tokentx",
+    address,
+    startblock: "0",
+    endblock: "99999999",
+    page: String(options.page ?? 1),
+    offset: String(options.offset ?? 100),
+    sort: options.sort ?? "asc",
+  };
+  if (options.contractAddress) {
+    params.contractaddress = options.contractAddress;
+  }
+
+  const result = await blockscoutGet<BlockscoutTokenTx[] | string>(params);
+
+  if (!result || typeof result === "string") return [];
+  if (!options.contractAddress) return result;
+
+  const contractLower = options.contractAddress.toLowerCase();
+  return result.filter((tx) => tx.contractAddress?.toLowerCase() === contractLower);
+}
+
+/**
+ * Current ERC20 token balance (in the token's smallest unit), via
+ * Blockscout's Etherscan-compatible `account/tokenbalance` endpoint. Live
+ * snapshot, same caveat as fetchWalletBalance below.
+ */
+export async function fetchTokenBalance(
+  address: Address,
+  contractAddress: Address,
+): Promise<bigint | null> {
+  const result = await blockscoutGet<string>({
+    module: "account",
+    action: "tokenbalance",
+    contractaddress: contractAddress,
+    address,
+  });
+
+  if (result === null) return null;
+  try {
+    return BigInt(result);
+  } catch {
+    return null;
+  }
 }
 
 /**

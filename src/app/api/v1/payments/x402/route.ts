@@ -9,6 +9,7 @@ import { isValidAddress } from "@/lib/chain/client";
 import { verifyX402PaymentOnChain } from "@/lib/chain/x402-verify";
 import { recordX402Payment } from "@/lib/db/x402-payments";
 import { invalidateScoreCacheForListChange } from "@/lib/scoring/cache-invalidation";
+import { invalidatePayeeScoreCache } from "@/lib/scoring/payee-engine";
 import { logServerError } from "@/lib/util/log";
 
 const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
@@ -85,12 +86,16 @@ export async function POST(request: NextRequest) {
       apiKeyId: auth.ctx.apiKeyId,
       network: resolvedNetwork,
       resource: resource ?? null,
+      payee: verification.payee,
     });
 
     if (result.created) {
       void invalidateScoreCacheForListChange(wallet).catch((error) =>
         logServerError("x402_cache_invalidate", error),
       );
+      if (verification.payee) {
+        invalidatePayeeScoreCache(verification.payee);
+      }
     }
 
     return withRateLimitHeaders(
@@ -101,6 +106,7 @@ export async function POST(request: NextRequest) {
           id: result.id,
           wallet: wallet.toLowerCase(),
           txHash: txHash.toLowerCase(),
+          payee: verification.payee,
         },
         { status: result.created ? 201 : 200 },
       ),

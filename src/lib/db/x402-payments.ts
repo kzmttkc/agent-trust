@@ -1,6 +1,8 @@
 import { count, countDistinct, desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "./client";
+import { isMissingSchemaError } from "./pg-errors";
 import { x402Payments } from "./schema";
+import { logServerError } from "@/lib/util/log";
 
 export type X402PaymentStats = {
   paymentCount: number;
@@ -15,9 +17,19 @@ export type RecordX402PaymentInput = {
   apiKeyId?: string | null;
   network?: string;
   resource?: string | null;
+  /** Receiving wallet, when resolvable — see extractPayeeFromReceipt. */
+  payee?: string | null;
 };
 
-/** Idempotent insert keyed by tx_hash. Returns whether a new row was created. */
+/**
+ * Idempotent insert keyed by tx_hash. Returns whether a new row was created.
+ *
+ * Defensive against the `payee` column not existing yet (see
+ * scripts/sql/2026-07-15-x402-payee.sql / scripts/backfill-payee.ts): a
+ * migration lag between deploying this code and applying that migration
+ * must not take the live payment-ingest path down. On an "undefined column"
+ * error we retry once without `payee` rather than failing the whole request.
+ */
 export async function recordX402Payment(
   input: RecordX402PaymentInput,
 ): Promise<{ created: boolean; id: string }> {
@@ -27,6 +39,7 @@ export async function recordX402Payment(
   const wallet = input.wallet.toLowerCase();
   const txHash = input.txHash.toLowerCase();
   const network = (input.network ?? "base").toLowerCase();
+  const payee = input.payee ? input.payee.toLowerCase() : null;
 
   const existing = await db
     .select({ id: x402Payments.id })
@@ -38,19 +51,31 @@ export async function recordX402Payment(
     return { created: false, id: existing[0].id };
   }
 
-  const inserted = await db
-    .insert(x402Payments)
-    .values({
-      wallet,
-      txHash,
-      amount: input.amount ?? null,
-      apiKeyId: input.apiKeyId ?? null,
-      network,
-      resource: input.resource ?? null,
-    })
-    .returning();
+  const baseValues = {
+    wallet,
+    txHash,
+    amount: input.amount ?? null,
+    apiKeyId: input.apiKeyId ?? null,
+    network,
+    resource: input.resource ?? null,
+  };
 
-  return { created: true, id: inserted[0]!.id };
+  try {
+    const inserted = await db
+      .insert(x402Payments)
+      .values({ ...baseValues, payee })
+      .returning();
+    return { created: true, id: inserted[0]!.id };
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+
+    logServerError(
+      "x402_payment_payee_column_missing",
+      new Error("payee column not migrated yet; inserted without it"),
+    );
+    const inserted = await db.insert(x402Payments).values(baseValues).returning();
+    return { created: true, id: inserted[0]!.id };
+  }
 }
 
 /**
@@ -90,6 +115,63 @@ export async function getX402PaymentStats(wallet: string): Promise<X402PaymentSt
     uniqueDays: Number(row?.uniqueDays ?? 0),
     lastPaymentAt: row?.lastPaymentAt ?? null,
   };
+}
+
+export type PayeeStats = {
+  paymentCount: number;
+  uniqueDays: number;
+  distinctPayers: number;
+  firstPaymentAt: string | null;
+  lastPaymentAt: string | null;
+};
+
+/**
+ * Receiving-side settlement history for a payee (the "did agents actually
+ * pay this provider and keep paying" signal for GET /v1/payees/{address}).
+ * Degrades to zeroed stats — never throws — when the `payee` column isn't
+ * migrated yet, mirroring recordX402Payment's fallback: a payee lookup
+ * during migration lag should read as data-poor (cold start), not error out.
+ */
+export async function getPayeeStats(payee: string): Promise<PayeeStats> {
+  const db = getDb();
+  const empty: PayeeStats = {
+    paymentCount: 0,
+    uniqueDays: 0,
+    distinctPayers: 0,
+    firstPaymentAt: null,
+    lastPaymentAt: null,
+  };
+  if (!db) return empty;
+
+  const payeeLower = payee.toLowerCase();
+  try {
+    const rows = await db
+      .select({
+        paymentCount: count(),
+        uniqueDays: sql<number>`count(distinct date_trunc('day', ${x402Payments.createdAt}))`,
+        distinctPayers: countDistinct(x402Payments.wallet),
+        firstPaymentAt: sql<string | null>`min(${x402Payments.createdAt})`,
+        lastPaymentAt: sql<string | null>`max(${x402Payments.createdAt})`,
+      })
+      .from(x402Payments)
+      .where(eq(x402Payments.payee, payeeLower));
+
+    const row = rows[0];
+    return {
+      paymentCount: Number(row?.paymentCount ?? 0),
+      uniqueDays: Number(row?.uniqueDays ?? 0),
+      distinctPayers: Number(row?.distinctPayers ?? 0),
+      firstPaymentAt: row?.firstPaymentAt ?? null,
+      lastPaymentAt: row?.lastPaymentAt ?? null,
+    };
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+    logServerError(
+      "payee_stats_column_missing",
+      new Error("payee column not migrated yet; returning empty stats"),
+    );
+    return empty;
+  }
 }
 
 export async function countX402PaymentsForApiKey(apiKeyId: string): Promise<number> {

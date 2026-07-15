@@ -10,6 +10,14 @@ export const ERC8004_ADDRESSES = {
   validationRegistry: "0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58" as const,
 } as const;
 
+/**
+ * Circle's native USDC on Base mainnet — the settlement currency of x402
+ * payments. Drain-pattern checks aggregate this token alongside native ETH;
+ * deliberately not a general ERC20 allowlist (x402 settles in USDC only).
+ * @see https://developers.circle.com/stablecoins/usdc-on-main-networks
+ */
+export const BASE_USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+
 export const SCORE_THRESHOLDS = {
   allow: 70,
   warn: 40,

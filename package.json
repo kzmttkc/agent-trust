@@ -16,6 +16,7 @@
     "indexer:owners": "tsx scripts/index-owners.ts",
     "indexer:outcomes": "tsx scripts/index-outcomes.ts",
     "cron:purge-logs": "tsx scripts/purge-logs.ts",
+    "backfill:payee": "tsx scripts/backfill-payee.ts",
     "setup:stripe": "tsx scripts/setup-stripe-products.ts",
     "setup:stripe-webhook": "tsx scripts/setup-stripe-webhook.ts",
     "mcp:build": "npm run build --prefix packages/mcp-server",
