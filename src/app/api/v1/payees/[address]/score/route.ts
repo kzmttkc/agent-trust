@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeApiRequest, withRateLimitHeaders } from "@/lib/api/guard";
 import { isValidAddress } from "@/lib/chain/client";
+import { persistPayeeScoreResult } from "@/lib/db/persistence";
 import { scorePayeeWallet } from "@/lib/scoring/payee-engine";
 import { logServerError } from "@/lib/util/log";
 
 type RouteContext = { params: Promise<{ address: string }> };
 
 /**
- * GET /api/v1/payees/{address}
+ * GET /api/v1/payees/{address}/score
  *
  * Buyer-side counterpart to /v1/wallets/{address}/score and
  * /v1/agents/{agentId}/score: those answer "should I accept payment from
@@ -28,6 +29,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   try {
     const result = await scorePayeeWallet(address);
+    // Same fire-and-forget pattern as the wallet/agent score routes: payee
+    // queries must land in trust_events so external API-key usage of the
+    // buyer-side endpoint stays measurable (it gates feature C's go/no-go).
+    void persistPayeeScoreResult(auth.ctx.apiKeyId, result).catch((error) =>
+      logServerError("persist_payee_score", error),
+    );
     return withRateLimitHeaders(NextResponse.json(result), auth.ctx.rateLimit);
   } catch (error) {
     logServerError("score_payee", error);

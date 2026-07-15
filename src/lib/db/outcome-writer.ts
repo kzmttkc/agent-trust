@@ -54,7 +54,22 @@ export type TrustEventRow = {
  * same discipline as funder_index_skips (src/lib/db/funder-index-writer.ts).
  */
 
-/** Trust events created within the last N days that still need outcome scanning. */
+/**
+ * Trust events created within the last N days that still need outcome
+ * scanning.
+ *
+ * Payee score rows (written by persistPayeeScoreResult with
+ * signals.kind = "payee_score") are excluded: the wallet on those rows is a
+ * payment *recipient*, and this watch set feeds the outcome-detector's
+ * seller-side activity classification — whose drain heuristics the payee
+ * engine deliberately does not use (see detectDrainPattern in
+ * src/lib/scoring/payee-engine.ts). Without the exclusion, a payee query
+ * would enroll the payee wallet for seller-style scanning, an auto
+ * rug_pull_outflow could be recorded against it, and getOutcomesForWallet
+ * would feed that verdict straight back into the next payee score — a
+ * self-inflicted contamination loop. The predicate is NULL-safe
+ * (IS DISTINCT FROM) so legacy rows without signals or kind stay watched.
+ */
 export async function collectWatchedTrustEvents(
   windowDays: number,
   limit: number,
@@ -88,6 +103,7 @@ export async function collectWatchedTrustEvents(
         and(
           gte(trustEvents.createdAt, since),
           isNotNull(trustEvents.wallet),
+          sql`(${trustEvents.signals}->>'kind') IS DISTINCT FROM 'payee_score'`,
           notInArray(trustEvents.id, alreadyTerminal),
         ),
       )

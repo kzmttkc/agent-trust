@@ -1,3 +1,5 @@
+import { SpendGuard } from "./spend-guard.js";
+export { SpendGuard, } from "./spend-guard.js";
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
 const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
 const AGENT_ID_RE = /^\d+$/;
@@ -20,6 +22,25 @@ export class VouchClient {
     getWalletScore(wallet) {
         assertWallet(wallet);
         return this.request(`/wallets/${wallet}/score`);
+    }
+    /**
+     * Buyer-side lookup: "should my agent pay this wallet?" — scores the
+     * payment *recipient* (settlement receiving history, wallet health,
+     * exit-scam-shaped outflow, outcome labels).
+     */
+    getPayeeScore(payee) {
+        assertWallet(payee);
+        return this.request(`/payees/${payee}/score`);
+    }
+    /**
+     * Non-custodial spend-policy guard. Returns allow/deny decisions only —
+     * never touches keys, funds, or transaction signing; execution remains the
+     * agent's wallet stack's job (Coinbase AgentKit, Privy, ...). The daily
+     * budget counter is in-memory per guard instance and resets on process
+     * restart. See SpendGuard for the full contract.
+     */
+    createSpendGuard(policy) {
+        return new SpendGuard(policy, (payee) => this.getPayeeScore(payee));
     }
     batchScore(agents) {
         if (!Array.isArray(agents) || agents.length === 0) {

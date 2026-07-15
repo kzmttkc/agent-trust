@@ -8,6 +8,7 @@ MCP tools for checking ERC-8004 agent trust scores from Cursor, Claude Desktop, 
 |---|---|
 | `check_agent_trust` | Score by agent ID (optional wallet verification) |
 | `check_wallet_trust` | Score by wallet (x402 payer path) |
+| `check_payee_trust` | Buyer-side: score a payment *recipient* before paying it (score + dataDepth + recommendation) |
 | `explain_trust_score` | Human-readable score breakdown (includes x402 + dataCoverage) |
 | `attest_x402_payment` | Write settlement attestation after payment verification |
 
@@ -88,6 +89,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 - "Check trust for agent 42 on Base"
 - "Is wallet 0xabc... safe to accept x402 payment from?"
+- "Is it safe to pay wallet 0xdef...? Check its payee trust first"
 - "Explain the trust score for agent 7"
 
 See [MCP setup guide](../../docs/mcp-setup.md) for more detail.

@@ -55,6 +55,11 @@ export async function fetchWalletScore(wallet) {
     assertWallet(wallet);
     return vouchFetch(`/wallets/${wallet}/score`);
 }
+/** Buyer-side lookup: scores the payment *recipient* before an agent pays it. */
+export async function fetchPayeeScore(payee) {
+    assertWallet(payee);
+    return vouchFetch(`/payees/${payee}/score`);
+}
 export async function attestX402Payment(attestation) {
     assertWallet(attestation.wallet);
     if (!TX_HASH_RE.test(attestation.txHash)) {

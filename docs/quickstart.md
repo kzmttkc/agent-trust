@@ -42,6 +42,10 @@ curl -H "Authorization: Bearer $DEV_API_KEY" \
 curl -H "Authorization: Bearer $DEV_API_KEY" \
   http://localhost:3000/api/v1/wallets/0x1234567890123456789012345678901234567890/score
 
+# Score a payee (buyer-side: "should my agent pay this wallet?")
+curl -H "Authorization: Bearer $DEV_API_KEY" \
+  http://localhost:3000/api/v1/payees/0x1234567890123456789012345678901234567890/score
+
 # Attest an x402 settlement (after payment verification)
 curl -X POST -H "Authorization: Bearer $DEV_API_KEY" \
   -H "Content-Type: application/json" \
@@ -96,6 +100,23 @@ import { createVouchClient } from "@vouch/sdk";
 const vouch = createVouchClient({ apiUrl: "http://localhost:3000/api/v1", apiKey: process.env.VOUCH_API_KEY! });
 await vouch.getWalletScore("0x...");
 ```
+
+### SpendGuard (buyer-side spend policy)
+
+Decision-only guard for agents that *pay*: per-tx cap + in-memory daily budget +
+payee trust check in one allow/deny. Never touches keys or funds — execution
+stays with your wallet stack.
+
+```typescript
+const guard = vouch.createSpendGuard({ maxPerTxUsd: 10, dailyBudgetUsd: 50, minPayeeScore: 40 });
+const decision = await guard.evaluate({ payee: "0x...", amountUsd: 5 });
+if (decision.allow) {
+  // hand off to AgentKit / Privy / your own signer
+}
+```
+
+Full semantics (budget reservations, fail-closed trust lookups): [SDK README](../packages/sdk/README.md).
+See `examples/agentkit-spend-guard/` for a runnable demo.
 
 ## Score interpretation
 

@@ -127,7 +127,7 @@ export type PayeeStats = {
 
 /**
  * Receiving-side settlement history for a payee (the "did agents actually
- * pay this provider and keep paying" signal for GET /v1/payees/{address}).
+ * pay this provider and keep paying" signal for GET /v1/payees/{address}/score).
  * Degrades to zeroed stats — never throws — when the `payee` column isn't
  * migrated yet, mirroring recordX402Payment's fallback: a payee lookup
  * during migration lag should read as data-poor (cold start), not error out.

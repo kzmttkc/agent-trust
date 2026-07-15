@@ -52,6 +52,41 @@ export type TrustScoreResult = {
         };
     };
 };
+export type PayeeScoreResult = {
+    payee: string;
+    score: number;
+    recommendation: "ALLOW" | "WARN" | "BLOCK";
+    dataDepth: "thin" | "moderate" | "rich";
+    signals: {
+        receiving: {
+            paymentCount: number;
+            uniqueDays: number;
+            distinctPayers: number;
+            score: number;
+        };
+        walletHealth: {
+            ageDays: number;
+            txCount: number;
+            isBurner: boolean;
+            score: number;
+        };
+        drainPattern: {
+            detected: boolean;
+            drainRatio: number | null;
+            outgoingCount: number;
+            incomingCount: number;
+            score: number;
+        };
+        outcomeHistory: {
+            types: string[];
+            adjustment: number;
+        };
+        flags: string[];
+    };
+    scoredAt: string;
+    cacheExpiresAt: string;
+    disclaimer: string;
+};
 export type VouchClientConfig = {
     apiUrl: string;
     apiKey: string;
@@ -70,6 +105,8 @@ export declare class VouchApiError extends Error {
 }
 export declare function fetchAgentScore(agentId: string, wallet?: string): Promise<TrustScoreResult>;
 export declare function fetchWalletScore(wallet: string): Promise<TrustScoreResult>;
+/** Buyer-side lookup: scores the payment *recipient* before an agent pays it. */
+export declare function fetchPayeeScore(payee: string): Promise<PayeeScoreResult>;
 export declare function attestX402Payment(attestation: X402PaymentAttestation): Promise<{
     ok: boolean;
     created: boolean;

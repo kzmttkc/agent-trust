@@ -38,7 +38,7 @@ Client → x402 支払い検証 → Vouch payer チェック → 本来の有料
 買い手側:
 
 1. エージェントが 402 を受け、支払い要求から **payee ウォレット** を得る  
-2. 署名する前に `GET /v1/payees/{payee}` を照会  
+2. 署名する前に `GET /v1/payees/{payee}/score` を照会  
 3. `BLOCK` なら支払わない。`WARN` なら金額上限や人間の確認など自前のポリシーで判断
 
 サンプル（売り手側ミドルウェア）: リポジトリの `examples/x402-trust-gate`
@@ -59,7 +59,7 @@ Client → x402 支払い検証 → Vouch payer チェック → 本来の有料
 
 ## 今週追加: Payee Trust API（買い手側）
 
-`GET /v1/payees/{address}` は買い手側の問いに答えます。payee の失敗モードはシビルなフィードバックではなく「受け取って消える」ことなので、シグナル構成を変えています。
+`GET /v1/payees/{address}/score` は買い手側の問いに答えます。payee の失敗モードはシビルなフィードバックではなく「受け取って消える」ことなので、シグナル構成を変えています。
 
 | シグナル | 役割 |
 |----------|------|
@@ -82,7 +82,7 @@ curl -H "Authorization: Bearer $VOUCH_API_KEY" \
 
 # payee ウォレットでスコア（買い手側・支払う前に）
 curl -H "Authorization: Bearer $VOUCH_API_KEY" \
-  https://agent-trust-tawny.vercel.app/api/v1/payees/0xTHEIR_WALLET
+  https://agent-trust-tawny.vercel.app/api/v1/payees/0xTHEIR_WALLET/score
 
 # 検証済み決済の証跡（txHash で冪等）
 curl -X POST -H "Authorization: Bearer $VOUCH_API_KEY" \

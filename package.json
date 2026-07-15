@@ -22,7 +22,9 @@
     "mcp:build": "npm run build --prefix packages/mcp-server",
     "mcp:dev": "npm run dev --prefix packages/mcp-server",
     "sdk:build": "npm run build --prefix packages/sdk",
-    "x402:demo": "npm run demo --prefix examples/x402-trust-gate"
+    "sdk:test": "npm run test --prefix packages/sdk",
+    "x402:demo": "npm run demo --prefix examples/x402-trust-gate",
+    "agentkit:demo": "npm run demo --prefix examples/agentkit-spend-guard"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

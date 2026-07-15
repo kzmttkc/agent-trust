@@ -2,6 +2,7 @@ import { desc, eq, and } from "drizzle-orm";
 import { getDb } from "./client";
 import { trustEvents } from "./schema";
 import { getDataCoverage } from "@/lib/health/data-coverage";
+import type { PayeeScoreResult } from "@/lib/scoring/payee-engine";
 import type { TrustScoreResult } from "@/lib/scoring/types";
 
 export async function persistScoreResult(
@@ -23,6 +24,38 @@ export async function persistScoreResult(
     signals: result.signals,
     manualOverride: result.manualOverride ? "true" : "false",
     blockReason: result.blockReason ?? null,
+    disclaimer: result.disclaimer,
+    cacheExpiresAt: new Date(result.cacheExpiresAt),
+  });
+}
+
+/**
+ * Records a payee (buyer-side) score query into the same trust_events ledger
+ * the agent/wallet score routes use — no new table. Payee rows carry
+ * `signals.kind = "payee_score"` (the signals column is already jsonb), which
+ * does two jobs: collectWatchedTrustEvents (src/lib/db/outcome-writer.ts)
+ * excludes these rows from the outcome-detector's seller-side watch set —
+ * otherwise its drain classification would label payee wallets and feed those
+ * verdicts back into payee scores — and ad-hoc usage measurement can filter
+ * on it to count external buyer-side queries. `dataDepth` rides along inside
+ * signals for the same reason.
+ */
+export async function persistPayeeScoreResult(
+  apiKeyId: string,
+  result: PayeeScoreResult,
+): Promise<void> {
+  const db = getDb();
+  if (!db || apiKeyId === "dev") return;
+
+  await db.insert(trustEvents).values({
+    apiKeyId,
+    agentId: null,
+    wallet: result.payee,
+    trustScore: result.score,
+    recommendation: result.recommendation,
+    signals: { kind: "payee_score", dataDepth: result.dataDepth, ...result.signals },
+    manualOverride: "false",
+    blockReason: null,
     disclaimer: result.disclaimer,
     cacheExpiresAt: new Date(result.cacheExpiresAt),
   });

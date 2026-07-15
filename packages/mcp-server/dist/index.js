@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { explainTrustScore } from "./explain.js";
-import { attestX402Payment, fetchAgentScore, fetchWalletScore, VouchApiError, } from "./vouch-client.js";
+import { attestX402Payment, fetchAgentScore, fetchPayeeScore, fetchWalletScore, VouchApiError, } from "./vouch-client.js";
 const server = new McpServer({
     name: "vouch-trust",
     version: "0.1.0",
@@ -12,8 +12,8 @@ const AGENT_ID = z.string().max(78).describe("ERC-8004 agent ID (tokenId)");
 const WALLET = z.string().max(42).describe("EVM wallet address (0x...)");
 const TX_HASH = z.string().max(66).describe("Payment transaction hash (0x + 64 hex)");
 // Every error code the Vouch API can return for the endpoints this MCP server calls
-// (agents/:id/score, wallets/:address/score, payments/x402). Keep in sync with
-// src/app/api/v1/* and docs/openapi.yaml ErrorResponse.error enum.
+// (agents/:id/score, wallets/:address/score, payees/:address/score, payments/x402).
+// Keep in sync with src/app/api/v1/* and docs/openapi.yaml ErrorResponse.error enum.
 const KNOWN_ERROR_CODES = new Set([
     "invalid_request",
     "invalid_agent_id",
@@ -57,6 +57,22 @@ server.tool("check_wallet_trust", "Get trust score for a wallet address. Resolve
 }, async ({ wallet }) => {
     try {
         const result = await fetchWalletScore(wallet);
+        return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+    }
+    catch (error) {
+        return {
+            content: [{ type: "text", text: sanitizeToolError(error) }],
+            isError: true,
+        };
+    }
+});
+server.tool("check_payee_trust", "Buyer-side check before paying a wallet: payee trust score (0-100), dataDepth (thin/moderate/rich), and ALLOW/WARN/BLOCK recommendation.", {
+    payee: WALLET.describe("Payee wallet address (0x...) the agent is about to pay"),
+}, async ({ payee }) => {
+    try {
+        const result = await fetchPayeeScore(payee);
         return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

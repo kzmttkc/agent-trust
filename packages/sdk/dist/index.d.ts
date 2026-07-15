@@ -1,3 +1,5 @@
+import { SpendGuard, type SpendGuardPolicy } from "./spend-guard.js";
+export { SpendGuard, type SpendGuardPolicy, type SpendEvaluateInput, type SpendDenyReason, type SpendDecision, } from "./spend-guard.js";
 export type Recommendation = "ALLOW" | "WARN" | "BLOCK";
 export type TrustScoreResult = {
     agentId: string;
@@ -53,6 +55,42 @@ export type TrustScoreResult = {
         };
     };
 };
+export type PayeeDataDepth = "thin" | "moderate" | "rich";
+export type PayeeScoreResult = {
+    payee: string;
+    score: number;
+    recommendation: Recommendation;
+    dataDepth: PayeeDataDepth;
+    signals: {
+        receiving: {
+            paymentCount: number;
+            uniqueDays: number;
+            distinctPayers: number;
+            score: number;
+        };
+        walletHealth: {
+            ageDays: number;
+            txCount: number;
+            isBurner: boolean;
+            score: number;
+        };
+        drainPattern: {
+            detected: boolean;
+            drainRatio: number | null;
+            outgoingCount: number;
+            incomingCount: number;
+            score: number;
+        };
+        outcomeHistory: {
+            types: string[];
+            adjustment: number;
+        };
+        flags: string[];
+    };
+    scoredAt: string;
+    cacheExpiresAt: string;
+    disclaimer: string;
+};
 export type VouchClientOptions = {
     apiUrl: string;
     apiKey: string;
@@ -79,6 +117,20 @@ export declare class VouchClient {
     constructor(options: VouchClientOptions);
     getAgentScore(agentId: string, wallet?: string): Promise<TrustScoreResult>;
     getWalletScore(wallet: string): Promise<TrustScoreResult>;
+    /**
+     * Buyer-side lookup: "should my agent pay this wallet?" — scores the
+     * payment *recipient* (settlement receiving history, wallet health,
+     * exit-scam-shaped outflow, outcome labels).
+     */
+    getPayeeScore(payee: string): Promise<PayeeScoreResult>;
+    /**
+     * Non-custodial spend-policy guard. Returns allow/deny decisions only —
+     * never touches keys, funds, or transaction signing; execution remains the
+     * agent's wallet stack's job (Coinbase AgentKit, Privy, ...). The daily
+     * budget counter is in-memory per guard instance and resets on process
+     * restart. See SpendGuard for the full contract.
+     */
+    createSpendGuard(policy: SpendGuardPolicy): SpendGuard;
     batchScore(agents: BatchScoreItem[]): Promise<{
         results: unknown[];
     }>;

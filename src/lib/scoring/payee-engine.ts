@@ -306,7 +306,7 @@ function clamp(n: number): number {
 }
 
 /**
- * GET /v1/payees/{address} — "should my agent trust this wallet enough to
+ * GET /v1/payees/{address}/score — "should my agent trust this wallet enough to
  * pay it?" Complements scoreWallet/scoreAgentById (which answer "should I
  * accept payment from this agent?"). Read-only: no writes, no fund movement.
  */

@@ -38,7 +38,7 @@ Seller side:
 Buyer side:
 
 1. Your agent hits a 402 and extracts the **payee wallet** from the payment requirements
-2. It calls `GET /v1/payees/{payee}` before signing anything
+2. It calls `GET /v1/payees/{payee}/score` before signing anything
 3. On `BLOCK`, skip the payment; on `WARN`, apply your own policy (cap the amount, require a human, whatever fits)
 
 Sample seller-side middleware lives in the repo: `examples/x402-trust-gate`.
@@ -59,7 +59,7 @@ Owner-index lag is surfaced as `dataCoverage` so integrators can see freshness i
 
 ## New this week: the Payee Trust API
 
-`GET /v1/payees/{address}` answers the buyer-side question with a different signal mix, because a payee's failure mode isn't Sybil feedback — it's taking money and disappearing:
+`GET /v1/payees/{address}/score` answers the buyer-side question with a different signal mix, because a payee's failure mode isn't Sybil feedback — it's taking money and disappearing:
 
 | Signal | Role |
 |--------|------|
@@ -82,7 +82,7 @@ curl -H "Authorization: Bearer $VOUCH_API_KEY" \
 
 # Score a payee wallet (buyer side, before your agent pays)
 curl -H "Authorization: Bearer $VOUCH_API_KEY" \
-  https://agent-trust-tawny.vercel.app/api/v1/payees/0xTHEIR_WALLET
+  https://agent-trust-tawny.vercel.app/api/v1/payees/0xTHEIR_WALLET/score
 
 # Attest a verified payment (idempotent on txHash)
 curl -X POST -H "Authorization: Bearer $VOUCH_API_KEY" \

@@ -87,7 +87,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /payees/{address}:
+  /payees/{address}/score:
     get:
       operationId: getPayeeScore
       tags: [Payees]
