@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Gate2 ledger (contains external signup emails — PII, do not commit)
+/state/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
