@@ -27,6 +27,9 @@ export function SiteFooter() {
             <Link href="/docs/api" className="text-zinc-600 hover:text-zinc-900">
               API reference
             </Link>
+            <Link href="/blog" className="text-zinc-600 hover:text-zinc-900">
+              Blog
+            </Link>
             <Link href="/dashboard" className="text-zinc-600 hover:text-zinc-900">
               Dashboard
             </Link>
