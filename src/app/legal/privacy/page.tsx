@@ -1,8 +1,25 @@
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
+
 export default function PrivacyPage() {
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8 text-sm leading-relaxed text-zinc-700">
       <h1 className="text-3xl font-semibold text-zinc-900">Privacy Policy</h1>
       <p>Last updated: July 2026</p>
+
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-zinc-900">Contact / operator information</h2>
+        <p>
+          Vouch is operated by an individual proprietor. See our{" "}
+          <a className="underline" href="/legal/notice">
+            Legal Notice
+          </a>{" "}
+          for how operator disclosure works. Privacy questions or deletion requests:{" "}
+          <a className="underline" href={SUPPORT_MAILTO}>
+            {SUPPORT_EMAIL}
+          </a>
+          .
+        </p>
+      </section>
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">Data we collect</h2>

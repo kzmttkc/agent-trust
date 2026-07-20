@@ -5,6 +5,19 @@ export default function TermsPage() {
       <p>Last updated: July 2026</p>
 
       <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-zinc-900">0. Business use only</h2>
+        <p>
+          Vouch is offered for business-to-business (B2B) use by agent and service operators
+          integrating trust scores into their own products. It is not marketed or sold to
+          consumers for personal use. See our{" "}
+          <a className="underline" href="/legal/notice">
+            Legal Notice
+          </a>{" "}
+          for operator and contact information.
+        </p>
+      </section>
+
+      <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">1. Service</h2>
         <p>
           Vouch provides agent trust scores and recommendations for informational purposes only.
