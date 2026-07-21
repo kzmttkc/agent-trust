@@ -50,9 +50,23 @@ async function resolveToBlock(
   throw new Error(`resolveToBlock: unsupported block tag "${String(toBlock)}"`);
 }
 
+/** JSON-RPC error code some providers (e.g. Base's public RPC) use for rate limiting. */
+const JSON_RPC_RATE_LIMIT_CODE = -32016;
+
 function isRateLimitError(error: unknown): boolean {
-  const err = error as { status?: number; code?: number; cause?: { code?: number } };
-  return err?.status === 429 || err?.code === 429 || err?.cause?.code === 429;
+  const err = error as {
+    status?: number;
+    code?: number;
+    details?: string;
+    message?: string;
+    cause?: { code?: number; details?: string };
+  };
+  if (err?.status === 429 || err?.code === 429 || err?.cause?.code === 429) return true;
+  if (err?.code === JSON_RPC_RATE_LIMIT_CODE || err?.cause?.code === JSON_RPC_RATE_LIMIT_CODE) {
+    return true;
+  }
+  const text = `${err?.details ?? ""} ${err?.cause?.details ?? ""} ${err?.message ?? ""}`.toLowerCase();
+  return text.includes("rate limit");
 }
 
 /**
