@@ -12,6 +12,18 @@ import {
   removeOwnerAgent,
   upsertOwnerAgent,
 } from "@/lib/db/owner-index-writer";
+import { mapWithConcurrency } from "@/lib/util/concurrency";
+
+/**
+ * Registered-event writes are independent per agentId (each is a brand-new
+ * row), so they're safe to fan out concurrently — unlike transfer writes,
+ * where multiple events can target the same agentId and must apply in
+ * on-chain order. This was previously a sequential `for...await` loop; with
+ * ~800 events per 100k-block window and Neon HTTP round-trips at
+ * 150-300ms each, that serial loop alone could exceed the 300s function
+ * budget (see 2026-07-22 index-owners FUNCTION_INVOCATION_TIMEOUT incident).
+ */
+const OWNER_WRITE_CONCURRENCY = 15;
 
 const registeredEvent = parseAbiItem(
   "event Registered(uint256 indexed agentId, string agentURI, address indexed owner)",
@@ -168,15 +180,21 @@ export async function indexOwnerAgents(options?: {
     client,
     registeredPairs.map((pair) => pair.agentId),
   );
-  for (const { owner, agentId } of registeredPairs) {
-    const outcome = await syncOwnerAgent(owner, agentId, owners);
-    if (outcome === "upserted") {
-      upserted++;
-    } else if (outcome === "unavailable") {
-      // Event-based upsert when ownerOf is temporarily unavailable — avoid index holes.
-      await upsertOwnerAgent(owner, agentId);
-      upserted++;
-    }
+  const registeredOutcomes = await mapWithConcurrency(
+    registeredPairs,
+    OWNER_WRITE_CONCURRENCY,
+    async ({ owner, agentId }) => {
+      const outcome = await syncOwnerAgent(owner, agentId, owners);
+      if (outcome === "unavailable") {
+        // Event-based upsert when ownerOf is temporarily unavailable — avoid index holes.
+        await upsertOwnerAgent(owner, agentId);
+        return "upserted" as const;
+      }
+      return outcome;
+    },
+  );
+  for (const outcome of registeredOutcomes) {
+    if (outcome === "upserted") upserted++;
   }
   console.log(`[owner-indexer] verified ${registeredPairs.length} registered owners in ${Date.now() - t2}ms`);
 
