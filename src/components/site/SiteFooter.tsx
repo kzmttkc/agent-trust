@@ -57,12 +57,12 @@ export function SiteFooter() {
           </nav>
         </div>
 
-        <p className="mt-8 max-w-3xl text-xs leading-relaxed text-zinc-400">
+        <p className="mt-8 max-w-3xl text-xs leading-relaxed text-zinc-500">
           Vouch is offered for B2B API use by agent/service operators. Trust scores are informational
           only and do not constitute a guarantee, credit assessment, or legal certification.
         </p>
 
-        <div className="mt-6 border-t border-zinc-200 pt-6 text-xs text-zinc-400">
+        <div className="mt-6 border-t border-zinc-200 pt-6 text-xs text-zinc-500">
           <p>© {year} Vouch</p>
         </div>
       </div>

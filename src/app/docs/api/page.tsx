@@ -110,7 +110,8 @@ export default function ApiDocsPage() {
           {" "}(custom domain not yet registered).
         </p>
         <p className="text-sm text-zinc-500">
-          Full machine-readable schema: <code className="rounded bg-zinc-100 px-1">docs/openapi.yaml</code> in this
+          Full machine-readable schema:{" "}
+          <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/openapi.yaml</code> in this
           repository.
         </p>
       </div>
@@ -130,20 +131,30 @@ export default function ApiDocsPage() {
 
             {ep.request && (
               <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
                   Request body
                 </p>
-                <pre className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100">
+                <pre
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`Request body for ${ep.method} ${ep.path}`}
+                  className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-zinc-400"
+                >
                   <code>{ep.request}</code>
                 </pre>
               </div>
             )}
 
             <div>
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-400">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
                 Response
               </p>
-              <pre className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100">
+              <pre
+                tabIndex={0}
+                role="region"
+                aria-label={`Response for ${ep.method} ${ep.path}`}
+                className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-zinc-400"
+              >
                 <code>{ep.response}</code>
               </pre>
             </div>

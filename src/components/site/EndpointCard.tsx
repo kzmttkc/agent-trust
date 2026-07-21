@@ -21,7 +21,7 @@ export function EndpointCard({ method, path, note, tag }: EndpointCardProps) {
         <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${methodStyle}`}>{method}</span>
         <code className="break-all font-mono text-sm text-zinc-900">{path}</code>
         {tag && (
-          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
             {tag}
           </span>
         )}

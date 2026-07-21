@@ -148,9 +148,10 @@ export default function Home() {
             <Link href="/docs/api" className="underline">
               API reference
             </Link>
-            . Docs also cover <code className="rounded bg-zinc-100 px-1">docs/quickstart.md</code>,{" "}
-            <code className="rounded bg-zinc-100 px-1">docs/mcp-setup.md</code>, and{" "}
-            <code className="rounded bg-zinc-100 px-1">docs/x402-integration.md</code>.
+            . Docs also cover{" "}
+            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/quickstart.md</code>,{" "}
+            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/mcp-setup.md</code>, and{" "}
+            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/x402-integration.md</code>.
           </p>
         </div>
       </section>

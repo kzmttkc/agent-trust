@@ -68,7 +68,7 @@ export function ScorePreviewCard() {
 function Item({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-zinc-400">{label}</dt>
+      <dt className="text-zinc-500">{label}</dt>
       <dd className="font-mono text-zinc-900">{value}</dd>
     </div>
   );
