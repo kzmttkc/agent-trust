@@ -11,18 +11,17 @@ export async function GET(request: NextRequest) {
   }
 
   // Production ignores attacker-controlled maxBlocks (RPC burn); use default chunk.
-  // Capped well below the historical 150_000: at ~800 events/100k blocks,
-  // registered+transfer DB writes plus RPC fetch time exceeded the 300s
-  // function budget (2026-07-22 FUNCTION_INVOCATION_TIMEOUT incident).
-  // vercel.json cron cadence stays daily (Vercel Hobby plan caps cron jobs
-  // at once/day), so 40k/run is slightly below Base's ~43k blocks/day
-  // production rate — catch-up needs either an occasional manual invoke
-  // (Authorization: Bearer $CRON_SECRET) or a plan upgrade for hourly cron.
+  // 40k blocks took ~6s end-to-end once GET_LOGS_CHUNK_BLOCKS/DELAY_MS were
+  // fixed (2026-07-22 incident — stale values from the old rate-limited RPC
+  // key were forcing hundreds of tiny sequential chunks). 250k gives wide
+  // margin under the 300s budget while actually outpacing Base's ~43k
+  // blocks/day production rate enough to close the historical backlog
+  // within a handful of daily (Hobby-plan-capped) runs instead of never.
   const raw = request.nextUrl.searchParams.get("maxBlocks");
-  const requested = raw ? Number(raw) : 40_000;
+  const requested = raw ? Number(raw) : 250_000;
   const maxBlocks = isProduction()
-    ? 40_000
-    : Math.min(500_000, Math.max(1_000, Number.isFinite(requested) ? requested : 40_000));
+    ? 250_000
+    : Math.min(500_000, Math.max(1_000, Number.isFinite(requested) ? requested : 250_000));
 
   const result = await indexOwnerAgents({
     maxBlocks: BigInt(maxBlocks),
