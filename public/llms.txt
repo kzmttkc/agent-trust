@@ -7,6 +7,7 @@ As AI agents pay each other autonomously (via x402 and similar machine-payment p
 ## Primary
 - https://agent-trust-tawny.vercel.app/ — product overview
 - https://agent-trust-tawny.vercel.app/docs/api — API documentation
+- https://agent-trust-tawny.vercel.app/faq — FAQ (x402, ERC-8004, and how trust scores work)
 - https://agent-trust-tawny.vercel.app/signup — get an API key
 - https://agent-trust-tawny.vercel.app/api/health — service status endpoint
 

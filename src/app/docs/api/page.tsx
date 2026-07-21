@@ -182,6 +182,9 @@ export default function ApiDocsPage() {
         <Link href="/" className="underline">
           Home
         </Link>
+        <Link href="/faq" className="underline">
+          FAQ
+        </Link>
         <Link href="/dashboard" className="underline">
           Dashboard
         </Link>
