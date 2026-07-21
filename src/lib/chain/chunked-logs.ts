@@ -55,6 +55,16 @@ function isRateLimitError(error: unknown): boolean {
   return err?.status === 429 || err?.code === 429 || err?.cause?.code === 429;
 }
 
+/**
+ * RPC client errors (viem HttpRequestError) embed the full request URL —
+ * which includes the provider API key as a path segment — in error.message.
+ * Strip it before logging so provider keys never land in Vercel logs.
+ */
+function redactSecrets(message: string | undefined): string {
+  if (!message) return "";
+  return message.replace(/https?:\/\/\S+/g, "[redacted-url]");
+}
+
 const RATE_LIMIT_MAX_RETRIES = 7;
 const RATE_LIMIT_BASE_DELAY_MS = 800;
 
@@ -85,12 +95,12 @@ async function fetchRange(
     const span = toBlock - fromBlock;
     if (span <= 0n) {
       console.log(
-        `[chunked-logs] giving up on block ${fromBlock}: ${(error as Error)?.constructor?.name} ${(error as Error)?.message?.slice(0, 200)}`,
+        `[chunked-logs] giving up on block ${fromBlock}: ${(error as Error)?.constructor?.name} ${redactSecrets((error as Error)?.message).slice(0, 200)}`,
       );
       throw error;
     }
     console.log(
-      `[chunked-logs] bisecting ${fromBlock}-${toBlock} due to: ${(error as Error)?.constructor?.name} ${(error as Error)?.message?.slice(0, 150)}`,
+      `[chunked-logs] bisecting ${fromBlock}-${toBlock} due to: ${(error as Error)?.constructor?.name} ${redactSecrets((error as Error)?.message).slice(0, 150)}`,
     );
 
     const mid = fromBlock + span / 2n;
