@@ -1,11 +1,11 @@
 // Single source of truth for the support/contact address, referenced from
 // the footer, /legal/notice, and /legal/privacy. Change it in one place only.
 //
-// NOTE (2026-07-20, mirrors the same flagged gap already documented in
-// ~/soroi/lib/support.ts): vouch.dev is not yet registered/routed to a real
-// inbox. Before this is relied on for real disclosure requests, register the
-// domain (or point this at an inbox that already receives mail) and send a
-// test message to confirm delivery. Until then, treat this as a placeholder
-// contact channel, not a verified one.
-export const SUPPORT_EMAIL = "support@vouch.dev";
+// NOTE (2026-07-21, Takeshi decision): vouch.dev is not yet registered.
+// Domain purchase is on hold until traction justifies the spend, so this
+// points directly at the operator's personal inbox, kzmttkc314@gmail.com,
+// which actually receives mail. Once the domain is registered and mail
+// forwarding is confirmed with a real test send, swap this back to the
+// support alias on the vouch.dev domain.
+export const SUPPORT_EMAIL = "kzmttkc314@gmail.com";
 export const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}`;
