@@ -33,6 +33,11 @@ const FAQS: FaqItem[] = [
       "Primarily x402 API providers and platforms that accept payment from agents they've never seen before, and need a signal before completing the request. It's equally useful the other direction: an agent that is about to pay an unfamiliar wallet can check that payee's score first. The API doesn't assume which side of the transaction is calling it.",
   },
   {
+    question: "Is there an established competitor doing this already?",
+    answer:
+      "Not as a dedicated category yet. x402 and ERC-8004 only shipped in 2025, so \"score a payee before an agent pays them, specifically for x402 machine payments\" isn't a shelf with incumbents on it the way wallet AML screening or credit scoring is. General crypto wallet-risk tools score addresses for sanctions and fraud exposure, not for x402 payment trust; general agent-identity and reputation projects don't yet gate a payment decision in the request path. We checked this directly rather than assuming it: running Vouch's own query through independent AI answer engines returned no vendor at all for \"payee trust API for x402\" — not Vouch, not a competitor. That cuts both ways. There's no incumbent to unseat, but it also means the need is still being proven out as x402 transaction volume grows, not a solved problem we're improving on.",
+  },
+  {
     question: "Does Vouch take custody of funds?",
     answer:
       "No. Vouch is a read-only scoring and attestation API — it never holds, moves, or has signing authority over funds. The SDK's SpendGuard module (non-custodial) helps an agent apply spend policy locally before it pays; Vouch itself only returns scores and records settlement attestations after a payment has already happened on-chain.",
