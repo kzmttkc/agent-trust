@@ -28,7 +28,10 @@ export function proxy(request: NextRequest) {
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data:`,
     `font-src 'self' data:`,
-    `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
+    // https://plausible.io: 2026-07-22 全社日次反応レポート向け計装。script自体は
+    // strict-dynamic下でNextのnonce付きランタイムからの動的挿入として許可されるが、
+    // ビーコン送信(fetch/XHR)は connect-src が別途governs するため明示許可が必須。
+    `connect-src 'self' https://plausible.io${isDev ? " ws: wss:" : ""}`,
     `frame-src 'none'`,
     `frame-ancestors 'none'`,
     `form-action 'self'`,
