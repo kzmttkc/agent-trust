@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 
 const SITE_URL = "https://agent-trust-tawny.vercel.app";
 
@@ -60,7 +61,8 @@ export const metadata: Metadata = {
   alternates: { canonical: `${SITE_URL}/faq` },
 };
 
-export default function FaqPage() {
+export default async function FaqPage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
@@ -78,6 +80,11 @@ export default function FaqPage() {
     <main className="mx-auto max-w-3xl space-y-10 p-8">
       <script
         type="application/ld+json"
+        nonce={nonce}
+        // Browsers blank the reflected `nonce` attribute right after the
+        // element is inserted (a CSP anti-exfiltration measure), which
+        // otherwise trips a harmless React hydration-mismatch warning here.
+        suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 

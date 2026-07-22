@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { getAllPosts, getPostBySlug } from "@/lib/blog";
 
 const SITE_URL = "https://agent-trust-tawny.vercel.app";
@@ -42,6 +43,7 @@ export default async function BlogPostPage({
   const post = getPostBySlug(slug);
   if (!post) notFound();
 
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
@@ -58,6 +60,11 @@ export default async function BlogPostPage({
     <main className="mx-auto max-w-3xl space-y-6 p-8">
       <script
         type="application/ld+json"
+        nonce={nonce}
+        // Browsers blank the reflected `nonce` attribute right after the
+        // element is inserted (a CSP anti-exfiltration measure), which
+        // otherwise trips a harmless React hydration-mismatch warning here.
+        suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 

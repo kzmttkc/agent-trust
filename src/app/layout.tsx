@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { SiteChrome } from "@/components/site/SiteChrome";
 
@@ -18,11 +19,18 @@ export const metadata: Metadata = {
   description: "ERC-8004 agent trust scores on Base for x402 API providers.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Reading the per-request nonce (set by src/proxy.ts) opts this layout
+  // out of static rendering, which nonce-based CSP requires: Next.js
+  // automatically applies this same nonce to its own inline hydration
+  // script, and a statically-cached page would otherwise ship a stale
+  // nonce that no longer matches the fresh one in the response header.
+  await headers();
+
   return (
     <html
       lang="en"
