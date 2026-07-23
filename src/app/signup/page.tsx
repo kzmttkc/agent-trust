@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
+import { track } from "@/lib/analytics";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -26,6 +27,7 @@ export default function SignupPage() {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    track("signup_started");
 
     try {
       const response = await fetch("/api/signup", {
@@ -42,13 +44,16 @@ export default function SignupPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         setError(data.error ?? "signup_failed");
+        track("signup_failed");
         return;
       }
 
       setApiKey(data.apiKey);
       markDashboardAuthenticated();
+      track("signup_completed");
     } catch {
       setError("connection_failed");
+      track("signup_failed");
     } finally {
       setLoading(false);
     }
