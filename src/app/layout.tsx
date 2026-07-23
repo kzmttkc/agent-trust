@@ -22,6 +22,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Vouch — Trust layer for agent commerce",
   description: "ERC-8004 agent trust scores on Base for x402 API providers.",
+  // GSC所有権確認用のmetaタグ。GOOGLE_SITE_VERIFICATION(Vercel env)が未設定なら
+  // Next.jsは何も出力しない(非破壊)。GSCプロパティ追加時のトークンをVercel環境変数
+  // に入れて再デプロイすれば <meta name="google-site-verification"> が出力され確認が
+  // 通る。metaタグはCSP(nonce)の影響を受けない。2026-07-23 IndexNow横展開に合わせて配線。
+  verification: { google: process.env.GOOGLE_SITE_VERIFICATION },
 };
 
 export default async function RootLayout({
