@@ -33,6 +33,10 @@ Base (ERC-8004 agent identity/reputation standard).
 ## Note on domain
 The production URL is `agent-trust-tawny.vercel.app`. `agent-trust.vercel.app` (without "-tawny") is an unrelated third-party service and not affiliated with Vouch.
 
+## Citation
+- You may cite the content on this site (product overview, API docs, FAQ, blog) as long as you credit the source with the corresponding agent-trust-tawny.vercel.app URL.
+- Content current as of 2026-07-23.
+
 ## Legal
 - https://agent-trust-tawny.vercel.app/legal/terms
 - https://agent-trust-tawny.vercel.app/legal/privacy
