@@ -19,14 +19,36 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = "https://agent-trust-tawny.vercel.app";
+const SITE_TITLE = "Vouch — Trust layer for agent commerce";
+const SITE_DESCRIPTION = "ERC-8004 agent trust scores on Base for x402 API providers.";
+
 export const metadata: Metadata = {
-  title: "Vouch — Trust layer for agent commerce",
-  description: "ERC-8004 agent trust scores on Base for x402 API providers.",
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
   // GSC所有権確認用のmetaタグ。GOOGLE_SITE_VERIFICATION(Vercel env)が未設定なら
   // Next.jsは何も出力しない(非破壊)。GSCプロパティ追加時のトークンをVercel環境変数
   // に入れて再デプロイすれば <meta name="google-site-verification"> が出力され確認が
   // 通る。metaタグはCSP(nonce)の影響を受けない。2026-07-23 IndexNow横展開に合わせて配線。
   verification: { google: process.env.GOOGLE_SITE_VERIFICATION || "P4SSxlBKJYSC0NYhh7xeStZ4MPg8_TnMm2HNQfZhl28" },
+  // 2026-07-24 growth-hacker: OGP/Twitterカードが未設定でX/Slack等での共有時に
+  // タイトル・説明文すら出ない状態だったため追加。Verilotの先例(commit参照)に
+  // ならいテキストのみ(og:image無し) — 未承認のAI生成テキスト入り画像は
+  // 公開に出さない方針(feedback_no_ai_text_images_public)のため、ブランド画像
+  // 承認が下りるまでは画像を追加しない。
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    type: "website",
+    siteName: "Vouch",
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
 };
 
 export default async function RootLayout({
