@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { ScorePreviewCard } from "@/components/site/ScorePreviewCard";
 import { EndpointCard, type EndpointCardProps } from "@/components/site/EndpointCard";
 import { TrustBadgeRow } from "@/components/site/TrustBadgeRow";
 import { PricingSection } from "@/components/site/PricingSection";
+import { BILLING_PLANS } from "@/lib/billing/plans";
+
+const SITE_URL = "https://agent-trust-tawny.vercel.app";
 
 const ENDPOINTS: EndpointCardProps[] = [
   {
@@ -33,9 +37,68 @@ const ENDPOINTS: EndpointCardProps[] = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  // 2026-07-25 CTO: ホームページのJSON-LDが0件だった非対称を解消(/faqのみ
+  // FAQPage実装済みという状態だった)。Organization+SoftwareApplicationを追加。
+  // 数値はsrc/lib/billing/plans.ts(課金の単一情報源)から引用し、架空の価格を書かない。
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Vouch",
+    url: SITE_URL,
+    description:
+      "ERC-8004 agent trust scores on Base for x402 API providers who need to know whether to accept payment from an agent before they take the money.",
+    sameAs: ["https://x.com/vouchtrust"],
+  };
+  const softwareApplicationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Vouch",
+    url: SITE_URL,
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Web",
+    description:
+      "Trust layer for agent commerce. Scores ERC-8004 agent IDs and wallet addresses on Base so x402 API providers can decide whether to accept a payment before completing the request.",
+    offers: [
+      {
+        "@type": "Offer",
+        name: BILLING_PLANS.free.name,
+        price: "0",
+        priceCurrency: "USD",
+        description: `${BILLING_PLANS.free.monthlyLimit.toLocaleString()} lookups / month`,
+      },
+      {
+        "@type": "Offer",
+        name: BILLING_PLANS.pro.name,
+        price: "49",
+        priceCurrency: "USD",
+        description: `${BILLING_PLANS.pro.monthlyLimit.toLocaleString()} lookups / month`,
+      },
+      {
+        "@type": "Offer",
+        name: BILLING_PLANS.scale.name,
+        price: "199",
+        priceCurrency: "USD",
+        description: `${BILLING_PLANS.scale.monthlyLimit.toLocaleString()} lookups / month`,
+      },
+    ],
+  };
+
   return (
     <main className="bg-white">
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
+      />
       {/* Hero */}
       <section className="mx-auto max-w-6xl px-5 pt-16 pb-14 md:px-8 md:pt-24">
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_400px]">
