@@ -106,7 +106,11 @@ export default function SignupPage() {
     <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-6 p-8">
       <div className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
-        <h1 className="text-3xl font-semibold">Create free account</h1>
+        {/* 2026-07-27 growth施策(週次): 見出しコピーのみ変更(フォーム項目・デザインは不変)。
+            抽象的な製品説明から具体的なユースケース訴求へ。 */}
+        <h1 className="text-3xl font-semibold">
+          Know if the other side of an x402 payment can be trusted — in one API call, before you pay.
+        </h1>
         <p className="text-sm text-zinc-600">
           Get an API key instantly. 1,000 score lookups per month on the Free plan.
         </p>
