@@ -27,7 +27,11 @@ if [[ -n "${CRON_SECRET:-}" ]]; then
   case "$code" in
     200|503) ;;
     401|403)
-      echo "warn: CRON_SECRET rejected (health endpoints above still ok)"
+      # fail-loud: a rejected CRON_SECRET means runDeepHealthChecks never runs,
+      # so the deep probe is DOWN. Do not report this as OK — that was the
+      # 2026-07-29 "fake OK" bug where a mismatched secret masked real outages.
+      echo "FAIL: monitor-health rejected CRON_SECRET (http $code) — deep health checks are NOT running" >&2
+      exit 1
       ;;
     *)
       echo "unexpected monitor-health status: $code" >&2
