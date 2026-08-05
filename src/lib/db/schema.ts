@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -247,6 +248,25 @@ export const x402Payments = pgTable(
      * transfer edge case — see that function's fallback comment).
      */
     payee: text("payee"),
+    /**
+     * 2026-08-05. `amount` above is whatever the caller POSTed and was never
+     * checked against anything: the route accepted a free-form string and
+     * stored it next to an on-chain-verified tx hash, so a "verified" payment
+     * row could carry a made-up figure. These three columns are what the CHAIN
+     * says, read from the same settlement Transfer log the payee comes from.
+     *
+     *  - onchainAmount: the transferred amount in the token's base units.
+     *  - token: the ERC20 contract that actually moved. Only BASE_USDC counts
+     *    as an x402 settlement; any other token means the wallet-match
+     *    condition was satisfied by an unrelated transfer.
+     *  - amountVerified: true only when the caller declared an amount AND the
+     *    settlement leg is USDC AND the two agree exactly. null on rows that
+     *    predate this column, false when we could not confirm — never
+     *    conflated with "no amount was sent".
+     */
+    onchainAmount: text("onchain_amount"),
+    token: text("token"),
+    amountVerified: boolean("amount_verified"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [

@@ -171,7 +171,7 @@ cd packages/sdk && npm install && npm run build
 ```
 
 ```typescript
-import { createVouchClient } from "@vouch/sdk";
+import { createVouchClient } from "@vouchscore/sdk";
 ```
 
 ## x402 sample middleware (M4)

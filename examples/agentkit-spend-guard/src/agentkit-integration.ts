@@ -13,7 +13,7 @@
  * in a full wallet stack). Uncomment and `npm install @coinbase/agentkit`
  * to run it for real.
  */
-import { createVouchClient, type SpendDecision } from "@vouch/sdk";
+import { createVouchClient, type SpendDecision } from "@vouchscore/sdk";
 
 // --- 1. One guard per agent process, configured from your risk policy -----
 

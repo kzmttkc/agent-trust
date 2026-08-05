@@ -1,7 +1,6 @@
 {
-  "name": "@vouch/mcp-server",
+  "name": "@vouchscore/mcp-server",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "bin": {
     "vouch-mcp": "./dist/index.js"
@@ -19,5 +18,35 @@
     "@types/node": "^20",
     "tsx": "^4.20.3",
     "typescript": "^5"
+  },
+  "description": "MCP server for Vouch: ask an agent's trust score, a wallet's, or a payee's before your agent pays them.",
+  "license": "MIT",
+  "author": "KIZUNA Creation",
+  "homepage": "https://agent-trust-tawny.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzmttkc/agent-trust.git",
+    "directory": "packages/mcp-server"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "x402",
+    "erc-8004",
+    "ai-agent",
+    "trust-score",
+    "base",
+    "claude",
+    "cursor"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

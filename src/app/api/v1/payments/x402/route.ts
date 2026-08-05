@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
     txHash as `0x${string}`,
     wallet,
     resolvedNetwork,
+    amount ?? null,
   );
   if (!verification.ok) {
     return NextResponse.json(
@@ -87,6 +88,13 @@ export async function POST(request: NextRequest) {
       network: resolvedNetwork,
       resource: resource ?? null,
       payee: verification.payee,
+      // 2026-08-05: what the chain said, alongside what the caller said. The
+      // declared `amount` is kept as-is for the caller's own reconciliation;
+      // `onchainAmount` is the authoritative figure and `amountVerified`
+      // states plainly whether the two agree.
+      onchainAmount: verification.settlement.onChainAmount,
+      token: verification.settlement.token,
+      amountVerified: verification.amountVerified,
     });
 
     if (result.created) {
@@ -107,6 +115,15 @@ export async function POST(request: NextRequest) {
           wallet: wallet.toLowerCase(),
           txHash: txHash.toLowerCase(),
           payee: verification.payee,
+          // Surfaced rather than hidden: a caller whose declared amount did
+          // not match the chain should find that out from us, immediately,
+          // and not from a reconciliation weeks later.
+          amountVerified: verification.amountVerified,
+          onChainAmount: verification.settlement.onChainAmount,
+          token: verification.settlement.token,
+          ...(verification.amountMismatch
+            ? { amountMismatch: verification.amountMismatch }
+            : {}),
         },
         { status: result.created ? 201 : 200 },
       ),

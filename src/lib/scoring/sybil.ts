@@ -71,22 +71,7 @@ export async function detectReputationSybilFlags(
   return [...new Set(flags)];
 }
 
-export function assessSybilRisk(
-  flags: string[],
-): "low" | "medium" | "high" {
-  if (flags.includes("wallet_mismatch")) return "high";
-  if (flags.includes("wallet_verification_failed")) return "high";
-  if (flags.includes("owner_count_unavailable")) return "high";
-  if (flags.includes("feedback_stats_unavailable")) return "high";
-  if (flags.includes("reputation_summary_unavailable")) return "high";
-  if (flags.includes("wallet_metrics_unavailable")) return "high";
-  if (flags.includes("no_bound_wallet") && flags.includes("review_velocity_anomaly")) {
-    return "high";
-  }
-  if (flags.length >= 3) return "high";
-  if (flags.includes("funding_cluster") && flags.includes("multi_agent_owner")) {
-    return "high";
-  }
-  if (flags.length >= 1) return "medium";
-  return "low";
-}
+// assessSybilRisk moved to ./verdict (pure, importable without a database).
+// Re-exported so existing call sites keep working.
+export { assessSybilRisk } from "./verdict";
+export type { SybilRisk } from "./verdict";

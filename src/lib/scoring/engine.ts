@@ -21,10 +21,10 @@ import {
   scoreIdentity,
   scoreReputation,
   scoreX402Payments,
-  toRecommendation,
   walletsMatch,
 } from "./helpers";
-import { assessSybilRisk, detectReputationSybilFlags, detectSybilFlags } from "./sybil";
+import { detectReputationSybilFlags, detectSybilFlags } from "./sybil";
+import { assessSybilRisk, resolveRecommendation } from "./verdict";
 import type { AgentIdentity } from "@/lib/chain/erc8004";
 import { getX402PaymentStats } from "@/lib/db/x402-payments";
 import { getDataCoverage } from "@/lib/health/data-coverage";
@@ -466,27 +466,6 @@ async function buildBlockedResult(
   };
   result.dataCoverage = await getDataCoverage(wallet);
   return result;
-}
-
-function resolveRecommendation(
-  trustScore: number,
-  effectiveList: "none" | "whitelist" | "blacklist",
-  sybilRisk: "low" | "medium" | "high",
-  override?: TrustScoreResult["recommendation"],
-): TrustScoreResult["recommendation"] {
-  if (override) return override;
-
-  // Incomplete or high-risk sybil checks must not clear x402 ALLOW gates.
-  if (sybilRisk === "high") {
-    return "BLOCK";
-  }
-
-  const recommendation = toRecommendation(trustScore, false);
-  if (effectiveList === "whitelist" && recommendation === "WARN" && sybilRisk === "low") {
-    return "ALLOW";
-  }
-
-  return recommendation;
 }
 
 function resolveWalletAddress(

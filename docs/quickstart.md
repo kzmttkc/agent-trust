@@ -96,7 +96,7 @@ cd packages/sdk && npm install && npm run build
 ```
 
 ```typescript
-import { createVouchClient } from "@vouch/sdk";
+import { createVouchClient } from "@vouchscore/sdk";
 const vouch = createVouchClient({ apiUrl: "http://localhost:3000/api/v1", apiKey: process.env.VOUCH_API_KEY! });
 await vouch.getWalletScore("0x...");
 ```

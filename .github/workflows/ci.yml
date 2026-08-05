@@ -1,0 +1,58 @@
+name: ci
+
+# 2026-08-05. Vouch had no CI at all — no .github directory, no test script,
+# and exactly one test file in the whole repository (the SDK's spend-guard).
+# The 1,350-line scoring core, which is the entire product, had none.
+#
+# That matters more here than in a normal codebase because of what the code
+# does when it breaks: the engine is fail-closed, so a regression does not
+# throw — it flips every verdict to BLOCK, or (far worse) lets an
+# "unavailable" signal through as ALLOW. Both are silent. A customer gating
+# x402 settlement on this API would keep settling payments while our RPC was
+# down and find out from their losses, not from an error.
+#
+# No database and no RPC are needed: the suites deliberately test the pure
+# modules (verdict / helpers / x402 settlement extraction), which is why those
+# functions were moved out of the DB-importing modules in the first place.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests (scoring core + SDK)
+        run: npm test
+
+  build:
+    name: production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The only defect class tsc and the dev server both miss: route
+      # conventions, the server/client boundary, and metadata generation.
+      - name: Build
+        run: npm run build
+        env:
+          # Build-time only. Nothing here reaches a real database or RPC: the
+          # app is written to degrade rather than throw when they are absent,
+          # and this job asserts that stays true.
+          SKIP_CHAIN_READS: "1"

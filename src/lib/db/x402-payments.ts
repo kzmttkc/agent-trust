@@ -19,6 +19,13 @@ export type RecordX402PaymentInput = {
   resource?: string | null;
   /** Receiving wallet, when resolvable — see extractPayeeFromReceipt. */
   payee?: string | null;
+  /** What the CHAIN said the settlement leg moved, in the token's base units.
+   *  Authoritative: `amount` above is the caller's claim, this is the fact. */
+  onchainAmount?: string | null;
+  /** ERC20 contract that actually moved (only Base USDC counts as x402). */
+  token?: string | null;
+  /** null = the caller declared no amount; false = declared but unconfirmed. */
+  amountVerified?: boolean | null;
 };
 
 /**
@@ -60,21 +67,48 @@ export async function recordX402Payment(
     resource: input.resource ?? null,
   };
 
+  // Widest set first, then degrade one migration at a time. Same reasoning as
+  // the payee fallback above: a migration lag must not take payment ingest
+  // down, and every degradation is logged so the lag is visible rather than
+  // permanent. (2026-08-05: onchain_amount / token / amount_verified —
+  // scripts/sql/2026-08-05-x402-amount-verification.sql.)
+  const verificationValues = {
+    onchainAmount: input.onchainAmount ?? null,
+    token: input.token ? input.token.toLowerCase() : null,
+    amountVerified: input.amountVerified ?? null,
+  };
+
   try {
     const inserted = await db
       .insert(x402Payments)
-      .values({ ...baseValues, payee })
+      .values({ ...baseValues, payee, ...verificationValues })
       .returning();
     return { created: true, id: inserted[0]!.id };
   } catch (error) {
     if (!isMissingSchemaError(error)) throw error;
 
     logServerError(
-      "x402_payment_payee_column_missing",
-      new Error("payee column not migrated yet; inserted without it"),
+      "x402_payment_verification_columns_missing",
+      new Error(
+        "onchain_amount/token/amount_verified not migrated yet; inserted without them",
+      ),
     );
-    const inserted = await db.insert(x402Payments).values(baseValues).returning();
-    return { created: true, id: inserted[0]!.id };
+    try {
+      const inserted = await db
+        .insert(x402Payments)
+        .values({ ...baseValues, payee })
+        .returning();
+      return { created: true, id: inserted[0]!.id };
+    } catch (retryError) {
+      if (!isMissingSchemaError(retryError)) throw retryError;
+
+      logServerError(
+        "x402_payment_payee_column_missing",
+        new Error("payee column not migrated yet; inserted without it"),
+      );
+      const inserted = await db.insert(x402Payments).values(baseValues).returning();
+      return { created: true, id: inserted[0]!.id };
+    }
   }
 }
 

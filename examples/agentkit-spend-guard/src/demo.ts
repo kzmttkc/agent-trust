@@ -17,7 +17,7 @@
  * agentkit-integration.ts for where the decision plugs into a real wallet
  * stack (Coinbase AgentKit).
  */
-import { createVouchClient, type SpendDecision } from "@vouch/sdk";
+import { createVouchClient, type SpendDecision } from "@vouchscore/sdk";
 
 const apiKey = process.env.VOUCH_API_KEY;
 if (!apiKey) {

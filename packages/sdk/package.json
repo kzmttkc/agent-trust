@@ -1,7 +1,6 @@
 {
-  "name": "@vouch/sdk",
+  "name": "@vouchscore/sdk",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,5 +17,35 @@
   },
   "devDependencies": {
     "typescript": "^5"
+  },
+  "description": "Trust scores for AI agents and x402 payees on Base. Read a score, or gate a payment with SpendGuard before it settles.",
+  "license": "MIT",
+  "author": "KIZUNA Creation",
+  "homepage": "https://agent-trust-tawny.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzmttkc/agent-trust.git",
+    "directory": "packages/sdk"
+  },
+  "keywords": [
+    "x402",
+    "erc-8004",
+    "erc8004",
+    "ai-agent",
+    "agent-payments",
+    "trust-score",
+    "base",
+    "onchain",
+    "sdk"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

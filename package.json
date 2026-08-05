@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "tsx --test tests/*.test.ts && npm run sdk:test",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -24,6 +26,7 @@
     "mcp:dev": "npm run dev --prefix packages/mcp-server",
     "sdk:build": "npm run build --prefix packages/sdk",
     "sdk:test": "npm run test --prefix packages/sdk",
+    "release:packages": "node scripts/release-packages.mjs",
     "x402:demo": "npm run demo --prefix examples/x402-trust-gate",
     "agentkit:demo": "npm run demo --prefix examples/agentkit-spend-guard"
   },

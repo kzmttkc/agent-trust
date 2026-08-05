@@ -1,12 +1,9 @@
 import type { Address } from "viem";
-import { SCORE_THRESHOLDS, SCORE_WEIGHTS } from "@/lib/chain/config";
+import { SCORE_WEIGHTS } from "@/lib/chain/config";
 import type { Recommendation } from "./types";
 
-export function toRecommendation(score: number, isBlacklisted: boolean): Recommendation {
-  if (isBlacklisted || score < SCORE_THRESHOLDS.warn) return "BLOCK";
-  if (score < SCORE_THRESHOLDS.allow) return "WARN";
-  return "ALLOW";
-}
+// One definition, in the module that has no database import (./verdict).
+export { toRecommendation } from "./verdict";
 
 export function normalizeWalletScore(params: {
   ageDays: number;

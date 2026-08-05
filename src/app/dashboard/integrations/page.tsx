@@ -43,7 +43,7 @@ export default function DashboardIntegrationsPage() {
           <code>attest_x402_payment</code>.
         </p>
         <p className="text-sm text-zinc-600">
-          Package: <code>@vouch/mcp-server</code> — see repo <code>docs/mcp-setup.md</code>.
+          Package: <code>@vouchscore/mcp-server</code> — see repo <code>docs/mcp-setup.md</code>.
         </p>
       </section>
 

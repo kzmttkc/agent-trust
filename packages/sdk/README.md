@@ -1,4 +1,4 @@
-# @vouch/sdk
+# @vouchscore/sdk
 
 Thin TypeScript client for the Vouch Trust API.
 
@@ -7,7 +7,7 @@ cd packages/sdk && npm install && npm run build
 ```
 
 ```typescript
-import { createVouchClient } from "@vouch/sdk";
+import { createVouchClient } from "@vouchscore/sdk";
 
 // apiUrl below is the current production deployment. A custom domain
 // (e.g. api.vouch.dev) is not registered yet — swap this in once it is.
