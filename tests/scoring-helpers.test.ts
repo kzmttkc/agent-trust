@@ -255,3 +255,7 @@ test("different wallets do not match", () => {
     false,
   );
 });
+
+test("owner_index_stale is a soft -5, and stays soft in the risk model", () => {
+  assert.equal(applySybilPenalty(100, ["owner_index_stale"]), 95);
+});

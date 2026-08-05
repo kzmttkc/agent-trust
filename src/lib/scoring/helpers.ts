@@ -101,6 +101,12 @@ export function applySybilPenalty(baseScore: number, flags: string[]): number {
   if (flags.includes("wallet_metrics_unavailable")) score -= 20;
   if (flags.includes("funding_cluster")) score -= 20;
   if (flags.includes("multi_agent_owner")) score -= 10;
+  // Soft freshness flag (2026-08-05): the owner index lags by more than the
+  // staleness threshold, so owner/funding cluster checks may miss the very
+  // newest registrations. A modest, honest discount — not an *_unavailable
+  // hard-block, because the data is present, just possibly incomplete at
+  // the newest edge.
+  if (flags.includes("owner_index_stale")) score -= 5;
   return clamp(score);
 }
 

@@ -78,14 +78,17 @@ function buildAgentCacheKey(
 ): string {
   const walletSegment = canonicalWallet?.toLowerCase() ?? "";
   const verifyWalletSegment = ctx.verifyWallet?.toLowerCase() ?? "";
-  return `agent:${agentId.toString()}:${walletSegment}:${verifyWalletSegment}:${ctx.apiKeyId ?? ""}`;
+  // chainId is part of the identity of a score: the same agent id on two
+  // chains is two different registrations, and a cache hit across chains
+  // would present one chain's history as the other's.
+  return `agent:${ctx.chainId ?? 8453}:${agentId.toString()}:${walletSegment}:${verifyWalletSegment}:${ctx.apiKeyId ?? ""}`;
 }
 
 export async function scoreAgentById(
   agentId: bigint,
   ctx: ScoreRequestContext = {},
 ): Promise<TrustScoreResult> {
-  const identity = await fetchAgentIdentity(agentId);
+  const identity = await fetchAgentIdentity(agentId, ctx.chainId);
   const verificationBlock = await verifyWalletBinding(agentId, identity, ctx.verifyWallet);
   if (verificationBlock) {
     return verificationBlock;
@@ -105,7 +108,7 @@ export async function scoreAgentById(
   let reputation: Awaited<ReturnType<typeof fetchReputationSummary>>;
   let reputationUnavailable = false;
   try {
-    reputation = await fetchReputationSummary(agentId);
+    reputation = await fetchReputationSummary(agentId, ctx.chainId);
   } catch {
     reputationUnavailable = true;
     reputation = { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
@@ -114,7 +117,7 @@ export async function scoreAgentById(
   let feedbackStats: Awaited<ReturnType<typeof fetchRecentFeedbackStats>>;
   let feedbackStatsUnavailable = false;
   try {
-    feedbackStats = await fetchRecentFeedbackStats(agentId);
+    feedbackStats = await fetchRecentFeedbackStats(agentId, 7, ctx.chainId);
   } catch {
     feedbackStatsUnavailable = true;
     feedbackStats = { recentCount: 0, uniqueClients: 0, windowDays: 7 };
@@ -124,7 +127,7 @@ export async function scoreAgentById(
   let walletMetricsUnavailable = false;
   if (walletAddress) {
     try {
-      walletMetrics = await fetchWalletMetrics(walletAddress as Address);
+      walletMetrics = await fetchWalletMetrics(walletAddress as Address, ctx.chainId);
     } catch {
       walletMetricsUnavailable = true;
       walletMetrics = {

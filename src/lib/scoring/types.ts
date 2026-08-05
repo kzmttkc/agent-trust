@@ -70,4 +70,7 @@ export type TrustScoreResult = {
 export type ScoreRequestContext = {
   apiKeyId?: string;
   verifyWallet?: string;
+  /** EVM chain id for the ERC-8004 reads. Default (and today the only chain
+   *  with settlement + full wallet metrics) is Base — see chain/chains.ts. */
+  chainId?: number;
 };

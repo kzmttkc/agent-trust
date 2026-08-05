@@ -3,6 +3,7 @@ import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { getLogsChunked } from "./chunked-logs";
 import { getPublicClient } from "./client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "./config";
+import { DEFAULT_CHAIN_ID, chainById } from "./chains";
 
 const identityRegistryAbi = parseAbi([
   "function ownerOf(uint256 tokenId) view returns (address)",
@@ -23,7 +24,7 @@ export type AgentIdentity = {
   registered: boolean;
 };
 
-export async function fetchAgentIdentity(agentId: bigint): Promise<AgentIdentity> {
+export async function fetchAgentIdentity(agentId: bigint, chainId?: number): Promise<AgentIdentity> {
   if (isSkipChainReadsEnabled()) {
     return {
       agentId,
@@ -34,7 +35,7 @@ export async function fetchAgentIdentity(agentId: bigint): Promise<AgentIdentity
     };
   }
 
-  const client = getPublicClient();
+  const client = getPublicClient(chainId);
 
   try {
     const owner = await client.readContract({
@@ -104,12 +105,12 @@ export async function fetchAgentIdentity(agentId: bigint): Promise<AgentIdentity
   }
 }
 
-export async function fetchReputationSummary(agentId: bigint) {
+export async function fetchReputationSummary(agentId: bigint, chainId?: number) {
   if (isSkipChainReadsEnabled()) {
     return { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
   }
 
-  const client = getPublicClient();
+  const client = getPublicClient(chainId);
   const emptyClients: Address[] = [];
   const zeroBytes32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
 
@@ -144,20 +145,26 @@ const newFeedbackEvent = parseAbiItem(
 export async function fetchRecentFeedbackStats(
   agentId: bigint,
   windowDays = 7,
+  chainId?: number,
 ): Promise<RecentFeedbackStats> {
   if (isSkipChainReadsEnabled()) {
     return { recentCount: 0, uniqueClients: 0, windowDays };
   }
 
-  const client = getPublicClient();
+  const client = getPublicClient(chainId);
 
   try {
     const latestBlock = await client.getBlockNumber();
-    const blocksPerDay = BigInt(43_200); // ~2s block time on Base
+    // Chain-aware window: Base mints ~43,200 blocks/day, Ethereum ~7,200.
+    // Using the Base figure everywhere would scan a 6x longer window on
+    // mainnet — a silent 6x RPC bill and a wrong "recent" definition.
+    const chainMeta = chainById(chainId ?? DEFAULT_CHAIN_ID);
+    const blocksPerDay = BigInt(chainMeta?.blocksPerDay ?? 43_200);
+    const floorBlock = chainMeta?.registryFromBlock ?? IDENTITY_REGISTRY_FROM_BLOCK;
     const fromBlock =
       latestBlock > blocksPerDay * BigInt(windowDays)
         ? latestBlock - blocksPerDay * BigInt(windowDays)
-        : IDENTITY_REGISTRY_FROM_BLOCK;
+        : floorBlock;
 
     const logs = (await getLogsChunked(client, {
       address: ERC8004_ADDRESSES.reputationRegistry,

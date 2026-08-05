@@ -12,6 +12,11 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // 2026-08-05 R&D audit: the three products' headers were compared and Vouch
+  // was the only one still advertising its framework. Zero functional value,
+  // and a product that sells itself as a trust layer should not volunteer
+  // fingerprinting hints it does not have to.
+  poweredByHeader: false,
   turbopack: {
     root: process.cwd(),
   },

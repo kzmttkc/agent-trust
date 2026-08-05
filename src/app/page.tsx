@@ -112,29 +112,24 @@ export default async function Home() {
               to accept payment from an agent before they take the money.
             </p>
 
-            <div className="flex flex-wrap gap-3 pt-2">
+            {/* 2026-08-05 R&D (C-1): three same-weight CTAs told a first-time
+                visitor nothing about what to do next. One primary action;
+                the reference is a text link; Dashboard lives in the header
+                where returning users already look for it. */}
+            <div className="flex flex-wrap items-center gap-4 pt-2">
               <Link
                 href="/signup"
-                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-6 py-3 text-base font-semibold text-white transition hover:bg-zinc-800"
               >
-                Get API key
+                Get a free API key
               </Link>
-              <Link
-                href="/docs/api"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50"
-              >
-                API reference
-              </Link>
-              <Link
-                href="/dashboard"
-                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50"
-              >
-                Dashboard
+              <Link href="/docs/api" className="text-sm font-medium text-zinc-600 underline underline-offset-4 hover:text-zinc-900">
+                Read the API reference
               </Link>
             </div>
 
             <p className="pt-2 text-sm text-zinc-500">
-              Channels: REST · MCP · x402 middleware · TypeScript SDK (<code>packages/sdk</code>)
+              Channels: REST · MCP · x402 middleware · TypeScript SDK
             </p>
           </div>
 
@@ -217,6 +212,56 @@ export default async function Home() {
             <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/x402-integration.md</code>.
           </p>
         </div>
+      </section>
+
+      {/* Quickstart (2026-08-05 R&D, C-6): the fastest honest proof is running
+          it, and the MCP server means "running it" is one command in the
+          editor a developer already has open. Package name is the published
+          npm scope (@vouchscore). */}
+      <section className="mx-auto max-w-5xl px-5 py-16 md:px-8">
+        <div className="max-w-2xl">
+          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
+            Try it from your editor in about a minute
+          </h2>
+          <p className="mt-3 text-zinc-600">
+            The MCP server gives Claude Desktop, Claude Code, and Cursor five trust tools —
+            including <code className="rounded bg-zinc-100 px-1 text-sm text-zinc-700">check_payee_trust</code>,
+            which answers the question every spending agent should ask:{" "}
+            <em>should I pay this wallet?</em>
+          </p>
+        </div>
+        <div className="mt-8 grid gap-6 lg:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900">1. Add the MCP server</p>
+            <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-xs leading-relaxed text-zinc-100">
+              <code>{`{
+  "mcpServers": {
+    "vouch": {
+      "command": "npx",
+      "args": ["-y", "@vouchscore/mcp-server"],
+      "env": { "VOUCH_API_KEY": "vk_..." }
+    }
+  }
+}`}</code>
+            </pre>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-zinc-900">2. Or call it straight from code</p>
+            <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-xs leading-relaxed text-zinc-100">
+              <code>{`import { createVouchClient } from "@vouchscore/sdk";
+
+const vouch = createVouchClient({ apiKey: process.env.VOUCH_API_KEY });
+const score = await vouch.getWalletScore("0xPayer...");
+if (score.recommendation !== "ALLOW") {
+  // don't settle the x402 payment
+}`}</code>
+            </pre>
+          </div>
+        </div>
+        <p className="mt-6 text-sm text-zinc-500">
+          Setup details: <Link href="/docs" className="underline">docs</Link> — MCP tools, the Express
+          middleware for x402 providers, and the AgentKit spend guard.
+        </p>
       </section>
 
       {/* Pricing */}

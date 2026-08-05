@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "./client";
 import { trustEvents, verdictOutcomes } from "./schema";
+import { dispatchWebhookEvent } from "@/lib/webhooks";
 
 export type AutoOutcomeType =
   | "rug_pull_outflow"
@@ -153,10 +154,46 @@ export async function recordAutoOutcome(input: {
       .onConflictDoNothing()
       .returning();
 
+    if (inserted.length > 0) {
+      // Notify the customer whose verdict this outcome judges (C-9). The
+      // trust_event row carries the requesting api key; fire-and-forget —
+      // notification failure must never fail outcome recording.
+      void notifyOutcomeRecorded(input.trustEventId, input.outcomeType, "auto");
+    }
+
     return inserted.length > 0;
   } catch (err) {
     console.error("outcome-writer: recordAutoOutcome failed, skipping write", err);
     return false;
+  }
+}
+
+/** Webhook fan-out for outcome.recorded. Looks up which api key requested the
+ *  original verdict; no key (dashboard/manual verdicts) → nobody to notify. */
+async function notifyOutcomeRecorded(
+  trustEventId: string,
+  outcomeType: string,
+  source: string,
+): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+  try {
+    const rows = await db
+      .select({ apiKeyId: trustEvents.apiKeyId, wallet: trustEvents.wallet, agentId: trustEvents.agentId })
+      .from(trustEvents)
+      .where(eq(trustEvents.id, trustEventId))
+      .limit(1);
+    const ev = rows[0];
+    if (!ev?.apiKeyId) return;
+    await dispatchWebhookEvent(ev.apiKeyId, "outcome.recorded", {
+      trustEventId,
+      outcomeType,
+      source,
+      wallet: ev.wallet,
+      agentId: ev.agentId === null ? null : ev.agentId.toString(),
+    });
+  } catch (err) {
+    console.error("outcome-writer: webhook notify failed (non-fatal)", err);
   }
 }
 
@@ -295,6 +332,7 @@ export async function recordPartnerOutcome(
       .returning();
 
     if (inserted[0]) {
+      void notifyOutcomeRecorded(input.trustEventId, input.outcomeType, source);
       return { created: true, id: inserted[0].id };
     }
 

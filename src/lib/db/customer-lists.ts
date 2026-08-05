@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { ensureOwnerUserId } from "./api-keys";
 import { getDb } from "./client";
+import { dispatchWebhookEvent } from "@/lib/webhooks";
 import { apiKeys, customerLists } from "./schema";
 
 export type ListType = "whitelist" | "blacklist";
@@ -160,6 +161,16 @@ export async function addCustomerListEntry(params: {
       listType: params.listType,
     })
     .returning();
+
+  // C-9: the customer's own audit trail. Fire-and-forget; a webhook must
+  // never slow down or fail the list write itself.
+  if (apiKeyId) {
+    void dispatchWebhookEvent(apiKeyId, "list.changed", {
+      action: "added",
+      wallet,
+      listType: params.listType,
+    }).catch(() => {});
+  }
 
   return {
     id: row.id,

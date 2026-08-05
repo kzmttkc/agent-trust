@@ -156,3 +156,9 @@ test("the published thresholds are the ones the docs quote", () => {
   assert.equal(SCORE_THRESHOLDS.allow, 70);
   assert.equal(SCORE_THRESHOLDS.warn, 40);
 });
+
+test("owner_index_stale alone is medium — disclosure, not a verdict", () => {
+  assert.equal(assessSybilRisk(["owner_index_stale"]), "medium");
+  // …and a stale index during an otherwise-clean score must not BLOCK.
+  assert.equal(resolveRecommendation(90, "none", assessSybilRisk(["owner_index_stale"])), "ALLOW");
+});

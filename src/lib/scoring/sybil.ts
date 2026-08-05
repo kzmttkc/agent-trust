@@ -1,4 +1,6 @@
 import { countAgentsByOwner } from "@/lib/chain/agent-resolver";
+import { getOwnerIndexerStatus } from "@/lib/db/owner-index";
+import { OWNER_INDEX_STALE_BLOCKS } from "@/lib/chain/config";
 import type { AgentIdentity, RecentFeedbackStats } from "@/lib/chain/erc8004";
 import { getFunderClusterSize, isFundingCluster } from "@/lib/db/funder-index";
 import type { WalletMetrics } from "@/lib/chain/wallet-metrics";
@@ -56,6 +58,24 @@ export async function detectReputationSybilFlags(
     } catch {
       // Cannot verify ownership (RPC outage + index not caught up) — fail closed.
       flags.push("owner_count_unavailable");
+    }
+
+    // 2026-08-05 R&D (C-11): the owner-count above reads the LOCAL index. When
+    // that index lags the chain by more than the staleness threshold, a fresh
+    // sybil cluster registered inside the lag window is invisible to it — and
+    // before this flag existed, the score would present stale data with a
+    // fresh face. Soft flag: honest disclosure + a small discount, not a
+    // hard block (the data exists, only its newest edge is uncertain). The
+    // status read itself failing is NOT flagged here — that path is already
+    // covered by owner_count_unavailable semantics when the count read fails.
+    try {
+      const status = await getOwnerIndexerStatus();
+      const behind = status?.blocksBehind;
+      if (behind !== null && behind !== undefined && behind > BigInt(OWNER_INDEX_STALE_BLOCKS)) {
+        flags.push("owner_index_stale");
+      }
+    } catch {
+      /* freshness unknown — do not invent a flag either way */
     }
   }
 

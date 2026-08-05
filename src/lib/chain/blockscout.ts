@@ -1,3 +1,4 @@
+import { DEFAULT_CHAIN_ID, chainById } from "./chains";
 import type { Address } from "viem";
 
 type BlockscoutTx = {
@@ -28,8 +29,15 @@ export class BlockscoutUnavailableError extends Error {
   }
 }
 
-function getBlockscoutBaseUrl(): string {
-  return process.env.BLOCKSCOUT_API_URL ?? "https://base.blockscout.com/api";
+function getBlockscoutBaseUrl(chainId?: number): string {
+  // Explicit env override wins (ops escape hatch), then the per-chain
+  // registry. Unknown chain ids fall back to Base — callers that care pass a
+  // registered id; this keeps the historical default byte-identical.
+  if (process.env.BLOCKSCOUT_API_URL && (chainId === undefined || chainId === DEFAULT_CHAIN_ID)) {
+    return process.env.BLOCKSCOUT_API_URL;
+  }
+  const chain = chainById(chainId ?? DEFAULT_CHAIN_ID);
+  return chain?.blockscoutApi ?? "https://base.blockscout.com/api";
 }
 
 function isEmptyResultMessage(message: string): boolean {
@@ -42,8 +50,8 @@ function isEmptyResultMessage(message: string): boolean {
   );
 }
 
-async function blockscoutGet<T>(params: Record<string, string>): Promise<T | null> {
-  const url = new URL(getBlockscoutBaseUrl());
+async function blockscoutGet<T>(params: Record<string, string>, chainId?: number): Promise<T | null> {
+  const url = new URL(getBlockscoutBaseUrl(chainId));
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
@@ -90,7 +98,7 @@ async function blockscoutGet<T>(params: Record<string, string>): Promise<T | nul
 
 export async function fetchWalletTransactions(
   address: Address,
-  options: { sort?: "asc" | "desc"; offset?: number; page?: number } = {},
+  options: { sort?: "asc" | "desc"; offset?: number; page?: number; chainId?: number } = {},
 ): Promise<BlockscoutTx[]> {
   const result = await blockscoutGet<BlockscoutTx[] | string>({
     module: "account",
@@ -101,7 +109,7 @@ export async function fetchWalletTransactions(
     page: String(options.page ?? 1),
     offset: String(options.offset ?? 100),
     sort: options.sort ?? "asc",
-  });
+  }, options.chainId);
 
   if (!result || typeof result === "string") return [];
   return result;
@@ -194,6 +202,7 @@ export async function fetchWalletBalance(address: Address): Promise<bigint | nul
 
 export async function fetchFirstIncomingTransfer(
   address: Address,
+  chainId?: number,
 ): Promise<{ funder: Address; blockNumber: bigint; timestamp: number } | null> {
   const pageSize = 100;
   const maxPages = 10;
@@ -203,6 +212,7 @@ export async function fetchFirstIncomingTransfer(
       sort: "asc",
       offset: pageSize,
       page,
+      chainId,
     });
 
     if (txs.length === 0) break;
@@ -225,13 +235,13 @@ export async function fetchFirstIncomingTransfer(
   return null;
 }
 
-export async function estimateTransactionCount(address: Address): Promise<number> {
+export async function estimateTransactionCount(address: Address, chainId?: number): Promise<number> {
   const pageSize = 100;
   const addressLower = address.toLowerCase();
   let nonSelf = 0;
 
   for (let page = 1; page <= 20; page++) {
-    const txs = await fetchWalletTransactions(address, { sort: "desc", offset: pageSize, page });
+    const txs = await fetchWalletTransactions(address, { sort: "desc", offset: pageSize, page, chainId });
     if (txs.length === 0) break;
 
     for (const tx of txs) {

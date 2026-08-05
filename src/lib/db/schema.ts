@@ -228,6 +228,31 @@ export const verdictOutcomes = pgTable(
   ],
 );
 
+/**
+ * Webhook endpoints (2026-08-05 R&D, C-9). One row per registered endpoint;
+ * at most MAX_WEBHOOKS_PER_KEY per api key (enforced in lib/webhooks.ts).
+ * `secret` is stored as written because it SIGNS outbound payloads — it is a
+ * per-endpoint signing key we generated, not a customer credential, and it
+ * is shown to the customer exactly once at registration.
+ * SQL: scripts/sql/2026-08-05-webhooks.sql (fallback-tolerant readers).
+ */
+export const webhooks = pgTable(
+  "webhooks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    url: text("url").notNull(),
+    secret: text("secret").notNull(),
+    /** subset of WEBHOOK_EVENTS the endpoint subscribed to */
+    events: jsonb("events").notNull(),
+    active: boolean("active").notNull().default(true),
+    failureCount: integer("failure_count").notNull().default(0),
+    lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("webhooks_api_key_idx").on(t.apiKeyId)],
+);
+
 export const x402Payments = pgTable(
   "x402_payments",
   {

@@ -34,8 +34,10 @@ export function invalidateWalletMetricsCache(wallet: string): void {
   metricsCache.delete(wallet.toLowerCase());
 }
 
-export async function fetchWalletMetrics(address: Address): Promise<WalletMetrics> {
-  const cacheKey = address.toLowerCase();
+export async function fetchWalletMetrics(address: Address, chainId?: number): Promise<WalletMetrics> {
+  // Chain-scoped cache key: the same wallet has different age/activity per
+  // chain, and a cross-chain cache hit would be a wrong answer, not a fast one.
+  const cacheKey = `${chainId ?? 8453}:${address.toLowerCase()}`;
   const cached = metricsCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.metrics;
@@ -47,9 +49,9 @@ export async function fetchWalletMetrics(address: Address): Promise<WalletMetric
 
   try {
     const [txs, txCount, incoming] = await Promise.all([
-      withTimeout(fetchWalletTransactions(address, { sort: "asc", offset: 1 })),
-      withTimeout(fetchTransactionCount(address)),
-      withTimeout(fetchFirstIncomingTransfer(address)),
+      withTimeout(fetchWalletTransactions(address, { sort: "asc", offset: 1, chainId })),
+      withTimeout(fetchTransactionCount(address, chainId)),
+      withTimeout(fetchFirstIncomingTransfer(address, chainId)),
     ]);
 
     const firstTx = txs[0];
@@ -79,14 +81,14 @@ export async function fetchWalletMetrics(address: Address): Promise<WalletMetric
   }
 }
 
-async function fetchTransactionCount(address: Address): Promise<number> {
-  const blockscoutCount = await estimateTransactionCount(address);
+async function fetchTransactionCount(address: Address, chainId?: number): Promise<number> {
+  const blockscoutCount = await estimateTransactionCount(address, chainId);
   if (blockscoutCount > 0) {
     return blockscoutCount;
   }
 
   try {
-    const client = getPublicClient();
+    const client = getPublicClient(chainId);
     const nonceCount = Number(await client.getTransactionCount({ address }));
     return Math.min(nonceCount, MAX_NONCE_TX_COUNT);
   } catch {

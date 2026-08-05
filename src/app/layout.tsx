@@ -45,7 +45,9 @@ export const metadata: Metadata = {
     siteName: "Vouch",
   },
   twitter: {
-    card: "summary",
+    // summary_large_image: og画像(app/opengraph-image.tsx・コード描画の製品UI)を
+    // 2026-08-05に追加したため、大判カードで表示させる。
+    card: "summary_large_image",
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
   },
