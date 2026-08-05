@@ -129,8 +129,15 @@ export default function ApiDocsPage() {
         </p>
         <p className="text-sm text-zinc-500">
           Full machine-readable schema:{" "}
-          <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/openapi.yaml</code> in this
-          repository.
+          <a
+            href="https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml"
+            className="underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/openapi.yaml</code>
+          </a>{" "}
+          on GitHub.
         </p>
       </div>
 

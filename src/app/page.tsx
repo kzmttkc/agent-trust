@@ -207,9 +207,33 @@ export default async function Home() {
               API reference
             </Link>
             . Docs also cover{" "}
-            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/quickstart.md</code>,{" "}
-            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/mcp-setup.md</code>, and{" "}
-            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/x402-integration.md</code>.
+            <a
+              href="https://github.com/kzmttkc/agent-trust/blob/main/docs/quickstart.md"
+              className="underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/quickstart.md</code>
+            </a>
+            ,{" "}
+            <a
+              href="https://github.com/kzmttkc/agent-trust/blob/main/docs/mcp-setup.md"
+              className="underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/mcp-setup.md</code>
+            </a>
+            , and{" "}
+            <a
+              href="https://github.com/kzmttkc/agent-trust/blob/main/docs/x402-integration.md"
+              className="underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/x402-integration.md</code>
+            </a>
+            .
           </p>
         </div>
       </section>
@@ -259,7 +283,7 @@ if (score.recommendation !== "ALLOW") {
           </div>
         </div>
         <p className="mt-6 text-sm text-zinc-500">
-          Setup details: <Link href="/docs" className="underline">docs</Link> — MCP tools, the Express
+          Setup details: <Link href="/docs/api" className="underline">docs</Link> — MCP tools, the Express
           middleware for x402 providers, and the AgentKit spend guard.
         </p>
       </section>

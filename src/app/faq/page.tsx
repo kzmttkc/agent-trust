@@ -20,7 +20,7 @@ const FAQS: FaqItem[] = [
   {
     question: "What does Vouch actually compute?",
     answer:
-      "Given an ERC-8004 agent ID or a wallet address, Vouch returns a trust score (0-100), a recommendation (ALLOW / WARN / DENY), and the underlying signal breakdown: identity, reputation, wallet history, x402 payment history, and sybil-risk indicators. It's meant to be checked in the request path — before you accept a payment or complete a transaction — not reviewed after the fact.",
+      "Given an ERC-8004 agent ID or a wallet address, Vouch returns a trust score (0-100), a recommendation (ALLOW / WARN / BLOCK), and the underlying signal breakdown: identity, reputation, wallet history, x402 payment history, and sybil-risk indicators. It's meant to be checked in the request path — before you accept a payment or complete a transaction — not reviewed after the fact.",
   },
   {
     question: "Is a Vouch score a guarantee or a credit assessment?",
