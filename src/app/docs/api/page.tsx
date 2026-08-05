@@ -101,9 +101,15 @@ const endpoints: Endpoint[] = [
 }`,
   },
   {
+    method: "GET",
+    path: "/api/v1/payees/verify?wallet=0x…&name=Acme+API",
+    note: "Preview the exact canonical message for a (wallet, name) pair before signing — no API key, no rate limit. The same message is echoed back in a failed POST's expectedMessage field, so you never have to reverse-engineer the format.",
+    response: `{ "message": "Vouch verified payee registration\\nwallet: 0x…\\nname: Acme API\\nThis signature only proves control of the wallet above." }`,
+  },
+  {
     method: "POST",
     path: "/api/v1/payees/verify",
-    note: "Verified payee registration — free, no API key. Sign the canonical message (see response of a failed call, or docs) with the payee wallet; a valid signature proves control and publishes /payee/:address plus an embeddable badge at /api/badge/:address. Verification proves wallet control only; scores stay independent.",
+    note: "Verified payee registration — free, no API key. Sign the canonical message above (fetch it via GET on this same path, or build it yourself: 4 lines, newline-joined — see the response schema) with the payee wallet; a valid signature proves control and publishes /payee/:address plus an embeddable badge at /api/badge/:address. Verification proves wallet control only; scores stay independent.",
     request: `{ "wallet": "0x…", "name": "Acme API", "url": "https://…", "signature": "0x…" }`,
     response: `{ "ok": true, "profile": "/payee/0x…", "badge": "/api/badge/0x…" }`,
   },

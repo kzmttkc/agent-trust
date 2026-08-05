@@ -30,6 +30,21 @@ const schema = z.object({
   signature: z.string().max(4000),
 });
 
+// Preview the exact canonical message for a given (wallet, name) pair, so a
+// caller can construct + sign it before ever attempting POST. Read-only, no
+// rate limit needed — it echoes input, touches no store.
+export async function GET(request: NextRequest) {
+  const wallet = request.nextUrl.searchParams.get("wallet") ?? "";
+  const name = request.nextUrl.searchParams.get("name") ?? "";
+  if (!isValidAddress(wallet)) {
+    return NextResponse.json({ error: "invalid_wallet_address" }, { status: 400 });
+  }
+  if (!name || name.length > 80) {
+    return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+  }
+  return NextResponse.json({ message: payeeMessage(wallet, name) });
+}
+
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request) ?? "unknown";
   const limited = await consumeIpRateLimit(`payee-verify:${ip}`, 10, 60_000);
@@ -65,7 +80,10 @@ export async function POST(request: NextRequest) {
     valid = false;
   }
   if (!valid) {
-    return NextResponse.json({ error: "signature_mismatch" }, { status: 400 });
+    return NextResponse.json(
+      { error: "signature_mismatch", expectedMessage: payeeMessage(wallet, name) },
+      { status: 400 },
+    );
   }
 
   const db = getDb();

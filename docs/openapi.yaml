@@ -121,6 +121,93 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /payees/verify:
+    get:
+      operationId: previewPayeeVerifyMessage
+      tags: [Payees]
+      summary: Preview the canonical message to sign for payee verification
+      description: |
+        Returns the exact message a payee wallet must sign to register via
+        `POST /payees/verify`. No API key, no rate limit — it echoes input
+        and touches no store. Callers who prefer to build the message
+        themselves can do so: it is four lines, newline-joined, in the shape
+        `Vouch verified payee registration\nwallet: <lowercased address>\nname: <name>\nThis signature only proves control of the wallet above.`
+      security: []
+      parameters:
+        - name: wallet
+          in: query
+          required: true
+          schema: { type: string }
+        - name: name
+          in: query
+          required: true
+          schema: { type: string, maxLength: 80 }
+      responses:
+        "200":
+          description: Canonical message to sign
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    post:
+      operationId: verifyPayee
+      tags: [Payees]
+      summary: Register a verified payee by signing the canonical message
+      description: |
+        Free, no API key. Sign the message from `GET /payees/verify` (or
+        build it yourself per that endpoint's description) with the payee
+        wallet — a valid EIP-191 signature (EIP-6492 for smart accounts) is
+        the proof of control and is the only anti-abuse gate. Publishes a
+        public profile at `/payee/{wallet}` and an embeddable SVG badge at
+        `/api/badge/{wallet}.svg`. Verification proves wallet control only;
+        trust scores stay computed independently.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet, name, signature]
+              properties:
+                wallet: { type: string }
+                name: { type: string, maxLength: 80 }
+                url: { type: string, format: uri, description: "Must be https://" }
+                signature: { type: string, maxLength: 4000 }
+      responses:
+        "200":
+          description: Payee verified and published
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  profile: { type: string }
+                  badge: { type: string }
+        "400":
+          description: |
+            Bad request — includes `invalid_wallet_address`, `url_must_be_https`,
+            and `signature_mismatch` (whose response body also carries
+            `expectedMessage`, so a rejected signature is self-diagnosing).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  expectedMessage:
+                    type: string
+                    description: Present only on signature_mismatch.
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Store unavailable (schema not yet migrated, or DB unreachable).
+
   /scores/batch:
     post:
       operationId: batchScore
