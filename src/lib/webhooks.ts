@@ -37,7 +37,7 @@ import { logServerError } from "./util/log";
 //     shown once at registration, same contract as API keys.
 // ============================================================
 
-export const WEBHOOK_EVENTS = ["list.changed", "outcome.recorded"] as const;
+export const WEBHOOK_EVENTS = ["list.changed", "outcome.recorded", "watch.verdict_changed"] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
 export const MAX_WEBHOOKS_PER_KEY = 5;

@@ -89,6 +89,24 @@ const endpoints: Endpoint[] = [
   ]
 }`,
   },
+  {
+    method: "GET",
+    path: "/api/v1/watchlist",
+    note: "List your watched targets (max 50 per key). POST {targetType, target, chainId?} to add; DELETE /api/v1/watchlist/:id to remove. A cron re-scores entries every 6 hours and fires the watch.verdict_changed webhook only when the recommendation changes.",
+    response: `{
+  "watchlist": [
+    { "id": "…", "targetType": "wallet", "target": "0x…", "chainId": 8453,
+      "lastScore": 74, "lastRecommendation": "ALLOW", "lastCheckedAt": "2026-08-05T06:30:00Z" }
+  ]
+}`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/payees/verify",
+    note: "Verified payee registration — free, no API key. Sign the canonical message (see response of a failed call, or docs) with the payee wallet; a valid signature proves control and publishes /payee/:address plus an embeddable badge at /api/badge/:address. Verification proves wallet control only; scores stay independent.",
+    request: `{ "wallet": "0x…", "name": "Acme API", "url": "https://…", "signature": "0x…" }`,
+    response: `{ "ok": true, "profile": "/payee/0x…", "badge": "/api/badge/0x…" }`,
+  },
 ];
 
 const errorCodes = [

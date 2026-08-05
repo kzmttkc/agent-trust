@@ -59,6 +59,10 @@ export type TrustScoreResult = {
   signals: TrustSignals;
   scoredAt: string;
   cacheExpiresAt: string;
+  /** N-18: stable machine-readable reasons behind the verdict (for
+   *  integrators' compliance logs). Derived from the same signals the
+   *  verdict used — cannot disagree with it. */
+  reasons?: string[];
   disclaimer: string;
   blockReason?: string;
   /** True when customer whitelist/blacklist changed the outcome. */

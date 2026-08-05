@@ -253,6 +253,52 @@ export const webhooks = pgTable(
   (t) => [index("webhooks_api_key_idx").on(t.apiKeyId)],
 );
 
+/**
+ * Watchlist (N-15, 2026-08-05). A customer registers targets to monitor; the
+ * watchlist-scan cron re-scores them and fires a `watch.verdict_changed`
+ * webhook when the recommendation moves. This is what turns the score API
+ * into a monitoring service — and what the Scale plan actually sells.
+ * SQL: scripts/sql/2026-08-05-watchlist.sql.
+ */
+export const watchlistEntries = pgTable(
+  "watchlist_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    /** 'agent' | 'wallet' */
+    targetType: text("target_type").notNull(),
+    target: text("target").notNull(),
+    chainId: integer("chain_id").notNull().default(8453),
+    lastScore: integer("last_score"),
+    lastRecommendation: text("last_recommendation"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("watchlist_api_key_idx").on(t.apiKeyId),
+    uniqueIndex("watchlist_unique").on(t.apiKeyId, t.targetType, t.target, t.chainId),
+  ],
+);
+
+/**
+ * Verified payees (N-16, 2026-08-05). A payee proves control of their wallet
+ * by signing a canonical message; verified entries get a public profile and
+ * an embeddable badge. The two-sided registry: spending agents check payees
+ * here, payees display the badge — the moat is the network, not the row.
+ * SQL: scripts/sql/2026-08-05-verified-payees.sql.
+ */
+export const verifiedPayees = pgTable(
+  "verified_payees",
+  {
+    wallet: text("wallet").primaryKey(),
+    name: text("name").notNull(),
+    url: text("url"),
+    signature: text("signature").notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow(),
+  },
+);
+
 export const x402Payments = pgTable(
   "x402_payments",
   {

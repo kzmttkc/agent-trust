@@ -20,6 +20,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   assessSybilRisk,
+  reasonCodes,
   resolveRecommendation,
   toRecommendation,
 } from "@/lib/scoring/verdict";
@@ -161,4 +162,33 @@ test("owner_index_stale alone is medium — disclosure, not a verdict", () => {
   assert.equal(assessSybilRisk(["owner_index_stale"]), "medium");
   // …and a stale index during an otherwise-clean score must not BLOCK.
   assert.equal(resolveRecommendation(90, "none", assessSybilRisk(["owner_index_stale"])), "ALLOW");
+});
+
+test("N-18: reason codes cannot disagree with the verdict they explain", () => {
+  const base = {
+    identity: { registered: true, hasMetadataUri: true },
+    reputation: { feedbackCount: 5 },
+    wallet: { ageDays: 100, isBurner: false },
+    x402: { paymentCount: 3 },
+    sybil: { risk: "low" as const, flags: [] },
+    manual: { list: "none" as const },
+  };
+  assert.ok(reasonCodes(base, 85, "ALLOW").includes("score:above_allow_threshold:85"));
+  assert.ok(
+    reasonCodes({ ...base, sybil: { risk: "high", flags: ["wallet_mismatch"] } }, 85, "BLOCK")
+      .includes("sybil:high_risk_block"),
+  );
+  assert.ok(
+    reasonCodes({ ...base, sybil: { risk: "high", flags: ["wallet_mismatch"] } }, 85, "BLOCK")
+      .includes("sybil:wallet_mismatch"),
+  );
+  assert.ok(reasonCodes({ ...base, manual: { list: "blacklist" } }, 0, "BLOCK").includes("manual:blacklisted"));
+  assert.ok(
+    reasonCodes({ ...base, identity: { registered: false, hasMetadataUri: false } }, 20, "BLOCK")
+      .includes("identity:not_registered"),
+  );
+  assert.ok(
+    reasonCodes({ ...base, wallet: { ageDays: 1, isBurner: true }, x402: { paymentCount: 0 } }, 45, "WARN")
+      .includes("wallet:burner"),
+  );
 });

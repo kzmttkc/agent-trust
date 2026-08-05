@@ -24,7 +24,7 @@ import {
   walletsMatch,
 } from "./helpers";
 import { detectReputationSybilFlags, detectSybilFlags } from "./sybil";
-import { assessSybilRisk, resolveRecommendation } from "./verdict";
+import { assessSybilRisk, reasonCodes, resolveRecommendation } from "./verdict";
 import type { AgentIdentity } from "@/lib/chain/erc8004";
 import { getX402PaymentStats } from "@/lib/db/x402-payments";
 import { getDataCoverage } from "@/lib/health/data-coverage";
@@ -520,6 +520,18 @@ function buildResult(params: {
     signals: params.signals,
     scoredAt: now,
     cacheExpiresAt: expires,
+    reasons: reasonCodes(
+      {
+        identity: params.signals.identity,
+        reputation: { feedbackCount: params.signals.reputation.feedbackCount },
+        wallet: { ageDays: params.signals.wallet.ageDays, isBurner: params.signals.wallet.isBurner },
+        x402: { paymentCount: params.signals.x402.paymentCount },
+        sybil: params.signals.sybil,
+        manual: { list: params.signals.manual.list as "none" | "whitelist" | "blacklist" },
+      },
+      params.trustScore,
+      params.recommendation,
+    ),
     disclaimer,
     manualOverride: params.manualOverride,
   };

@@ -67,3 +67,37 @@ export function resolveRecommendation(
 
   return recommendation;
 }
+
+// ---- N-18 (2026-08-05): machine-readable reason codes ----------------------
+// Integrators logging ALLOW/BLOCK decisions for compliance need WHY in a
+// stable, parseable form — not prose. Codes are derived from the same
+// signals the verdict used, so they cannot disagree with it.
+export interface ReasonSignalView {
+  identity: { registered: boolean; hasMetadataUri: boolean };
+  reputation: { feedbackCount: number };
+  wallet: { ageDays: number; isBurner: boolean };
+  x402: { paymentCount: number };
+  sybil: { risk: SybilRisk; flags: string[] };
+  manual: { list: ManualList };
+}
+
+export function reasonCodes(
+  signals: ReasonSignalView,
+  trustScore: number,
+  recommendation: Recommendation,
+): string[] {
+  const codes: string[] = [];
+  if (signals.manual.list === "blacklist") codes.push("manual:blacklisted");
+  if (signals.manual.list === "whitelist") codes.push("manual:whitelisted");
+  if (signals.sybil.risk === "high") codes.push("sybil:high_risk_block");
+  for (const flag of signals.sybil.flags) codes.push(`sybil:${flag}`);
+  if (!signals.identity.registered) codes.push("identity:not_registered");
+  else if (!signals.identity.hasMetadataUri) codes.push("identity:no_metadata");
+  if (signals.reputation.feedbackCount === 0) codes.push("reputation:no_feedback");
+  if (signals.wallet.isBurner) codes.push("wallet:burner");
+  if (signals.x402.paymentCount === 0) codes.push("x402:no_settlement_history");
+  if (recommendation === "ALLOW") codes.push(`score:above_allow_threshold:${trustScore}`);
+  else if (recommendation === "WARN") codes.push(`score:between_thresholds:${trustScore}`);
+  else codes.push(`score:${trustScore}`);
+  return codes;
+}
