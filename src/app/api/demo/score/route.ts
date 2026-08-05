@@ -34,6 +34,15 @@ import { logServerError } from "@/lib/util/log";
 const DEMO_TTL_MS = 5 * 60 * 1000;
 const RATE_LIMIT = 10; // per IP per minute — humans reloading, not scrapers
 const RATE_WINDOW_MS = 60 * 1000;
+// 2026-08-06 UX audit: a hang inside scoreAgentById (e.g. a slow/unreachable
+// RPC several calls deep) is not a rejection, so the try/catch below never
+// fires and the request hangs until the platform kills it (504, reproduced
+// 3/3 by a persona audit and independently by curl — timeout, not error).
+// This endpoint's own contract is "must never look better than the truth,"
+// which a hang violates worse than a fast { live: false } ever could. Race
+// against a timeout well under Vercel's function limit so a slow dependency
+// degrades to the documented failure response instead of hanging the page.
+const SCORE_TIMEOUT_MS = 8_000;
 
 type DemoPayload = {
   live: true;
@@ -75,7 +84,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await scoreAgentById(demoAgentId());
+    const result = await Promise.race([
+      scoreAgentById(demoAgentId()),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("demo_score_timeout")), SCORE_TIMEOUT_MS),
+      ),
+    ]);
     const payload: DemoPayload = {
       live: true,
       agentId: result.agentId,
