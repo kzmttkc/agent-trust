@@ -1,0 +1,202 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { verifyMessage } from "viem";
+import { getClientIp } from "@/lib/api/client-ip";
+import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
+import { getDb } from "@/lib/db/client";
+import { isMissingSchemaError } from "@/lib/db/pg-errors";
+import { agentPassports } from "@/lib/db/schema";
+import { parseAgentId } from "@/lib/chain/client";
+import { readCanonicalAgentWallet } from "@/lib/chain/agent-wallet";
+// Reuse the payee route's name canonicalization verbatim: the passport message
+// shares the exact same 4-line-injection risk (a name with a newline could
+// forge an extra "wallet:" or "agentId:" line), so the fix must be the SAME
+// rule, not a second copy that could drift. See that file's comment.
+import { isCanonicalName } from "@/app/api/v1/payees/verify/route";
+import { logServerError } from "@/lib/util/log";
+
+// A-10 — agent passport self-verification, the symmetric twin of N-16
+// (verified payees). Where a payee signs with a receiving wallet, an agent
+// signs with the wallet `getAgentWallet(agentId)` returns on-chain: the
+// signature proves control of that wallet, and the on-chain lookup proves the
+// wallet IS the agent's. No API key: presenting your own passport should have
+// zero friction, and the signature + on-chain binding are the anti-abuse gate.
+//
+// SECURITY: the signed message is a FIXED 5 lines. `name` MUST be canonical
+// (single line, trimmed, no control chars) or it could forge extra lines —
+// isCanonicalName enforces this at the schema layer AND here as defense in
+// depth, exactly as the payee route does.
+export function agentPassportMessage(agentId: bigint, wallet: string, name: string): string {
+  if (!isCanonicalName(name)) {
+    throw new Error("agentPassportMessage: non-canonical name would break the 5-line canonical message");
+  }
+  return [
+    "Vouch agent passport registration",
+    `agentId: ${agentId.toString()}`,
+    `wallet: ${wallet.toLowerCase()}`,
+    `name: ${name}`,
+    "This signature only proves control of the wallet above.",
+  ].join("\n");
+}
+
+const schema = z.object({
+  // Accept a numeric string or number; parseAgentId does the real validation.
+  agentId: z.union([z.string(), z.number()]),
+  name: z.string().refine(isCanonicalName, { message: "invalid_name" }),
+  url: z.string().url().max(200).optional(),
+  signature: z.string().max(4000),
+});
+
+// Key-less path rate limits, mirroring the payee verify route. GET (preview)
+// is looser than POST (write); POST additionally caps per-agent churn so one
+// agent cannot rewrite its public passport in a hot loop across many IPs.
+const GET_LIMIT = 30;
+const POST_IP_LIMIT = 8;
+const POST_AGENT_LIMIT = 4;
+const RL_WINDOW_MS = 60_000;
+
+/**
+ * Preview the exact canonical message to sign for (agentId, name). Resolves
+ * the agent's on-chain wallet so the signer sees the real 5 lines before
+ * signing. Read-only but rate-limited: it is key-less and does a chain read.
+ */
+export async function GET(request: NextRequest) {
+  const ip = getClientIp(request) ?? "unknown";
+  const limited = await consumeIpRateLimit(`agent-verify-get:${ip}`, GET_LIMIT, RL_WINDOW_MS);
+  const rlHeaders = ipRateLimitHeaders(limited);
+  if (!limited.allowed) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: rlHeaders });
+  }
+
+  const agentIdRaw = request.nextUrl.searchParams.get("agentId") ?? "";
+  const name = request.nextUrl.searchParams.get("name") ?? "";
+  const agentId = parseAgentId(agentIdRaw);
+  if (agentId === null) {
+    return NextResponse.json({ error: "invalid_agent_id" }, { status: 400, headers: rlHeaders });
+  }
+  if (!isCanonicalName(name)) {
+    return NextResponse.json({ error: "invalid_name" }, { status: 400, headers: rlHeaders });
+  }
+
+  let wallet: string | null;
+  try {
+    wallet = await readCanonicalAgentWallet(agentId);
+  } catch {
+    return NextResponse.json({ error: "chain_unavailable" }, { status: 503, headers: rlHeaders });
+  }
+  if (!wallet) {
+    // The identity has no bound wallet on-chain, so there is nothing to sign
+    // with that would prove control. Bind a wallet to the agent first.
+    return NextResponse.json({ error: "agent_wallet_unbound" }, { status: 400, headers: rlHeaders });
+  }
+
+  return NextResponse.json(
+    { agentId: agentId.toString(), wallet: wallet.toLowerCase(), message: agentPassportMessage(agentId, wallet, name) },
+    { headers: rlHeaders },
+  );
+}
+
+export async function POST(request: NextRequest) {
+  const ip = getClientIp(request) ?? "unknown";
+  const limited = await consumeIpRateLimit(`agent-verify:${ip}`, POST_IP_LIMIT, RL_WINDOW_MS);
+  const rlHeaders = ipRateLimitHeaders(limited);
+  if (!limited.allowed) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: rlHeaders });
+  }
+
+  let json: unknown;
+  try {
+    json = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_request" }, { status: 400, headers: rlHeaders });
+  }
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "invalid_request", details: parsed.error.flatten() },
+      { status: 400, headers: rlHeaders },
+    );
+  }
+  const { name, url, signature } = parsed.data;
+  const agentId = parseAgentId(String(parsed.data.agentId));
+  if (agentId === null) {
+    return NextResponse.json({ error: "invalid_agent_id" }, { status: 400, headers: rlHeaders });
+  }
+  if (url && !/^https:\/\//.test(url)) {
+    return NextResponse.json({ error: "url_must_be_https" }, { status: 400, headers: rlHeaders });
+  }
+
+  // Per-agent write throttle: a valid signature proves control, but cap how
+  // often ONE agent may (re)register its passport. Runs after schema
+  // validation so we never spend a bucket slot on malformed input.
+  const agentLimited = await consumeIpRateLimit(
+    `agent-verify-agent:${agentId.toString()}`,
+    POST_AGENT_LIMIT,
+    RL_WINDOW_MS,
+  );
+  if (!agentLimited.allowed) {
+    return NextResponse.json(
+      { error: "rate_limited", scope: "agent" },
+      { status: 429, headers: ipRateLimitHeaders(agentLimited) },
+    );
+  }
+
+  // Resolve the on-chain wallet FIRST — this is the binding that makes the
+  // signature mean "this agent", not merely "some wallet". A chain failure is
+  // fail-closed (503): we never store an unverifiable claim.
+  let wallet: string | null;
+  try {
+    wallet = await readCanonicalAgentWallet(agentId);
+  } catch {
+    return NextResponse.json({ error: "chain_unavailable" }, { status: 503, headers: rlHeaders });
+  }
+  if (!wallet) {
+    return NextResponse.json({ error: "agent_wallet_unbound" }, { status: 400, headers: rlHeaders });
+  }
+
+  let valid = false;
+  try {
+    valid = await verifyMessage({
+      address: wallet as `0x${string}`,
+      message: agentPassportMessage(agentId, wallet, name),
+      signature: signature as `0x${string}`,
+    });
+  } catch {
+    valid = false;
+  }
+  if (!valid) {
+    return NextResponse.json(
+      { error: "signature_mismatch", expectedMessage: agentPassportMessage(agentId, wallet, name) },
+      { status: 400, headers: rlHeaders },
+    );
+  }
+
+  const db = getDb();
+  if (!db) return NextResponse.json({ error: "store_unavailable" }, { status: 503, headers: rlHeaders });
+  try {
+    await db
+      .insert(agentPassports)
+      .values({ agentId, wallet: wallet.toLowerCase(), name, url: url ?? null, signature })
+      .onConflictDoUpdate({
+        target: agentPassports.agentId,
+        set: { wallet: wallet.toLowerCase(), name, url: url ?? null, signature, verifiedAt: new Date() },
+      });
+    return NextResponse.json(
+      {
+        ok: true,
+        agentId: agentId.toString(),
+        wallet: wallet.toLowerCase(),
+        passport: `/api/v1/agents/${agentId.toString()}/passport`,
+        profile: `/agent/${agentId.toString()}`,
+        badge: `/api/badge/agent/${agentId.toString()}`,
+      },
+      { headers: rlHeaders },
+    );
+  } catch (error) {
+    if (isMissingSchemaError(error)) {
+      return NextResponse.json({ error: "store_unavailable" }, { status: 503, headers: rlHeaders });
+    }
+    logServerError("agent_passport_verify", error);
+    return NextResponse.json({ error: "store_unavailable" }, { status: 503, headers: rlHeaders });
+  }
+}

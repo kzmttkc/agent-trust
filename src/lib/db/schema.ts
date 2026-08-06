@@ -299,6 +299,34 @@ export const verifiedPayees = pgTable(
   },
 );
 
+/**
+ * Agent passports (A-10, 2026-08-06). The symmetric twin of verifiedPayees:
+ * where a payee proves control of a RECEIVING wallet, an agent proves control
+ * of its ERC-8004 identity by signing a canonical message with the wallet that
+ * `getAgentWallet(agentId)` returns on-chain. The signature binds (agentId,
+ * wallet, name); the on-chain wallet lookup binds agentId→wallet. Together
+ * they let an agent proactively present a verifiable "trust passport" —
+ * identity + live score + x402 history — to win better terms, the mirror of
+ * the buyer-side Verified Payee check.
+ *
+ * Keyed on agentId (an agent has one identity); `wallet` is the resolved
+ * canonical wallet at verification time, stored so a reader can re-verify the
+ * signature without a chain round-trip. SQL: scripts/sql/2026-08-06-agent-passports.sql
+ * (fallback-tolerant readers — every consumer tolerates a missing table).
+ */
+export const agentPassports = pgTable(
+  "agent_passports",
+  {
+    agentId: bigint("agent_id", { mode: "bigint" }).primaryKey(),
+    wallet: text("wallet").notNull(),
+    name: text("name").notNull(),
+    url: text("url"),
+    signature: text("signature").notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("agent_passports_wallet_idx").on(t.wallet)],
+);
+
 export const x402Payments = pgTable(
   "x402_payments",
   {

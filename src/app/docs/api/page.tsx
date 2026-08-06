@@ -142,6 +142,25 @@ const endpoints: Endpoint[] = [
     request: `{ "wallet": "0x…", "name": "Acme API", "url": "https://…", "signature": "0x…" }`,
     response: `{ "ok": true, "profile": "/payee/0x…", "badge": "/api/badge/0x…" }`,
   },
+  {
+    method: "GET",
+    path: "/api/v1/agents/verify?agentId=42&name=Acme+Agent",
+    note: "Agent-side twin of payee verify. Preview the exact canonical message to sign for (agentId, name) — no API key. The agent's on-chain wallet is resolved and returned so you sign with the right key.",
+    response: `{ "agentId": "42", "wallet": "0x…", "message": "Vouch agent passport registration\\nagentId: 42\\nwallet: 0x…\\nname: Acme Agent\\nThis signature only proves control of the wallet above." }`,
+  },
+  {
+    method: "POST",
+    path: "/api/v1/agents/verify",
+    note: "Trust-passport registration — free, no API key. Sign the canonical message above with the agent's on-chain wallet (getAgentWallet(agentId)); a valid signature plus the on-chain wallet binding proves control of the agent identity and publishes /agent/:agentId, a machine-readable passport at /api/v1/agents/:agentId/passport, and a badge at /api/badge/agent/:agentId.",
+    request: `{ "agentId": "42", "name": "Acme Agent", "url": "https://…", "signature": "0x…" }`,
+    response: `{ "ok": true, "agentId": "42", "wallet": "0x…", "profile": "/agent/42", "badge": "/api/badge/agent/42" }`,
+  },
+  {
+    method: "GET",
+    path: "/api/v1/agents/42/passport",
+    note: "The portable, third-party-verifiable passport — no API key. Returns the signed identity claim, the verification material (canonical message + signature, so any counterparty can re-run verifyMessage and cross-check the wallet against getAgentWallet on-chain), and a live score with explicit freshness (scoredAt / cacheExpiresAt).",
+    response: `{ "agentId": "42", "verified": true, "identity": { "name": "Acme Agent", "wallet": "0x…", "proof": { "message": "…", "signature": "0x…", "scheme": "eip191-personal-sign" } }, "score": { "trustScore": 78, "recommendation": "ALLOW", "x402": { "paymentCount": 12, "uniqueDays": 6 }, "scoredAt": "…", "cacheExpiresAt": "…" } }`,
+  },
 ];
 
 const errorCodes = [
