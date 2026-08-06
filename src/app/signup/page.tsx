@@ -12,6 +12,14 @@ export default function SignupPage() {
   const [name, setName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [inviteRequired, setInviteRequired] = useState(false);
+  // 2026-08-06 (L5 legal review): consent used to be a passive line of text
+  // under the button ("By signing up you agree to..."). Browsewrap-style
+  // notice like that is the weakest form of assent there is — the user never
+  // does anything that records agreement, so enforceability rests on whether
+  // they happened to read a footnote. An explicit, unticked-by-default
+  // checkbox that blocks submission is the clickwrap form courts actually
+  // uphold, and it costs the user one click.
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -25,6 +33,13 @@ export default function SignupPage() {
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
+    // Belt and braces: the checkbox is `required` so the browser blocks
+    // submission, but the handler refuses too in case anything ever submits
+    // the form programmatically.
+    if (!acceptedTerms) {
+      setError("please_accept_the_terms_and_privacy_policy");
+      return;
+    }
     setLoading(true);
     setError(null);
     track("signup_started");
@@ -172,11 +187,49 @@ export default function SignupPage() {
           </label>
         )}
 
+        {/* Clickwrap consent. `required` makes the browser refuse the submit
+            with its own message, so the gate works before any JS of ours runs.
+            stopPropagation on the two links: an <a> inside a <label> would
+            otherwise toggle the checkbox on the way to the page the user
+            actually asked for. */}
+        <label
+          htmlFor="accept-terms"
+          className="flex cursor-pointer items-start gap-2 text-sm text-zinc-600"
+        >
+          <input
+            id="accept-terms"
+            type="checkbox"
+            checked={acceptedTerms}
+            onChange={(e) => setAcceptedTerms(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300"
+            required
+          />
+          <span>
+            I have read and agree to the{" "}
+            <Link
+              href="/legal/terms"
+              className="underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/legal/privacy"
+              className="underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Privacy Policy
+            </Link>
+            .
+          </span>
+        </label>
+
         {error && <p className="text-sm text-red-600">{error.replaceAll("_", " ")}</p>}
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !acceptedTerms}
           className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
           {loading ? "Creating..." : "Create account"}
@@ -190,17 +243,10 @@ export default function SignupPage() {
         </Link>
       </p>
 
-      <p className="text-center text-xs text-zinc-500">
-        By signing up you agree to our{" "}
-        <Link href="/legal/terms" className="underline">
-          Terms
-        </Link>{" "}
-        and{" "}
-        <Link href="/legal/privacy" className="underline">
-          Privacy Policy
-        </Link>
-        .
-      </p>
+      {/* The old passive "By signing up you agree to our Terms and Privacy
+          Policy" line lived here. It is now the checkbox inside the form, so
+          repeating it would just be a second, weaker statement of the same
+          thing. */}
     </main>
   );
 }

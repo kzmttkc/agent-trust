@@ -128,6 +128,22 @@ export default async function AccuracyPage() {
         Raw JSON: <code className="rounded bg-zinc-100 px-1">GET /api/v1/accuracy</code>.
       </p>
 
+      {/* 2026-08-06 (L4 legal review): publishing measured rates is the point
+          of this page, but a bare percentage reads as a performance promise —
+          and once real numbers land here, that is close to an implied
+          warranty of accuracy. Saying out loud that these are backward-looking
+          keeps the page honest without weakening it. Mirrors ToS section 5. */}
+      <p className="mt-4 text-sm text-zinc-500">
+        These figures are historical: they describe verdicts Vouch has already issued and outcomes
+        we have already observed, over a rolling 90-day window. They are not a forecast, a
+        service-level commitment, or a warranty of the accuracy of any future score. Past rates
+        can and will move as the sample grows and as the behavior we score changes. See the{" "}
+        <Link href="/legal/terms" className="underline">
+          Terms of Service
+        </Link>{" "}
+        for what that means in practice.
+      </p>
+
       {/* methodology */}
       <h2 className="mt-12 text-xl font-semibold text-zinc-900">Methodology (v{report.methodologyVersion})</h2>
       <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-zinc-600">
