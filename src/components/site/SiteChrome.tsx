@@ -21,8 +21,23 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      {/* 2026-08-06 a11y (keyboard persona audit): there was no skip link
+          anywhere on the site (zero in-page anchors, and <main> had no id), so
+          every keyboard and screen-reader user tabbed through 9 header links
+          before reaching the content — on every single page. Standard pattern:
+          visually hidden until focused, first element in the tab order. The
+          target needs tabIndex={-1} because a plain <div> is not focusable and
+          some browsers would otherwise scroll without moving focus. */}
+      <a
+        href="#main-content"
+        className="sr-only rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"
+      >
+        Skip to main content
+      </a>
       <SiteHeader />
-      <div className="flex-1">{children}</div>
+      <div id="main-content" tabIndex={-1} className="flex-1">
+        {children}
+      </div>
       <SiteFooter />
     </>
   );

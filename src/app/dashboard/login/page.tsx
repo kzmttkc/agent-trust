@@ -54,10 +54,23 @@ export default function DashboardLoginPage() {
           </p>
         </div>
 
+        {/* 2026-08-06 (JS-disabled persona audit): same silent failure as
+            /signup — no action, no method, no input names, so pressing
+            "Continue" with JavaScript off just redisplayed an empty form. The
+            key-for-session-cookie exchange is a fetch() POST by design (the key
+            must never land in a URL), so state the requirement instead. */}
+        <noscript>
+          <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Signing in needs JavaScript: your API key is exchanged for a session cookie by a
+            background request, deliberately never placed in the URL.
+          </p>
+        </noscript>
+
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-zinc-700">API key</span>
           <input
             type="password"
+            autoComplete="current-password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             placeholder="vouch_live_..."

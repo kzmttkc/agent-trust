@@ -60,8 +60,11 @@ export default async function LeaderboardPage() {
           </table>
         </div>
       )}
+      {/* 2026-08-06 a11y (WCAG 2.4.4): the link text was the bare path
+          "/accuracy", which a screen reader's link list renders as "slash
+          accuracy" with no indication of where it goes. */}
       <p className="mt-8 text-sm text-zinc-600">
-        Methodology and measured accuracy: <Link href="/accuracy" className="underline">/accuracy</Link>.
+        <Link href="/accuracy" className="underline">Methodology and measured accuracy</Link>.
       </p>
     </main>
   );

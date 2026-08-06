@@ -117,9 +117,13 @@ export default async function Home() {
                 the reference is a text link; Dashboard lives in the header
                 where returning users already look for it. */}
             <div className="flex flex-wrap items-center gap-4 pt-2">
+              {/* transition-[background-color], not `transition`: Tailwind v4's
+                  `transition` includes outline-color, which made the focus ring
+                  fade in from white over 150ms against a zinc-900 button
+                  (1.00:1 contrast mid-transition). Same fix as SiteHeader. */}
               <Link
                 href="/signup"
-                className="rounded-md bg-zinc-900 px-6 py-3 text-base font-semibold text-white transition hover:bg-zinc-800"
+                className="rounded-md bg-zinc-900 px-6 py-3 text-base font-semibold text-white transition-[background-color] hover:bg-zinc-800"
               >
                 Get a free API key
               </Link>
@@ -254,8 +258,18 @@ export default async function Home() {
             <em>should I pay this wallet?</em>
           </p>
         </div>
+        {/* 2026-08-06 (320px persona audit A-1): grid items default to
+            `min-width: auto`, so these two items could not shrink below the
+            min-content width of the unbreakable code inside them. The track
+            blew out to 543px on a 320px screen, the <pre> was laid out at that
+            full width, and because clientWidth === scrollWidth its
+            `overflow-x: auto` never engaged — the overflow escaped into the
+            document instead, giving the whole LP 243px of horizontal scroll and
+            cutting off the npm package name mid-string. `min-w-0` lets the item
+            shrink so the <pre> scrolls internally, exactly as /docs/api already
+            does. */}
         <div className="mt-8 grid gap-6 lg:grid-cols-2">
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-semibold text-zinc-900">1. Add the MCP server</p>
             <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-xs leading-relaxed text-zinc-100">
               <code>{`{
@@ -269,7 +283,7 @@ export default async function Home() {
 }`}</code>
             </pre>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-semibold text-zinc-900">2. Or call it straight from code</p>
             <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-xs leading-relaxed text-zinc-100">
               <code>{`import { createVouchClient } from "@vouchscore/sdk";
@@ -301,9 +315,11 @@ if (score.recommendation !== "ALLOW") {
             Free tier covers 1,000 lookups a month — enough to wire it into your x402 flow and see
             real scores before you commit to anything.
           </p>
+          {/* transition-[background-color]: keeps outline-color out of the
+              transition so the focus ring appears instantly (see hero CTA). */}
           <Link
             href="/signup"
-            className="mt-2 rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800"
+            className="mt-2 rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-[background-color] hover:bg-zinc-800"
           >
             Get API key
           </Link>

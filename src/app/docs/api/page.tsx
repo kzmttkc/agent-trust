@@ -124,7 +124,13 @@ const errorCodes = [
 
 export default function ApiDocsPage() {
   return (
-    <main className="mx-auto max-w-3xl space-y-10 p-8">
+    // 2026-08-06 (320px persona audit A-5): `p-8` had no breakpoint, so a 320px
+    // screen lost 64px to the page gutter alone — stacked with the card's px-4
+    // and the <pre>'s p-3, the readable code column was 198px (62% of the
+    // screen) and the longest response example needed 4.5 screen-widths of
+    // horizontal scrubbing. The LP already uses the px-5/md:px-8 pattern; docs
+    // was the outlier.
+    <main className="mx-auto max-w-3xl space-y-10 p-4 md:p-8">
       <div className="space-y-3">
         <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
         <h1 className="text-3xl font-semibold tracking-tight">API reference</h1>
@@ -154,9 +160,16 @@ export default function ApiDocsPage() {
             className="space-y-3 rounded-lg border border-zinc-200 bg-white px-4 py-4 text-sm"
           >
             <div>
-              <p className="font-mono text-zinc-900">
+              {/* 2026-08-06 a11y (screen-reader persona audit): these endpoint
+                  names were <p>, so the whole reference exposed exactly two
+                  headings ("API reference", "Error codes") and heading-jump
+                  navigation could not reach any individual endpoint. They are
+                  headings semantically, so they are <h2> now — Tailwind's
+                  preflight keeps font-size/weight inherited, so the rendering
+                  is byte-identical to the old <p>. */}
+              <h2 className="font-mono text-zinc-900">
                 <span className="font-semibold text-zinc-500">{ep.method}</span> {ep.path}
-              </p>
+              </h2>
               <p className="mt-1 text-zinc-600">{ep.note}</p>
             </div>
 
@@ -197,11 +210,15 @@ export default function ApiDocsPage() {
         <h2 className="text-lg font-semibold tracking-tight">Error codes</h2>
         <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
           <table className="w-full text-left text-sm">
+            {/* 2026-08-06 a11y: caption + scope="col" bring this table up to the
+                same standard /accuracy and /leaderboard already meet, so a
+                screen reader announces the column a cell belongs to. */}
+            <caption className="sr-only">HTTP error codes returned by the Vouch API</caption>
             <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500">
               <tr>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Meaning</th>
-                <th className="px-4 py-2">Detail</th>
+                <th scope="col" className="px-4 py-2">Status</th>
+                <th scope="col" className="px-4 py-2">Meaning</th>
+                <th scope="col" className="px-4 py-2">Detail</th>
               </tr>
             </thead>
             <tbody>

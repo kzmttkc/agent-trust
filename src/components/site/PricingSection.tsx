@@ -72,9 +72,17 @@ export function PricingSection() {
                 ))}
               </ul>
 
+              {/* 2026-08-06 (320px persona audit A-7): these three CTAs measured
+                  36-38px tall, under the 44px minimum touch target — and getting
+                  one wrong means landing on the wrong paid plan. min-h-11 (44px)
+                  with flex centering fixes the height without changing the
+                  visual weight.
+                  transition-[background-color] instead of `transition`: the
+                  latter animates outline-color in Tailwind v4, fading the focus
+                  ring in from white over the dark Pro button. */}
               <Link
                 href="/signup"
-                className={`mt-6 block rounded-md px-4 py-2 text-center text-sm font-medium transition ${
+                className={`mt-6 flex min-h-11 items-center justify-center rounded-md px-4 text-center text-sm font-medium transition-[background-color] ${
                   highlighted
                     ? "bg-zinc-900 text-white hover:bg-zinc-800"
                     : "border border-zinc-300 text-zinc-900 hover:bg-zinc-50"

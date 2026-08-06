@@ -69,8 +69,23 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 text-sm text-zinc-600">
-        Loading dashboard...
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-zinc-50 px-6 text-sm text-zinc-600">
+        <p>Loading dashboard...</p>
+        {/* 2026-08-06 (JS-disabled persona audit): this is the server-rendered
+            branch, so with JavaScript off the dashboard sat on "Loading
+            dashboard..." forever — no error, no way to tell it was broken
+            rather than slow. The dashboard is a client-rendered app against a
+            session cookie, so it genuinely cannot work without JS; say so. */}
+        <noscript>
+          <p className="max-w-sm rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-center text-amber-900">
+            The dashboard needs JavaScript and will not finish loading without it. The same data is
+            available from the API — see the{" "}
+            <a className="underline" href="/docs/api">
+              API reference
+            </a>
+            .
+          </p>
+        </noscript>
       </div>
     );
   }
@@ -94,6 +109,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
+      {/* Skip link — the dashboard has its own chrome (SiteChrome is bypassed
+          here), so it needs its own. Eight sidebar links otherwise sit between
+          the top of the tab order and the page content on every view. */}
+      <a
+        href="#dashboard-main"
+        className="sr-only rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"
+      >
+        Skip to main content
+      </a>
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
@@ -129,7 +153,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <main>{children}</main>
+        <main id="dashboard-main" tabIndex={-1}>
+          {children}
+        </main>
       </div>
     </div>
   );

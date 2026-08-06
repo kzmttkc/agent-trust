@@ -76,26 +76,30 @@ export default async function AccuracyPage() {
         </div>
       </div>
 
-      {/* table */}
+      {/* table — 2026-08-06 (320px persona audit A-6): the column gutters were
+          pr-4 at every width, which pushed the rightmost column ("Adverse
+          rate", the single most important number on this page) 29px outside the
+          scroll container on a 320px screen. Tightening the gutter below sm
+          fits all five columns on screen. */}
       <div className="mt-8 overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">Outcome counts by recommendation over the last 90 days</caption>
           <thead>
             <tr className="border-b border-zinc-300 text-left text-zinc-500">
-              <th scope="col" className="py-2 pr-4 font-medium">Verdict</th>
-              <th scope="col" className="py-2 pr-4 font-medium">Resolved outcomes</th>
-              <th scope="col" className="py-2 pr-4 font-medium">Went bad</th>
-              <th scope="col" className="py-2 pr-4 font-medium">Stayed good</th>
+              <th scope="col" className="py-2 pr-2 sm:pr-4 font-medium">Verdict</th>
+              <th scope="col" className="py-2 pr-2 sm:pr-4 font-medium">Resolved outcomes</th>
+              <th scope="col" className="py-2 pr-2 sm:pr-4 font-medium">Went bad</th>
+              <th scope="col" className="py-2 pr-2 sm:pr-4 font-medium">Stayed good</th>
               <th scope="col" className="py-2 font-medium">Adverse rate</th>
             </tr>
           </thead>
           <tbody>
             {report.byRecommendation.map((row) => (
               <tr key={row.recommendation} className="border-b border-zinc-100">
-                <td className="py-2 pr-4 font-mono">{row.recommendation}</td>
-                <td className="py-2 pr-4">{row.resolved}</td>
-                <td className="py-2 pr-4">{row.wentBad}</td>
-                <td className="py-2 pr-4">{row.stayedGood}</td>
+                <td className="py-2 pr-2 sm:pr-4 font-mono">{row.recommendation}</td>
+                <td className="py-2 pr-2 sm:pr-4">{row.resolved}</td>
+                <td className="py-2 pr-2 sm:pr-4">{row.wentBad}</td>
+                <td className="py-2 pr-2 sm:pr-4">{row.stayedGood}</td>
                 <td className="py-2">
                   <Rate value={row.adverseRate} />
                 </td>
@@ -130,7 +134,11 @@ export default async function AccuracyPage() {
         <li>
           <strong>Outcome sources.</strong> Auto-detected on-chain activity (drain patterns,
           sustained healthy activity, dormancy, ownership changes, negative on-chain feedback) and
-          partner reports (<code>POST /api/v1/events/:trustEventId/outcome</code>: confirmed fraud,
+          {/* break-all: this 41-char path has no break opportunity, so it
+              overflowed a 320px viewport by 26px and took the page into
+              horizontal scroll (2026-08-06 audit A-4). Same class the wallet
+              display on /payee already uses. */}
+          partner reports (<code className="break-all">POST /api/v1/events/:trustEventId/outcome</code>: confirmed fraud,
           confirmed legitimate, chargeback/dispute).
         </li>
         <li>

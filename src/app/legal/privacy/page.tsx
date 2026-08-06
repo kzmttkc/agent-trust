@@ -53,6 +53,17 @@ export default function PrivacyPage() {
           We use infrastructure providers (hosting, database, RPC, Stripe) to operate the service.
           Data is processed according to their respective policies.
         </p>
+        {/* 2026-08-06 audit: the site loads Plausible and the CSP explicitly
+            allows connect-src to plausible.io, i.e. we were sending analytics
+            events while this list did not mention analytics at all. Disclosed
+            now. Plausible is cookieless and does not collect personal data,
+            but the omission was still a gap between what we do and what we
+            say. */}
+        <p>
+          We use Plausible Analytics for aggregate traffic statistics. Plausible is
+          cookieless, sets no persistent identifier, and does not collect personal data or track
+          visitors across sites.
+        </p>
       </section>
     </main>
   );

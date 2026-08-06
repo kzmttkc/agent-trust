@@ -27,6 +27,20 @@ export function SiteFooter() {
             <Link href="/docs/api" className="text-zinc-600 hover:text-zinc-900">
               API reference
             </Link>
+            {/* 2026-08-06 (JS-disabled persona audit): /accuracy and /leaderboard
+                were reachable only through the header nav, which is `hidden
+                md:flex` — below 768px it is display:none and the hamburger that
+                replaces it needs JavaScript. On a narrow screen with JS off,
+                the two pages that carry Vouch's whole differentiation (we
+                publish our measured accuracy instead of hiding it) had zero
+                in-site links pointing at them. The footer is server-rendered
+                and always visible, so it is the right home for them. */}
+            <Link href="/accuracy" className="text-zinc-600 hover:text-zinc-900">
+              Accuracy
+            </Link>
+            <Link href="/leaderboard" className="text-zinc-600 hover:text-zinc-900">
+              Leaderboard
+            </Link>
             <Link href="/faq" className="text-zinc-600 hover:text-zinc-900">
               FAQ
             </Link>

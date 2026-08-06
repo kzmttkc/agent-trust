@@ -116,11 +116,33 @@ export default function SignupPage() {
         </p>
       </div>
 
+      {/* 2026-08-06 (JS-disabled persona audit): this form has no action and no
+          method, so with JavaScript off "Create account" submitted a GET to the
+          current URL and — because the inputs carry no name attributes — sent
+          nothing at all. The measured result was a byte-identical page with the
+          typed email wiped: a silent failure with no error and no explanation.
+          Signup genuinely requires the fetch()-based flow (it posts JSON to
+          /api/signup and shows the returned key once), so the honest fix is to
+          say so rather than fake a server-side path. Deliberately NOT adding
+          name attributes: without an action they would serialize the email into
+          a query string on a submit that still cannot work — a privacy
+          regression bought for nothing. */}
+      <noscript>
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          This form needs JavaScript to submit. Please enable JavaScript, or create a key from the
+          command line — the API accepts a plain POST to <code>/api/signup</code> with a JSON body
+          of <code>{`{"email":"you@example.com"}`}</code>.
+        </p>
+      </noscript>
+
       <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-6">
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Email</span>
+          {/* autoComplete (WCAG 1.3.5 Identify Input Purpose) — lets the browser
+              and assistive tech fill known values instead of retyping them. */}
           <input
             type="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full rounded-md border border-zinc-300 px-3 py-2"
@@ -131,6 +153,7 @@ export default function SignupPage() {
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Name (optional)</span>
           <input
+            autoComplete="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full rounded-md border border-zinc-300 px-3 py-2"

@@ -1,0 +1,14 @@
+# RFC 9116 security.txt — vulnerability disclosure contact for Vouch.
+# Added 2026-08-06: a product whose value proposition is trust had no standard
+# reporting channel, so a researcher finding a flaw had nowhere obvious to send
+# it. Contact is the operator inbox (single source of truth:
+# src/lib/support.ts) — update both together.
+#
+# Expires is mandatory per RFC 9116 §2.5.5; keep it under a year out and
+# refresh it, an expired file is treated as no file at all.
+
+Contact: mailto:kzmttkc314@gmail.com
+Expires: 2027-08-06T00:00:00.000Z
+Preferred-Languages: en, ja
+Canonical: https://agent-trust-tawny.vercel.app/.well-known/security.txt
+Policy: https://agent-trust-tawny.vercel.app/legal/terms

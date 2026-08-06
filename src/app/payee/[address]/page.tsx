@@ -95,16 +95,39 @@ export default async function PayeePage({
       <div className="mt-8 rounded-xl border border-zinc-200 p-5">
         <p className="text-sm text-zinc-500">Live payee score</p>
         {score ? (
+          // 2026-08-06 a11y (keyboard+screen-reader persona audit L5): the verdict
+          // word used to be separated from the data-depth note by nothing but a
+          // visual `ml-2` margin, so innerText read "37 BLOCKdata: thin" and the
+          // verdict — the single most important word on this public, unauthenticated
+          // page — was announced glued to the next string as "BLOCKdata".
+          // Two fixes, both needed: real whitespace between the two elements, and
+          // an explicit accessible name so "37" is not heard without its scale.
+          // The role="img" + aria-label shape is deliberately the same one the
+          // homepage gauge already uses ("Trust score 78 out of 100").
           <p className="mt-1 text-3xl font-semibold text-zinc-900">
-            {score.value} <span className="text-base font-mono">{score.recommendation}</span>
-            <span className="ml-2 align-middle text-xs font-normal text-zinc-500">data: {score.dataDepth}</span>
+            <span
+              role="img"
+              aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
+            >
+              {score.value} <span className="text-base font-mono">{score.recommendation}</span>
+            </span>{" "}
+            <span className="align-middle text-xs font-normal text-zinc-500">data: {score.dataDepth}</span>
           </p>
         ) : (
           <p className="mt-1 text-zinc-500">Score unavailable right now.</p>
         )}
         <p className="mt-2 text-xs text-zinc-500">
-          Methodology and measured accuracy: <Link href="/accuracy" className="underline">/accuracy</Link>.
-          Badge for your site: <code className="rounded bg-zinc-100 px-1">/api/badge/{wallet}</code>
+          {/* 2026-08-06 a11y (WCAG 2.4.4): the link text used to be the bare path
+              "/accuracy", which reads as "slash accuracy" in a screen reader's
+              link list. The descriptive phrase is now the link itself. */}
+          <Link href="/accuracy" className="underline">Methodology and measured accuracy</Link>.
+          {" "}
+          {/* 2026-08-06 (320px persona audit A-3): this badge URL is ~65 chars of
+              unbreakable token and overflowed the viewport by 110px on a 320px
+              screen, taking the whole page into horizontal scroll. The wallet
+              heading above already solves this with break-all — the same fix was
+              simply missing here. */}
+          Badge for your site: <code className="break-all rounded bg-zinc-100 px-1">/api/badge/{wallet}</code>
         </p>
       </div>
     </main>

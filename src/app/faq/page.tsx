@@ -109,7 +109,12 @@ export default async function FaqPage() {
             key={item.question}
             className="space-y-2 rounded-lg border border-zinc-200 bg-white px-4 py-4 text-sm"
           >
-            <p className="font-semibold text-zinc-900">{item.question}</p>
+            {/* 2026-08-06 a11y (screen-reader persona audit): the questions were
+                <p>, so the FAQ structure existed for search engines (the FAQPage
+                JSON-LD above) but not for humans using a screen reader — the page
+                exposed a single heading. Tailwind's preflight inherits heading
+                font-size/weight, so this renders identically to the old <p>. */}
+            <h2 className="font-semibold text-zinc-900">{item.question}</h2>
             <p className="text-zinc-600 leading-relaxed">{item.answer}</p>
           </div>
         ))}

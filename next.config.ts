@@ -9,6 +9,14 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // 2026-08-06: Vouch was the only one of the three products without this
+  // header (Verilot has carried it since 2026-07-22). None of these APIs are
+  // used anywhere in the app, so denying them outright costs nothing and
+  // removes them from any injected/embedded content's reach.
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+  },
 ];
 
 const nextConfig: NextConfig = {
@@ -25,6 +33,21 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+    ];
+  },
+  // 2026-08-06 (JS-disabled / navigation audit): the header's "Pricing" item
+  // points at the in-page anchor /#pricing, but developers type URLs directly
+  // and inbound links get written as /pricing — which returned a hard 404. The
+  // pricing table itself is server-rendered on the homepage, so a redirect is
+  // the whole fix. Kept temporary (307) rather than 308 so that promoting
+  // pricing to a real page later isn't fighting a permanently cached redirect.
+  async redirects() {
+    return [
+      {
+        source: "/pricing",
+        destination: "/#pricing",
+        permanent: false,
       },
     ];
   },
