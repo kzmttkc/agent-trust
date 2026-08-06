@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { track } from "@/lib/analytics";
+import { signupAction, type SignupState } from "./actions";
 
 // 2026-08-06 growth: failure-reason allowlist for the signup_failed event.
 // PII guard — analytics props must never carry user input (email/name/invite
 // code). The API's error codes are all fixed snake_case constants (measured
-// in src/app/api/signup/route.ts), and anything unrecognized maps to "other".
+// in src/lib/dashboard/signup-core.ts), and anything unrecognized maps to "other".
 const KNOWN_SIGNUP_FAILURE_REASONS = new Set([
   "invalid_origin",
   "rate_limit_exceeded",
@@ -18,6 +18,7 @@ const KNOWN_SIGNUP_FAILURE_REASONS = new Set([
   "email_already_registered",
   "database_unavailable",
   "signup_failed",
+  "please_accept_the_terms_and_privacy_policy",
 ]);
 
 function signupFailureReason(code: unknown): string {
@@ -26,23 +27,23 @@ function signupFailureReason(code: unknown): string {
     : "other";
 }
 
+const INITIAL_STATE: SignupState = { status: "idle" };
+
 export default function SignupPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [inviteRequired, setInviteRequired] = useState(false);
-  // 2026-08-06 (L5 legal review): consent used to be a passive line of text
-  // under the button ("By signing up you agree to..."). Browsewrap-style
-  // notice like that is the weakest form of assent there is — the user never
-  // does anything that records agreement, so enforceability rests on whether
-  // they happened to read a footnote. An explicit, unticked-by-default
-  // checkbox that blocks submission is the clickwrap form courts actually
-  // uphold, and it costs the user one click.
+  // 2026-08-06 (L5 legal review): explicit clickwrap consent — an unticked-by-
+  // default checkbox that blocks submission is the form courts uphold. Kept in
+  // client state only to drive the disabled button; the `required` attribute
+  // gates the native (no-JS) submit and the Server Action re-checks server-side.
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+
+  // 2026-08-06 (UX audit item 7): the form is now driven by a Server Action via
+  // useActionState. Without JS the browser POSTs to the action natively and the
+  // returned key renders server-side; with JS this enhances in place. This
+  // replaced the fetch()-only handler that dead-ended when JS was disabled.
+  const [state, formAction, pending] = useActionState(signupAction, INITIAL_STATE);
+  const apiKey = state.status === "success" ? state.apiKey ?? null : null;
 
   useEffect(() => {
     fetch("/api/signup")
@@ -51,58 +52,26 @@ export default function SignupPage() {
       .catch(() => {});
   }, []);
 
-  // 2026-08-06 growth: signup_view completes the form funnel — without it,
-  // lp_cta_click → signup_started has an invisible gap (people who landed on
-  // the form but never pressed submit). Mount-once by design.
+  // 2026-08-06 growth: signup_view completes the form funnel. Mount-once.
   useEffect(() => {
     track("signup_view");
   }, []);
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    // Belt and braces: the checkbox is `required` so the browser blocks
-    // submission, but the handler refuses too in case anything ever submits
-    // the form programmatically.
-    if (!acceptedTerms) {
-      setError("please_accept_the_terms_and_privacy_policy");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    track("signup_started");
-
-    try {
-      const response = await fetch("/api/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          email: email.trim(),
-          name: name.trim() || undefined,
-          inviteCode: inviteCode.trim() || undefined,
-        }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setError(data.error ?? "signup_failed");
-        // reason is allowlisted (see signupFailureReason) — the server only
-        // returns fixed snake_case codes today, but allowlisting guarantees
-        // no future server change can leak user input into analytics props.
-        track("signup_failed", { reason: signupFailureReason(data.error) });
-        return;
-      }
-
-      setApiKey(data.apiKey);
+  // Fire the completion/failure analytics off the action result, once per
+  // transition. (The JS path previously fired these inline in the fetch
+  // handler; with useActionState the result arrives as state, so we react to
+  // it here. No-JS users never run this — analytics needs JS by nature.)
+  const reportedFor = useRef<SignupState | null>(null);
+  useEffect(() => {
+    if (state.status === "idle" || reportedFor.current === state) return;
+    reportedFor.current = state;
+    if (state.status === "success") {
       markDashboardAuthenticated();
       track("signup_completed");
-    } catch {
-      setError("connection_failed");
-      track("signup_failed", { reason: "connection_failed" });
-    } finally {
-      setLoading(false);
+    } else if (state.status === "error") {
+      track("signup_failed", { reason: signupFailureReason(state.error) });
     }
-  }
+  }, [state]);
 
   if (apiKey) {
     // Fallback URL is the current production deployment. A custom domain
@@ -127,22 +96,33 @@ export default function SignupPage() {
         </code>
 
         <div className="space-y-2">
-          <p className="text-sm font-medium text-zinc-700">Try it now</p>
+          <p className="text-sm font-medium text-zinc-700">Try your first lookup</p>
           <p className="text-sm text-zinc-600">
             Score any wallet address (replace the placeholder below with a real one):
           </p>
           <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-900 p-4 text-xs text-zinc-100">
             <code>{curlExample}</code>
           </pre>
+          <p className="text-sm text-zinc-600">
+            Prefer the browser? Open any public{" "}
+            <Link href="/payee/0xd8da6bf26964af9d7eed9e03e53415d37aa96045" className="underline">
+              payee profile
+            </Link>{" "}
+            to see a live score, or read the{" "}
+            <Link href="/docs/api" className="underline">
+              API reference
+            </Link>
+            .
+          </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard")}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+        {/* Plain link (not a router push) so this works with JS disabled too. */}
+        <Link
+          href="/dashboard"
+          className="rounded-md bg-zinc-900 px-4 py-2 text-center text-sm font-medium text-white"
         >
           Go to dashboard
-        </button>
+        </Link>
       </main>
     );
   }
@@ -161,35 +141,31 @@ export default function SignupPage() {
         </p>
       </div>
 
-      {/* 2026-08-06 (JS-disabled persona audit): this form has no action and no
-          method, so with JavaScript off "Create account" submitted a GET to the
-          current URL and — because the inputs carry no name attributes — sent
-          nothing at all. The measured result was a byte-identical page with the
-          typed email wiped: a silent failure with no error and no explanation.
-          Signup genuinely requires the fetch()-based flow (it posts JSON to
-          /api/signup and shows the returned key once), so the honest fix is to
-          say so rather than fake a server-side path. Deliberately NOT adding
-          name attributes: without an action they would serialize the email into
-          a query string on a submit that still cannot work — a privacy
-          regression bought for nothing. */}
+      {/* 2026-08-06 (UX audit item 7): this form now submits with or without
+          JavaScript. The Server Action is the form's action, the inputs carry
+          name attributes, and the email travels in the POST body (never a query
+          string), so a no-JS user gets their key on the next render instead of a
+          silently wiped form. */}
       <noscript>
-        <p className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          This form needs JavaScript to submit. Please enable JavaScript, or create a key from the
-          command line — the API accepts a plain POST to <code>/api/signup</code> with a JSON body
-          of <code>{`{"email":"you@example.com"}`}</code>.
+        <p className="rounded-md border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+          JavaScript is off — that is fine. Submitting will reload this page with your new API key
+          shown once. Copy it before navigating away.
         </p>
       </noscript>
 
-      <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-6">
+      <form
+        action={formAction}
+        onSubmit={() => track("signup_started")}
+        className="space-y-4 rounded-xl border border-zinc-200 bg-white p-6"
+      >
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Email</span>
           {/* autoComplete (WCAG 1.3.5 Identify Input Purpose) — lets the browser
               and assistive tech fill known values instead of retyping them. */}
           <input
             type="email"
+            name="email"
             autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
             className="w-full rounded-md border border-zinc-300 px-3 py-2"
             required
           />
@@ -198,9 +174,8 @@ export default function SignupPage() {
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Name (optional)</span>
           <input
+            name="name"
             autoComplete="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
             className="w-full rounded-md border border-zinc-300 px-3 py-2"
           />
         </label>
@@ -209,6 +184,7 @@ export default function SignupPage() {
           <label className="block space-y-1 text-sm">
             <span className="font-medium">Invite code</span>
             <input
+              name="inviteCode"
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
               className="w-full rounded-md border border-zinc-300 px-3 py-2"
@@ -218,16 +194,17 @@ export default function SignupPage() {
         )}
 
         {/* Clickwrap consent. `required` makes the browser refuse the submit
-            with its own message, so the gate works before any JS of ours runs.
-            stopPropagation on the two links: an <a> inside a <label> would
-            otherwise toggle the checkbox on the way to the page the user
-            actually asked for. */}
+            with its own message, so the gate works before any JS of ours runs
+            AND on the no-JS native submit. stopPropagation on the two links: an
+            <a> inside a <label> would otherwise toggle the checkbox on the way
+            to the page the user actually asked for. */}
         <label
           htmlFor="accept-terms"
           className="flex cursor-pointer items-start gap-2 text-sm text-zinc-600"
         >
           <input
             id="accept-terms"
+            name="acceptedTerms"
             type="checkbox"
             checked={acceptedTerms}
             onChange={(e) => setAcceptedTerms(e.target.checked)}
@@ -236,33 +213,27 @@ export default function SignupPage() {
           />
           <span>
             I have read and agree to the{" "}
-            <Link
-              href="/legal/terms"
-              className="underline"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <Link href="/legal/terms" className="underline" onClick={(e) => e.stopPropagation()}>
               Terms of Service
             </Link>{" "}
             and{" "}
-            <Link
-              href="/legal/privacy"
-              className="underline"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <Link href="/legal/privacy" className="underline" onClick={(e) => e.stopPropagation()}>
               Privacy Policy
             </Link>
             .
           </span>
         </label>
 
-        {error && <p className="text-sm text-red-600">{error.replaceAll("_", " ")}</p>}
+        {state.status === "error" && state.error && (
+          <p className="text-sm text-red-600">{state.error.replaceAll("_", " ")}</p>
+        )}
 
         <button
           type="submit"
-          disabled={loading || !acceptedTerms}
+          disabled={pending || !acceptedTerms}
           className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
-          {loading ? "Creating..." : "Create account"}
+          {pending ? "Creating..." : "Create account"}
         </button>
       </form>
 
@@ -272,11 +243,6 @@ export default function SignupPage() {
           Sign in
         </Link>
       </p>
-
-      {/* The old passive "By signing up you agree to our Terms and Privacy
-          Policy" line lived here. It is now the checkbox inside the form, so
-          repeating it would just be a second, weaker statement of the same
-          thing. */}
     </main>
   );
 }

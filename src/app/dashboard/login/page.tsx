@@ -1,16 +1,37 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { track } from "@/lib/analytics";
+import { loginAction } from "./actions";
 
+// useSearchParams must sit under a Suspense boundary. It surfaces the fixed
+// error code the no-JS Server Action redirect leaves in ?error= (see actions.ts).
 export default function DashboardLoginPage() {
+  return (
+    <Suspense fallback={<LoginForm redirectError={null} />}>
+      <LoginFormWithParams />
+    </Suspense>
+  );
+}
+
+function LoginFormWithParams() {
+  // 2026-08-06 (UX audit item 7): the no-JS login fallback redirects back here
+  // with ?error=<code> on failure. Reading it via useSearchParams (not a
+  // setState-in-effect) keeps render pure and avoids a hydration mismatch.
+  const redirectError = useSearchParams().get("error");
+  return <LoginForm redirectError={redirectError} />;
+}
+
+function LoginForm({ redirectError }: { redirectError: string | null }) {
   const router = useRouter();
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // The live (JS-path) error wins; otherwise fall back to the redirect code.
+  const shownError = error ?? redirectError;
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -46,7 +67,13 @@ export default function DashboardLoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+      {/* 2026-08-06 (UX audit item 7): `action` is the Server Action fallback
+          and `onSubmit` (which preventDefaults) is the JS path. With JS on, our
+          handler runs and the action is skipped; with JS off, the browser POSTs
+          natively to the action — the key rides in the request BODY (React sets
+          method=post for function actions), never a URL. */}
       <form
+        action={loginAction}
         onSubmit={onSubmit}
         className="w-full max-w-md space-y-4 rounded-xl border border-zinc-200 bg-white p-8 shadow-sm"
       >
@@ -59,22 +86,11 @@ export default function DashboardLoginPage() {
           </p>
         </div>
 
-        {/* 2026-08-06 (JS-disabled persona audit): same silent failure as
-            /signup — no action, no method, no input names, so pressing
-            "Continue" with JavaScript off just redisplayed an empty form. The
-            key-for-session-cookie exchange is a fetch() POST by design (the key
-            must never land in a URL), so state the requirement instead. */}
-        <noscript>
-          <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Signing in needs JavaScript: your API key is exchanged for a session cookie by a
-            background request, deliberately never placed in the URL.
-          </p>
-        </noscript>
-
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-zinc-700">API key</span>
           <input
             type="password"
+            name="apiKey"
             autoComplete="current-password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
@@ -84,9 +100,9 @@ export default function DashboardLoginPage() {
           />
         </label>
 
-        {error && (
+        {shownError && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {dashboardErrorMessage(error)}
+            {dashboardErrorMessage(shownError)}
           </p>
         )}
 

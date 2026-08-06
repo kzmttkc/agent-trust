@@ -11,6 +11,22 @@ export const metadata: Metadata = {
 };
 export const revalidate = 600;
 
+// Short 0x… form for wallet-keyed rows (benchmark seeds have no agent id).
+function shortWallet(wallet: string | null): string {
+  if (!wallet) return "—";
+  return wallet.length > 12 ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}` : wallet;
+}
+
+// Inline, honest marker for operator self-benchmark rows. Kept tiny so it
+// annotates without competing with the real ranking data.
+function SeedTag() {
+  return (
+    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+      benchmark
+    </span>
+  );
+}
+
 export default async function LeaderboardPage() {
   let rows: Awaited<ReturnType<typeof fetchLeaderboard>> = [];
   try {
@@ -18,6 +34,7 @@ export default async function LeaderboardPage() {
   } catch {
     rows = [];
   }
+  const hasSeeded = rows.some((r) => r.seeded);
   return (
     <main className="mx-auto max-w-3xl px-5 py-16 md:px-8">
       <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Leaderboard</p>
@@ -25,22 +42,39 @@ export default async function LeaderboardPage() {
         Recently verified agents, ranked
       </h1>
       <p className="mt-4 text-zinc-600">
-        The latest verdict per agent, ranked by trust score. Every row is computed from public
+        The latest verdict per subject, ranked by trust score. Every row is computed from public
         on-chain state (ERC-8004 identity and reputation, wallet history, x402 settlements) — run
         the same lookup yourself with an API key.
       </p>
-      {rows.length === 0 ? (
-        <p className="mt-10 text-zinc-500">
-          No scored agents in the current window yet — the board fills in as lookups happen. It
-          will not be seeded with synthetic entries.
+      {/* 2026-08-06 UX audit item 6: distinguish operator self-benchmark rows
+          from customer traffic, in plain sight, so the board can be full
+          without ever implying usage it does not have. */}
+      {hasSeeded ? (
+        <p className="mt-3 text-sm text-zinc-500">
+          Rows marked <SeedTag /> are operator benchmark entries — publicly known addresses we
+          score ourselves to prove the engine is live and calibrated, not customer traffic. See the{" "}
+          <Link href="/accuracy" className="underline">measured accuracy</Link> report for how they
+          are used.
         </p>
+      ) : null}
+      {rows.length === 0 ? (
+        <div className="mt-10 rounded-lg border border-zinc-200 bg-zinc-50 p-6">
+          <p className="text-zinc-700">The board is warming up.</p>
+          <p className="mt-2 text-sm text-zinc-500">
+            No verdicts are in the current window yet. It will never be padded with fabricated
+            agents — rows appear only as real lookups happen, and as our{" "}
+            <Link href="/accuracy" className="underline">operator benchmark</Link> scores known
+            addresses. Want to be the first real entry?{" "}
+            <Link href="/signup" className="underline">Get an API key</Link> and run a lookup.
+          </p>
+        </div>
       ) : (
         <div className="mt-8 overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-zinc-300 text-left text-zinc-500">
                 <th scope="col" className="py-2 pr-4 font-medium">#</th>
-                <th scope="col" className="py-2 pr-4 font-medium">Agent ID</th>
+                <th scope="col" className="py-2 pr-4 font-medium">Subject</th>
                 <th scope="col" className="py-2 pr-4 font-medium">Score</th>
                 <th scope="col" className="py-2 pr-4 font-medium">Verdict</th>
                 <th scope="col" className="py-2 font-medium">Scored</th>
@@ -48,9 +82,14 @@ export default async function LeaderboardPage() {
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={r.agentId} className="border-b border-zinc-100">
+                <tr key={r.identity} className="border-b border-zinc-100">
                   <td className="py-2 pr-4 text-zinc-400">{i + 1}</td>
-                  <td className="py-2 pr-4 font-mono">{r.agentId}</td>
+                  <td className="py-2 pr-4">
+                    <span className="font-mono">
+                      {r.agentId ? `Agent #${r.agentId}` : shortWallet(r.wallet)}
+                    </span>
+                    {r.seeded ? <SeedTag /> : null}
+                  </td>
                   <td className="py-2 pr-4 font-semibold">{r.trustScore}</td>
                   <td className="py-2 pr-4 font-mono">{r.recommendation}</td>
                   <td className="py-2 text-zinc-500">{r.scoredAt.slice(0, 10)}</td>
