@@ -1,6 +1,6 @@
 import type { Address } from "viem";
 import { SCORE_WEIGHTS } from "@/lib/chain/config";
-import type { Recommendation } from "./types";
+import type { Recommendation, ScoreBreakdown } from "./types";
 
 // One definition, in the module that has no database import (./verdict).
 export { toRecommendation } from "./verdict";
@@ -90,6 +90,49 @@ export function computeWeightedScore(
     walletScore * wallet +
     x402Score * x402;
   return clamp(raw / weightSum);
+}
+
+/**
+ * N-21: assemble the explainability breakdown from the exact inputs the engine
+ * fed into computeWeightedScore + applySybilPenalty. Pure so it is unit-tested
+ * without a chain: the caller passes the same four component scores it weighted
+ * and the same prePolicyScore it derived, and this reconstructs the per-factor
+ * contributions. `contribution` uses the identical `score × weight ÷ Σweights`
+ * arithmetic as computeWeightedScore, so the four contributions sum (up to
+ * rounding) to weightedSubtotal. `sybilPenalty` is recovered as
+ * prePolicyScore − weightedSubtotal rather than recomputed, so it can never
+ * disagree with the score actually returned.
+ */
+export function buildScoreBreakdown(
+  components: { identity: number; reputation: number; wallet: number; x402: number },
+  prePolicyScore?: number,
+): ScoreBreakdown {
+  const { identity, reputation, wallet, x402 } = SCORE_WEIGHTS;
+  const weightSum = identity + reputation + wallet + x402;
+  const contrib = (score: number, weight: number) =>
+    Math.round((score * weight * 100) / weightSum) / 100;
+  const weightedSubtotal = computeWeightedScore(
+    components.identity,
+    components.reputation,
+    components.wallet,
+    components.x402,
+  );
+  // When prePolicyScore is not supplied (test convenience), treat the sybil
+  // penalty as zero — the subtotal IS the pre-policy score.
+  const pre = prePolicyScore ?? weightedSubtotal;
+  return {
+    components: {
+      identity: { score: components.identity, weight: identity, contribution: contrib(components.identity, identity) },
+      reputation: { score: components.reputation, weight: reputation, contribution: contrib(components.reputation, reputation) },
+      wallet: { score: components.wallet, weight: wallet, contribution: contrib(components.wallet, wallet) },
+      x402: { score: components.x402, weight: x402, contribution: contrib(components.x402, x402) },
+    },
+    weightedSubtotal,
+    // penalty is what the engine actually removed (pre − subtotal), never a
+    // recomputation that could drift from applySybilPenalty.
+    sybilPenalty: pre - weightedSubtotal,
+    prePolicyScore: pre,
+  };
 }
 
 export function applySybilPenalty(baseScore: number, flags: string[]): number {

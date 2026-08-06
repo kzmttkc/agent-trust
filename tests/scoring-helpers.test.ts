@@ -23,6 +23,7 @@ import assert from "node:assert/strict";
 import {
   applyManualList,
   applySybilPenalty,
+  buildScoreBreakdown,
   computeWeightedScore,
   dampenReputationForSybil,
   normalizeWalletScore,
@@ -258,4 +259,58 @@ test("different wallets do not match", () => {
 
 test("owner_index_stale is a soft -5, and stays soft in the risk model", () => {
   assert.equal(applySybilPenalty(100, ["owner_index_stale"]), 95);
+});
+
+// ---- breakdown (N-21 explainability) ---------------------------------------
+//
+// The breakdown must be a faithful decomposition of the number, never a
+// parallel calculation that could drift. Two invariants pin it:
+//   - the four contributions sum to weightedSubtotal (same weight arithmetic
+//     as computeWeightedScore, so the explanation adds up to the score);
+//   - sybilPenalty is recovered as prePolicyScore − weightedSubtotal, so it
+//     equals what applySybilPenalty actually removed and cannot disagree.
+
+test("breakdown: contributions sum to the weighted subtotal", () => {
+  const b = buildScoreBreakdown({ identity: 100, reputation: 80, wallet: 75, x402: 50 });
+  const sum =
+    b.components.identity.contribution +
+    b.components.reputation.contribution +
+    b.components.wallet.contribution +
+    b.components.x402.contribution;
+  // rounding is per-contribution (2 dp), so allow a small tolerance vs subtotal
+  assert.ok(Math.abs(sum - b.weightedSubtotal) < 1, `${sum} vs ${b.weightedSubtotal}`);
+});
+
+test("breakdown: weightedSubtotal matches computeWeightedScore exactly", () => {
+  const c = { identity: 60, reputation: 45, wallet: 55, x402: 50 };
+  const b = buildScoreBreakdown(c);
+  assert.equal(
+    b.weightedSubtotal,
+    computeWeightedScore(c.identity, c.reputation, c.wallet, c.x402),
+  );
+});
+
+test("breakdown: component weights mirror SCORE_WEIGHTS", () => {
+  const b = buildScoreBreakdown({ identity: 0, reputation: 0, wallet: 0, x402: 0 });
+  assert.equal(b.components.identity.weight, SCORE_WEIGHTS.identity);
+  assert.equal(b.components.reputation.weight, SCORE_WEIGHTS.reputation);
+  assert.equal(b.components.wallet.weight, SCORE_WEIGHTS.wallet);
+  assert.equal(b.components.x402.weight, SCORE_WEIGHTS.x402);
+});
+
+test("breakdown: sybilPenalty is exactly prePolicyScore − weightedSubtotal", () => {
+  const c = { identity: 100, reputation: 80, wallet: 75, x402: 50 };
+  const subtotal = computeWeightedScore(c.identity, c.reputation, c.wallet, c.x402);
+  // engine would pass a pre-policy score already lowered by applySybilPenalty
+  const pre = applySybilPenalty(subtotal, ["funding_cluster"]); // −20
+  const b = buildScoreBreakdown(c, pre);
+  assert.equal(b.prePolicyScore, pre);
+  assert.equal(b.sybilPenalty, pre - subtotal);
+  assert.ok(b.sybilPenalty <= 0, "a penalty never adds points");
+});
+
+test("breakdown: no penalty when prePolicyScore omitted (subtotal is the score)", () => {
+  const b = buildScoreBreakdown({ identity: 60, reputation: 30, wallet: 50, x402: 50 });
+  assert.equal(b.sybilPenalty, 0);
+  assert.equal(b.prePolicyScore, b.weightedSubtotal);
 });

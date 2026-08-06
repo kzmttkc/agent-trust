@@ -34,6 +34,37 @@ export type TrustScoreResult = {
             list: string;
         };
     };
+    /** N-21: component-level explanation of the chain score. Optional and absent
+     *  on hard-blocked verdicts; the four components sum to weightedSubtotal. */
+    breakdown?: {
+        components: {
+            identity: {
+                score: number;
+                weight: number;
+                contribution: number;
+            };
+            reputation: {
+                score: number;
+                weight: number;
+                contribution: number;
+            };
+            wallet: {
+                score: number;
+                weight: number;
+                contribution: number;
+            };
+            x402: {
+                score: number;
+                weight: number;
+                contribution: number;
+            };
+        };
+        weightedSubtotal: number;
+        sybilPenalty: number;
+        prePolicyScore: number;
+    };
+    /** Stable machine-readable reason codes behind the verdict. */
+    reasons?: string[];
     scoredAt: string;
     cacheExpiresAt: string;
     disclaimer: string;

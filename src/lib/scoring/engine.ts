@@ -15,6 +15,7 @@ import { getCacheEpoch } from "./cache-epoch";
 import {
   applyManualList,
   applySybilPenalty,
+  buildScoreBreakdown,
   computeWeightedScore,
   dampenReputationForSybil,
   normalizeWalletScore,
@@ -37,6 +38,11 @@ type CachedChainPayload = {
   agentId: bigint;
   wallet: string | null;
   prePolicyScore: number;
+  // N-21: the four component scores exactly as fed into computeWeightedScore,
+  // cached alongside the score so /score can explain a cache hit without
+  // re-deriving them. The reputation value is the post-dampen one that was
+  // actually weighted (see scoreAgentById), not the raw scoreReputation output.
+  components: { identity: number; reputation: number; wallet: number; x402: number };
   chainSignals: Omit<TrustSignals, "manual">;
   epoch: number;
   expiresAt: number;
@@ -240,6 +246,13 @@ export async function scoreAgentById(
     agentId,
     wallet: walletAddress,
     prePolicyScore,
+    // reputationScore here is the dampened value that was actually weighted.
+    components: {
+      identity: identityScore,
+      reputation: reputationScore,
+      wallet: walletScore.score,
+      x402: x402Score,
+    },
     chainSignals,
     epoch,
     expiresAt: now + CACHE_TTL_MS,
@@ -330,8 +343,13 @@ export async function scoreWallet(
   }
 
   const sybilRisk = assessSybilRisk(sybilFlags);
+  // Bare wallet (no ERC-8004 registration): identity and reputation default to
+  // a neutral 30 — the same literals fed to computeWeightedScore below, echoed
+  // into the breakdown so the API explains why an unregistered wallet caps out.
+  const walletIdentityScore = 30;
+  const walletReputationScore = 30;
   const prePolicyScore = applySybilPenalty(
-    computeWeightedScore(30, 30, walletScore.score, x402Score),
+    computeWeightedScore(walletIdentityScore, walletReputationScore, walletScore.score, x402Score),
     sybilFlags,
   );
 
@@ -361,6 +379,12 @@ export async function scoreWallet(
     agentId: BigInt(0),
     wallet: address,
     prePolicyScore,
+    components: {
+      identity: walletIdentityScore,
+      reputation: walletReputationScore,
+      wallet: walletScore.score,
+      x402: x402Score,
+    },
     chainSignals,
     epoch,
     expiresAt: now + CACHE_TTL_MS,
@@ -405,6 +429,11 @@ async function applyPolicyLayer(
     manualOverride,
     policy,
     signals,
+    // N-21: chain-derived explanation. Built from the cached component scores +
+    // prePolicyScore so it is identical on cache hits and misses; the manual
+    // policy layer (which produced trustScore above) is intentionally excluded
+    // and surfaced via manualOverride instead.
+    breakdown: buildScoreBreakdown(payload.components, payload.prePolicyScore),
     scoredAt: new Date(now).toISOString(),
     cacheExpiresAt: new Date(payload.expiresAt).toISOString(),
   });
@@ -488,6 +517,7 @@ function buildResult(params: {
   signals: TrustSignals;
   manualOverride: boolean;
   policy: ManualListPolicy;
+  breakdown?: TrustScoreResult["breakdown"];
   scoredAt?: string;
   cacheExpiresAt?: string;
 }): TrustScoreResult {
@@ -535,6 +565,11 @@ function buildResult(params: {
     disclaimer,
     manualOverride: params.manualOverride,
   };
+
+  // Optional: present on normal chain-scored verdicts, absent on hard blocks.
+  if (params.breakdown) {
+    result.breakdown = params.breakdown;
+  }
 
   if (params.policy.isGlobal && params.policy.effective === "blacklist") {
     result.blockReason = "operator_policy";

@@ -51,12 +51,50 @@ export type TrustSignals = {
   };
 };
 
+/** N-21 (2026-08-06): explainability. Why the chain score is what it is,
+ *  broken into the four weighted components plus the sybil adjustment — the
+ *  exact arithmetic of computeWeightedScore + applySybilPenalty, echoed so an
+ *  integrator can audit a verdict without re-deriving it. Every `score` is the
+ *  0–100 component the engine actually fed the weighting; `contribution` is
+ *  `score × weight ÷ Σweights` (the four contributions sum to
+ *  `weightedSubtotal`). Chain-derived only: the manual whitelist/blacklist
+ *  layer is reported via the existing `manualOverride`/`signals.manual`, never
+ *  folded into this breakdown. Omitted on hard-blocked verdicts (wallet
+ *  mismatch, unregistered agent) where no weighting ran. */
+export type ScoreComponent = {
+  /** 0–100 component score fed into the weighting. */
+  score: number;
+  /** Its weight in SCORE_WEIGHTS (chain components only). */
+  weight: number;
+  /** score × weight ÷ Σ(chain weights); the four sum to weightedSubtotal. */
+  contribution: number;
+};
+
+export type ScoreBreakdown = {
+  components: {
+    identity: ScoreComponent;
+    reputation: ScoreComponent;
+    wallet: ScoreComponent;
+    x402: ScoreComponent;
+  };
+  /** Weighted average of the four components before the sybil penalty. */
+  weightedSubtotal: number;
+  /** Points removed by sybil/availability flags (≤ 0). See signals.sybil.flags. */
+  sybilPenalty: number;
+  /** weightedSubtotal + sybilPenalty, clamped — the chain score before the
+   *  manual policy layer. Equals trustScore unless a manual list moved it. */
+  prePolicyScore: number;
+};
+
 export type TrustScoreResult = {
   agentId: string;
   wallet: string | null;
   trustScore: number;
   recommendation: Recommendation;
   signals: TrustSignals;
+  /** N-21: component-level explanation of the chain score (see ScoreBreakdown).
+   *  Optional for backward compatibility and absent on hard-blocked verdicts. */
+  breakdown?: ScoreBreakdown;
   scoredAt: string;
   cacheExpiresAt: string;
   /** N-18: stable machine-readable reasons behind the verdict (for
