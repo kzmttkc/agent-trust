@@ -26,6 +26,19 @@ export function isSkipChainReadsEnabled(): boolean {
   return process.env.SKIP_CHAIN_READS === "true" && !isProduction();
 }
 
+/**
+ * N-20 guarantee underwriting (AQ-016): OFF by default, everywhere. The pure
+ * underwriting math and its API/UI receptacle are built so the go-live is a
+ * config flip, but offering a financial guarantee is a business + legal
+ * decision that must NOT be reachable until Takeshi + counsel approve it. The
+ * flag is deliberately not honored as a build-time default and there is no
+ * production carve-out that turns it on implicitly — it is only ever true when
+ * this exact env var is explicitly set. See docs/guarantee-underwriting-design.md.
+ */
+export function isGuaranteeUnderwritingEnabled(): boolean {
+  return process.env.GUARANTEE_UNDERWRITING_ENABLED === "true";
+}
+
 let validated = false;
 
 /**
