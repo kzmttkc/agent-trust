@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { headers } from "next/headers";
 import { ScorePreviewCard } from "@/components/site/ScorePreviewCard";
 import { EndpointCard, type EndpointCardProps } from "@/components/site/EndpointCard";
 import { TrustBadgeRow } from "@/components/site/TrustBadgeRow";
 import { PricingSection } from "@/components/site/PricingSection";
+import TrackView from "@/components/site/TrackView";
+import TrackedLink from "@/components/site/TrackedLink";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 
 const SITE_URL = "https://agent-trust-tawny.vercel.app";
@@ -87,6 +88,10 @@ export default async function Home() {
 
   return (
     <main className="bg-white">
+      {/* 2026-08-06 growth: lp_view opens the funnel (Verilot parity). Without
+          it, CTA click-through rate has no denominator — the automatic
+          pageview can't carry utm_source as a queryable prop. */}
+      <TrackView event="lp_view" withUtmSource />
       <script
         type="application/ld+json"
         nonce={nonce}
@@ -121,15 +126,25 @@ export default async function Home() {
                   `transition` includes outline-color, which made the focus ring
                   fade in from white over 150ms against a zinc-900 button
                   (1.00:1 contrast mid-transition). Same fix as SiteHeader. */}
-              <Link
+              {/* 2026-08-06 growth: lp_cta_click{position} tells us WHICH CTA
+                  converts (hero vs final vs pricing), which a plain /signup
+                  pageview can never attribute. */}
+              <TrackedLink
                 href="/signup"
+                event="lp_cta_click"
+                props={{ position: "hero" }}
                 className="rounded-md bg-zinc-900 px-6 py-3 text-base font-semibold text-white transition-[background-color] hover:bg-zinc-800"
               >
                 Get a free API key
-              </Link>
-              <Link href="/docs/api" className="text-sm font-medium text-zinc-600 underline underline-offset-4 hover:text-zinc-900">
+              </TrackedLink>
+              <TrackedLink
+                href="/docs/api"
+                event="docs_click"
+                props={{ position: "hero" }}
+                className="text-sm font-medium text-zinc-600 underline underline-offset-4 hover:text-zinc-900"
+              >
                 Read the API reference
-              </Link>
+              </TrackedLink>
             </div>
 
             <p className="pt-2 text-sm text-zinc-500">
@@ -207,9 +222,9 @@ export default async function Home() {
 
           <p className="mt-6 text-sm text-zinc-500">
             Full request/response payloads and error codes:{" "}
-            <Link href="/docs/api" className="underline">
+            <TrackedLink href="/docs/api" event="docs_click" props={{ position: "endpoints" }} className="underline">
               API reference
-            </Link>
+            </TrackedLink>
             . Docs also cover{" "}
             <a
               href="https://github.com/kzmttkc/agent-trust/blob/main/docs/quickstart.md"
@@ -297,8 +312,11 @@ if (score.recommendation !== "ALLOW") {
           </div>
         </div>
         <p className="mt-6 text-sm text-zinc-500">
-          Setup details: <Link href="/docs/api" className="underline">docs</Link> — MCP tools, the Express
-          middleware for x402 providers, and the AgentKit spend guard.
+          Setup details:{" "}
+          <TrackedLink href="/docs/api" event="docs_click" props={{ position: "quickstart" }} className="underline">
+            docs
+          </TrackedLink>{" "}
+          — MCP tools, the Express middleware for x402 providers, and the AgentKit spend guard.
         </p>
       </section>
 
@@ -317,12 +335,14 @@ if (score.recommendation !== "ALLOW") {
           </p>
           {/* transition-[background-color]: keeps outline-color out of the
               transition so the focus ring appears instantly (see hero CTA). */}
-          <Link
+          <TrackedLink
             href="/signup"
+            event="lp_cta_click"
+            props={{ position: "final" }}
             className="mt-2 rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-[background-color] hover:bg-zinc-800"
           >
             Get API key
-          </Link>
+          </TrackedLink>
         </div>
       </section>
     </main>

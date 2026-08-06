@@ -1,4 +1,6 @@
 import Link from "next/link";
+import TrackView from "@/components/site/TrackView";
+import TrackedLink from "@/components/site/TrackedLink";
 
 type Endpoint = {
   method: "GET" | "POST";
@@ -131,6 +133,11 @@ export default function ApiDocsPage() {
     // horizontal scrubbing. The LP already uses the px-5/md:px-8 pattern; docs
     // was the outlier.
     <main className="mx-auto max-w-3xl space-y-10 p-4 md:p-8">
+      {/* 2026-08-06 growth: docs_view marks a visitor doing developer-grade
+          evaluation — for an API product this is the aha-stage event in
+          growth_ledger.py (the true value moment, a scored API call, happens
+          server-side and never reaches Plausible). */}
+      <TrackView event="docs_view" />
       <div className="space-y-3">
         <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
         <h1 className="text-3xl font-semibold tracking-tight">API reference</h1>
@@ -141,14 +148,16 @@ export default function ApiDocsPage() {
         </p>
         <p className="text-sm text-zinc-500">
           Full machine-readable schema:{" "}
-          <a
+          {/* 2026-08-06 growth: openapi_click — pulling the machine-readable
+              schema signals codegen/tooling-level integration intent, deeper
+              than reading the human docs. */}
+          <TrackedLink
             href="https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml"
+            event="openapi_click"
             className="underline"
-            target="_blank"
-            rel="noopener noreferrer"
           >
             <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/openapi.yaml</code>
-          </a>{" "}
+          </TrackedLink>{" "}
           on GitHub.
         </p>
       </div>

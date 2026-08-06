@@ -6,6 +6,26 @@ import { useEffect, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { track } from "@/lib/analytics";
 
+// 2026-08-06 growth: failure-reason allowlist for the signup_failed event.
+// PII guard — analytics props must never carry user input (email/name/invite
+// code). The API's error codes are all fixed snake_case constants (measured
+// in src/app/api/signup/route.ts), and anything unrecognized maps to "other".
+const KNOWN_SIGNUP_FAILURE_REASONS = new Set([
+  "invalid_origin",
+  "rate_limit_exceeded",
+  "invalid_request",
+  "invalid_invite_code",
+  "email_already_registered",
+  "database_unavailable",
+  "signup_failed",
+]);
+
+function signupFailureReason(code: unknown): string {
+  return typeof code === "string" && KNOWN_SIGNUP_FAILURE_REASONS.has(code)
+    ? code
+    : "other";
+}
+
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -29,6 +49,13 @@ export default function SignupPage() {
       .then((res) => res.json())
       .then((data) => setInviteRequired(Boolean(data.inviteRequired)))
       .catch(() => {});
+  }, []);
+
+  // 2026-08-06 growth: signup_view completes the form funnel — without it,
+  // lp_cta_click → signup_started has an invisible gap (people who landed on
+  // the form but never pressed submit). Mount-once by design.
+  useEffect(() => {
+    track("signup_view");
   }, []);
 
   async function onSubmit(event: React.FormEvent) {
@@ -59,7 +86,10 @@ export default function SignupPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         setError(data.error ?? "signup_failed");
-        track("signup_failed");
+        // reason is allowlisted (see signupFailureReason) — the server only
+        // returns fixed snake_case codes today, but allowlisting guarantees
+        // no future server change can leak user input into analytics props.
+        track("signup_failed", { reason: signupFailureReason(data.error) });
         return;
       }
 
@@ -68,7 +98,7 @@ export default function SignupPage() {
       track("signup_completed");
     } catch {
       setError("connection_failed");
-      track("signup_failed");
+      track("signup_failed", { reason: "connection_failed" });
     } finally {
       setLoading(false);
     }

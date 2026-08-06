@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
+import { track } from "@/lib/analytics";
 
 export default function DashboardLoginPage() {
   const router = useRouter();
@@ -31,6 +32,10 @@ export default function DashboardLoginPage() {
       }
 
       markDashboardAuthenticated();
+      // 2026-08-06 growth: login_completed = returning-user retention signal,
+      // distinct from signup_completed (first key issuance). No props: the
+      // API key must never appear in analytics.
+      track("login_completed");
       router.push("/dashboard");
     } catch {
       setError("connection_failed");

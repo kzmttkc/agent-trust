@@ -5,7 +5,7 @@
  * and Stripe actually charge.
  */
 
-import Link from "next/link";
+import TrackedLink from "@/components/site/TrackedLink";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 
 const PLAN_ORDER = ["free", "pro", "scale"] as const;
@@ -80,8 +80,14 @@ export function PricingSection() {
                   transition-[background-color] instead of `transition`: the
                   latter animates outline-color in Tailwind v4, fading the focus
                   ring in from white over the dark Pro button. */}
-              <Link
+              {/* 2026-08-06 growth: pricing_cta_click{plan} — which plan card
+                  people click is the only pre-signup price-sensitivity signal
+                  we have (all three CTAs land on the same /signup URL, so the
+                  pageview alone can't tell them apart). */}
+              <TrackedLink
                 href="/signup"
+                event="pricing_cta_click"
+                props={{ plan: id }}
                 className={`mt-6 flex min-h-11 items-center justify-center rounded-md px-4 text-center text-sm font-medium transition-[background-color] ${
                   highlighted
                     ? "bg-zinc-900 text-white hover:bg-zinc-800"
@@ -89,7 +95,7 @@ export function PricingSection() {
                 }`}
               >
                 {id === "free" ? "Get API key" : `Start with ${plan.name}`}
-              </Link>
+              </TrackedLink>
             </div>
           );
         })}

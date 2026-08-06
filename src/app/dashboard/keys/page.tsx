@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
+import { track } from "@/lib/analytics";
 
 type KeyInfo = {
   id: string;
@@ -54,6 +55,10 @@ export default function DashboardKeysPage() {
         },
       );
       setNewKey(created.key);
+      // 2026-08-06 growth: api_key_created = the dashboard activation event
+      // (a user minting an extra key is past "signed up and left"). The key
+      // value itself is never sent — no props on purpose.
+      track("api_key_created");
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "create_failed");
