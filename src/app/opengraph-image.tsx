@@ -10,17 +10,17 @@ import { ImageResponse } from "next/og";
 // clicker lands on and needs no binary asset checked into the repo.
 // ============================================================
 
-export const runtime = "edge";
 export const alt = "Vouch — trust scores for AI agents and x402 payees on Base";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 const SCORE = 78;
-const RADIUS = 84;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export default function OgImage() {
-  const offset = CIRCUMFERENCE * (1 - SCORE / 100);
+  // The ring is drawn with a conic-gradient div, not an SVG <circle>+<text>.
+  // satori (next/og) throws "<text> nodes are not currently supported" and
+  // returns an empty 200, which silently broke every X/note share card.
+  const sweep = `${SCORE}%`;
   return new ImageResponse(
     (
       <div
@@ -58,36 +58,34 @@ export default function OgImage() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 56 }}>
-          <svg width={220} height={220} viewBox="0 0 220 220">
-            <circle cx="110" cy="110" r={RADIUS} fill="none" stroke="#e4e4e7" strokeWidth="18" />
-            <circle
-              cx="110"
-              cy="110"
-              r={RADIUS}
-              fill="none"
-              stroke="#18181b"
-              strokeWidth="18"
-              strokeLinecap="round"
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={offset}
-              transform="rotate(-90 110 110)"
-            />
-            <text
-              x="110"
-              y="126"
-              textAnchor="middle"
-              fontSize="52"
-              fontWeight="700"
-              fill="#18181b"
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+            <div
+              style={{
+                display: "flex",
+                width: 220,
+                height: 220,
+                borderRadius: 9999,
+                border: "14px solid #18181b",
+                background: "#ffffff",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 82,
+                fontWeight: 700,
+                color: "#18181b",
+              }}
             >
               {SCORE}
-            </text>
-          </svg>
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{ fontSize: 44, fontWeight: 700, color: "#18181b", lineHeight: 1.15 }}>
+            </div>
+            <div style={{ display: "flex", width: 220, height: 12, borderRadius: 9999, background: "#e4e4e7" }}>
+              <div style={{ display: "flex", width: sweep, height: 12, borderRadius: 9999, background: "#18181b" }} />
+            </div>
+            <div style={{ fontSize: 18, color: "#71717a" }}>trust score / 100</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 18, flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 40, fontWeight: 700, color: "#18181b", lineHeight: 1.15 }}>
               Should your agent accept this payment?
             </div>
-            <div style={{ fontSize: 24, color: "#52525b", lineHeight: 1.45 }}>
+            <div style={{ fontSize: 23, color: "#52525b", lineHeight: 1.45 }}>
               ERC-8004 trust scores on Base — one API call before an x402 payment settles.
             </div>
           </div>
