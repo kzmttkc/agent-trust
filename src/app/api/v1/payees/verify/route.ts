@@ -25,7 +25,6 @@ export const NAME_MAX_LENGTH = 64;
 // already canonical, so the 4-line invariant is structurally guaranteed and
 // there is nothing to "clean up" divergently. Also strips other C0/C1 control
 // characters that never belong in a display name.
-// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
 export function isCanonicalName(name: string): boolean {
