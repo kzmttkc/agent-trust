@@ -1,0 +1,66 @@
+{
+  "name": "@vouchscore/middleware",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./express": {
+      "types": "./dist/express.d.ts",
+      "import": "./dist/express.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js"
+    },
+    "./hono": {
+      "types": "./dist/hono.d.ts",
+      "import": "./dist/hono.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test 'test/*.test.mjs'"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  },
+  "description": "Drop-in x402 transaction gate: score a payment counterparty and ALLOW/WARN/BLOCK before it settles. Express, Next.js, and Hono adapters. Fail-closed by default.",
+  "license": "MIT",
+  "author": "KIZUNA Creation",
+  "homepage": "https://agent-trust-tawny.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzmttkc/agent-trust.git",
+    "directory": "packages/middleware"
+  },
+  "keywords": [
+    "x402",
+    "erc-8004",
+    "erc8004",
+    "ai-agent",
+    "agent-payments",
+    "trust-score",
+    "middleware",
+    "express",
+    "hono",
+    "nextjs",
+    "base",
+    "onchain"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

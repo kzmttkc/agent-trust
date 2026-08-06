@@ -31,7 +31,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const PACKAGES = ["packages/sdk", "packages/mcp-server"];
+const PACKAGES = ["packages/sdk", "packages/mcp-server", "packages/middleware"];
 const DRY_RUN_ONLY = process.argv.includes("--dry-run");
 
 const run = (cmd, args, cwd) =>
@@ -87,6 +87,9 @@ for (const { dir } of manifests) {
 
 console.log("\n── SDK tests ──");
 run("npm", ["test"], path.join(ROOT, "packages/sdk"));
+
+console.log("\n── middleware tests ──");
+run("npm", ["test"], path.join(ROOT, "packages/middleware"));
 
 // ---- 4. dry run ------------------------------------------------------------
 for (const { dir } of manifests) {
