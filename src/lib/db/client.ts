@@ -16,7 +16,19 @@ export function isDatabaseConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL);
 }
 
+let testDbOverride: AppDatabase | null = null;
+
+/**
+ * TEST-ONLY seam. Lets a test inject an in-memory fake so the owner-scoping in
+ * the data layer (removeWatch / deleteWebhook filter by apiKeyId) can be
+ * exercised without a live Postgres. Never called on any production path.
+ */
+export function __setDbForTests(fake: unknown): void {
+  testDbOverride = (fake as AppDatabase) ?? null;
+}
+
 export function getDb(): AppDatabase | null {
+  if (testDbOverride) return testDbOverride;
   if (!process.env.DATABASE_URL) return null;
 
   if (!db) {

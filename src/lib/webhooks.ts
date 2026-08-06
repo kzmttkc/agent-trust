@@ -1,4 +1,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import net from "node:net";
+import https from "node:https";
+import { checkServerIdentity as tlsCheckServerIdentity } from "node:tls";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { isMissingSchemaError } from "./db/pg-errors";
@@ -83,6 +87,96 @@ export function isSafeWebhookUrl(raw: string): boolean {
   }
   if (!host.includes(".") && !v4) return false; // bare single-label names are internal
   return true;
+}
+
+// ---- delivery-time SSRF pin (DNS-rebinding defense) -------------------------
+//
+// isSafeWebhookUrl is a STRING check: it rejects private literals and internal
+// names, but a public hostname is only text — nothing stops it from resolving
+// to 169.254.169.254 at delivery time. For a trust-layer product that is a
+// fatal SSRF: an attacker registers evil.example.com (passes every string
+// gate), then flips its A record to the cloud metadata IP right before we
+// POST. The invariant we must hold is: *we never open a delivery connection to
+// a non-public address*. We hold it by resolving the hostname ourselves,
+// requiring EVERY resolved address to be public unicast, and then connecting
+// to that exact verified IP literal (see deliverOne) so the transport cannot
+// re-resolve into a private range between our check and the socket — the
+// TOCTOU window is closed, not merely narrowed.
+
+/**
+ * True only for addresses that are safe to egress to: globally-routable
+ * unicast IPv4/IPv6. Everything private, reserved, loopback, link-local,
+ * CGNAT, ULA, multicast, or unspecified is rejected. IPv4-mapped/embedded
+ * IPv6 forms are unwrapped and judged as the IPv4 they target.
+ */
+export function isPublicUnicastIp(ip: string): boolean {
+  if (net.isIPv4(ip)) return isPublicIPv4(ip);
+  if (!net.isIPv6(ip)) return false;
+
+  let s = ip.toLowerCase();
+  const zone = s.indexOf("%");
+  if (zone >= 0) s = s.slice(0, zone); // strip scope id (fe80::1%eth0)
+
+  // IPv4-mapped (::ffff:1.2.3.4), IPv4-compatible (::1.2.3.4), or any form
+  // carrying a dotted-quad tail: the routable target is that IPv4.
+  const dotted = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(s);
+  if (dotted) return isPublicIPv4(dotted[1]);
+
+  if (s === "::" || s === "::1") return false; // unspecified / loopback
+  // fe80::/10 link-local  → fe8 fe9 fea feb
+  if (/^fe[89ab]/.test(s)) return false;
+  if (s.startsWith("fc") || s.startsWith("fd")) return false; // fc00::/7 ULA
+  if (s.startsWith("ff")) return false; // ff00::/8 multicast
+  return true;
+}
+
+function isPublicIPv4(ip: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (!m) return false;
+  const o = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+  if (o.some((n) => n > 255)) return false;
+  const [a, b] = o;
+  if (a === 0 || a === 10 || a === 127) return false; // this-net / private / loopback
+  if (a === 169 && b === 254) return false; // link-local (incl. cloud metadata)
+  if (a === 172 && b >= 16 && b <= 31) return false; // private /12
+  if (a === 192 && b === 168) return false; // private /16
+  if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT 100.64/10
+  if (a >= 224) return false; // multicast + reserved + 255.255.255.255 broadcast
+  return true;
+}
+
+/** Injectable resolver — real DNS in prod, a mock in tests. `all:true` so a
+ *  hostname that resolves to a mix of public and private is rejected on the
+ *  private one, not silently accepted on whichever came first. */
+export type AddressResolver = (
+  hostname: string,
+) => Promise<Array<{ address: string; family: number }>>;
+
+const defaultResolver: AddressResolver = (hostname) =>
+  dnsLookup(hostname, { all: true, verbatim: true });
+
+/**
+ * Resolve `hostname` and return a single verified public IP to pin the
+ * delivery socket to, or null if it does not resolve or ANY resolved address
+ * is non-public. Returning a concrete IP (not just a boolean) is what lets the
+ * caller connect by literal address and close the rebinding window.
+ */
+export async function resolveDeliveryTarget(
+  hostname: string,
+  resolve: AddressResolver = defaultResolver,
+): Promise<{ ip: string; family: 4 | 6 } | null> {
+  let addrs: Array<{ address: string; family: number }>;
+  try {
+    addrs = await resolve(hostname);
+  } catch {
+    return null; // NXDOMAIN / SERVFAIL → do not deliver
+  }
+  if (!addrs || addrs.length === 0) return null;
+  for (const a of addrs) {
+    if (!isPublicUnicastIp(a.address)) return null; // any private address → abort
+  }
+  const first = addrs[0];
+  return { ip: first.address, family: first.family === 6 ? 6 : 4 };
 }
 
 export function generateWebhookSecret(): string {
@@ -202,6 +296,59 @@ export async function deleteWebhook(apiKeyId: string, id: string): Promise<boole
 
 // ---- delivery --------------------------------------------------------------
 
+/**
+ * POST `body` over HTTPS to `url`, but with the TCP connection PINNED to the
+ * already-verified `ip`: we set `host` to the literal IP (so the OS never
+ * re-resolves the name and cannot be rebound), keep SNI + the Host header +
+ * certificate validation bound to the real hostname (so TLS is unchanged), and
+ * refuse to follow redirects (a 3xx at delivery is an SSRF vector). Any error,
+ * timeout, or non-2xx resolves to `false` — delivery failures are only counted,
+ * never thrown, so a webhook can never slow or break the triggering request.
+ */
+function postPinned(
+  url: URL,
+  ip: string,
+  body: string,
+  headers: Record<string, string>,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    try {
+      const req = https.request(
+        {
+          host: ip, // connect to the verified address, not the name
+          servername: url.hostname, // SNI stays the real host
+          port: url.port ? Number(url.port) : 443,
+          path: `${url.pathname}${url.search}`,
+          method: "POST",
+          headers: { ...headers, Host: url.hostname },
+          // validate the presented cert against the hostname, never the IP
+          checkServerIdentity: (_host, cert) => tlsCheckServerIdentity(url.hostname, cert),
+          timeout: DELIVERY_TIMEOUT_MS,
+        },
+        (res) => {
+          const status = res.statusCode ?? 0;
+          res.resume(); // drain so the socket can close
+          finish(status >= 200 && status < 300); // 3xx is NOT followed
+        },
+      );
+      req.on("error", () => finish(false));
+      req.on("timeout", () => {
+        req.destroy();
+        finish(false);
+      });
+      req.end(body);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
 async function deliverOne(row: WebhookRow, eventType: WebhookEvent, payload: unknown): Promise<void> {
   const db = getDb();
   // Re-validate at delivery time: the URL was checked at registration, but
@@ -209,6 +356,21 @@ async function deliverOne(row: WebhookRow, eventType: WebhookEvent, payload: unk
   if (!isSafeWebhookUrl(row.url)) {
     return;
   }
+  let url: URL;
+  try {
+    url = new URL(row.url);
+  } catch {
+    return;
+  }
+  // DNS-rebinding pin: resolve NOW, require every resolved address to be
+  // public, and connect to that verified IP literal below. A hostname whose
+  // record flipped to a private/metadata IP is dropped here, before any socket
+  // opens. This is the invariant enforcement, not a best-effort narrowing.
+  const target = await resolveDeliveryTarget(url.hostname);
+  if (!target) {
+    return; // unresolvable or resolves to a non-public address → never deliver
+  }
+
   const body = JSON.stringify({
     id: `evt_${randomBytes(12).toString("base64url")}`,
     type: eventType,
@@ -217,23 +379,11 @@ async function deliverOne(row: WebhookRow, eventType: WebhookEvent, payload: unk
   });
   const signature = signWebhookPayload(row.secret, body, Math.floor(Date.now() / 1000));
 
-  let ok = false;
-  try {
-    const res = await fetch(row.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Vouch-Signature": signature,
-        "User-Agent": "vouch-webhooks/1",
-      },
-      body,
-      redirect: "error", // a redirect at delivery time is an SSRF vector, not a feature
-      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
-    });
-    ok = res.ok;
-  } catch {
-    ok = false;
-  }
+  const ok = await postPinned(url, target.ip, body, {
+    "Content-Type": "application/json",
+    "Vouch-Signature": signature,
+    "User-Agent": "vouch-webhooks/1",
+  });
 
   if (!db) return;
   try {

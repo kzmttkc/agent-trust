@@ -13,6 +13,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   isSafeWebhookUrl,
+  isPublicUnicastIp,
+  resolveDeliveryTarget,
   isWebhookEvent,
   generateWebhookSecret,
   signWebhookPayload,
@@ -60,6 +62,94 @@ test("every classic SSRF pivot is refused", () => {
 test("172.x outside the private /12 stays allowed", () => {
   assert.equal(isSafeWebhookUrl("https://172.15.0.1/hook"), true);
   assert.equal(isSafeWebhookUrl("https://172.32.0.1/hook"), true);
+});
+
+// ---- delivery-time SSRF pin (DNS-rebinding) --------------------------------
+//
+// The string guard cannot see what a public hostname resolves to. These prove
+// the second layer: the IP classifier rejects every non-public range, and the
+// delivery-target resolver refuses a hostname that resolves (even partly) into
+// one — which is exactly what a rebinding attacker flips a public name into.
+
+test("isPublicUnicastIp rejects every non-public IPv4 range", () => {
+  const priv = [
+    "0.0.0.0",
+    "10.0.0.1",
+    "127.0.0.1",
+    "169.254.169.254", // AWS/GCP metadata
+    "172.16.0.1",
+    "172.31.255.255",
+    "192.168.1.1",
+    "100.64.0.1", // CGNAT
+    "224.0.0.1", // multicast
+    "255.255.255.255", // broadcast
+  ];
+  for (const ip of priv) assert.equal(isPublicUnicastIp(ip), false, `must reject ${ip}`);
+});
+
+test("isPublicUnicastIp allows genuinely public IPv4", () => {
+  for (const ip of ["1.1.1.1", "8.8.8.8", "203.0.200.5", "172.15.0.1", "172.32.0.1"]) {
+    assert.equal(isPublicUnicastIp(ip), true, `must allow ${ip}`);
+  }
+});
+
+test("isPublicUnicastIp rejects non-public IPv6 (incl. mapped v4) and junk", () => {
+  const bad = [
+    "::1", // loopback
+    "::", // unspecified
+    "fe80::1", // link-local
+    "fc00::1", // ULA
+    "fd12:3456::1", // ULA
+    "ff02::1", // multicast
+    "::ffff:169.254.169.254", // IPv4-mapped metadata
+    "::ffff:10.0.0.1", // IPv4-mapped private
+    "not-an-ip",
+    "",
+  ];
+  for (const ip of bad) assert.equal(isPublicUnicastIp(ip), false, `must reject ${ip}`);
+  assert.equal(isPublicUnicastIp("2606:4700:4700::1111"), true, "public v6 allowed");
+  assert.equal(isPublicUnicastIp("::ffff:1.1.1.1"), true, "mapped public v4 allowed");
+});
+
+test("resolveDeliveryTarget aborts when a hostname resolves to a private IP", async () => {
+  const cases: Array<[string, string]> = [
+    ["metadata.evil.test", "169.254.169.254"],
+    ["rebind.evil.test", "10.0.0.5"],
+    ["lo.evil.test", "127.0.0.1"],
+    ["v6lo.evil.test", "::1"],
+    ["cgnat.evil.test", "100.64.0.9"],
+    ["mapped.evil.test", "::ffff:169.254.169.254"],
+  ];
+  for (const [host, ip] of cases) {
+    const family = ip.includes(":") ? 6 : 4;
+    const target = await resolveDeliveryTarget(host, async () => [{ address: ip, family }]);
+    assert.equal(target, null, `${host} → ${ip} must be refused`);
+  }
+});
+
+test("resolveDeliveryTarget aborts if ANY resolved address is private (mixed record)", async () => {
+  const target = await resolveDeliveryTarget("mixed.evil.test", async () => [
+    { address: "93.184.216.34", family: 4 }, // public
+    { address: "169.254.169.254", family: 4 }, // poisoned second record
+  ]);
+  assert.equal(target, null, "a single private address in the set must abort delivery");
+});
+
+test("resolveDeliveryTarget pins a fully-public hostname to a concrete IP", async () => {
+  const target = await resolveDeliveryTarget("good.partner.io", async () => [
+    { address: "93.184.216.34", family: 4 },
+  ]);
+  assert.deepEqual(target, { ip: "93.184.216.34", family: 4 });
+});
+
+test("resolveDeliveryTarget aborts on resolution failure or empty answer", async () => {
+  assert.equal(
+    await resolveDeliveryTarget("nx.evil.test", async () => {
+      throw new Error("NXDOMAIN");
+    }),
+    null,
+  );
+  assert.equal(await resolveDeliveryTarget("empty.evil.test", async () => []), null);
 });
 
 // ---- events ----------------------------------------------------------------

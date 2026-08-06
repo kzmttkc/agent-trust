@@ -9,7 +9,16 @@ This is the productized form of the `facilitator-gate` and `x402-trust-gate`
 reference adapters. The x402 payment gate stays your beacon; this middleware
 reads Vouch before it settles.
 
+> **Status: not yet published to npm.** The package is built and tested in this
+> repo but has not been released, so `npm install @vouchscore/middleware` does
+> not resolve yet. Until it ships, consume it from the repo — build
+> `packages/middleware` and reference it via a workspace/`file:` dependency, or
+> install the packed tarball (`npm pack` in `packages/middleware`). The
+> published SDK (`@vouchscore/sdk`) and MCP server (`@vouchscore/mcp-server`)
+> are live on npm today; this middleware follows once its API is frozen.
+
 ```bash
+# once published:
 npm install @vouchscore/middleware
 ```
 
