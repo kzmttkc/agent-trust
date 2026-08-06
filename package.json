@@ -18,6 +18,7 @@
     "indexer:owners": "tsx scripts/index-owners.ts",
     "indexer:outcomes": "tsx scripts/index-outcomes.ts",
     "cron:purge-logs": "tsx scripts/purge-logs.ts",
+    "benchmark:scan": "tsx scripts/run-benchmark.ts",
     "backfill:payee": "tsx scripts/backfill-payee.ts",
     "gate2:report": "tsx scripts/gate2-report.ts",
     "setup:stripe": "tsx scripts/setup-stripe-products.ts",

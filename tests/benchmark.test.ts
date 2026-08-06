@@ -1,0 +1,192 @@
+// ============================================================
+// Vouch — operator benchmark: dataset integrity + report arithmetic.
+//
+// The benchmark exists to break /accuracy's chicken-and-egg problem
+// WITHOUT lying about where the data came from, so the tests guard two
+// things: (1) the dataset itself stays well-formed and honestly sourced
+// (every entry carries a source; addresses are unique, valid, lowercase),
+// and (2) the published rates follow the same honesty rules as the
+// external report — dedup to one count per address, unflattering numbers
+// computed with the same machinery, no rate below the minimum sample.
+// ============================================================
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  BENCHMARK_DATASET,
+  BENCHMARK_SEED_KIND,
+  OPERATOR_BENCHMARK_SOURCE,
+} from "@/lib/benchmark/dataset";
+import { MIN_SAMPLE } from "@/lib/scoring/accuracy";
+import {
+  computeBenchmarkReport,
+  type BenchmarkRow,
+} from "@/lib/scoring/benchmark-report";
+
+// ---------- dataset integrity ----------
+
+test("dataset: every address is a valid lowercase 0x address", () => {
+  for (const entry of BENCHMARK_DATASET) {
+    assert.match(
+      entry.address,
+      /^0x[a-f0-9]{40}$/,
+      `not a lowercase address: ${entry.address}`,
+    );
+  }
+});
+
+test("dataset: addresses are unique", () => {
+  const seen = new Set(BENCHMARK_DATASET.map((e) => e.address));
+  assert.equal(seen.size, BENCHMARK_DATASET.length);
+});
+
+test("dataset: every entry carries a source name, url and note", () => {
+  for (const entry of BENCHMARK_DATASET) {
+    assert.ok(entry.sourceName.length > 0, entry.address);
+    assert.match(entry.sourceUrl, /^https:\/\//, entry.address);
+    assert.ok(entry.note.length > 0, entry.address);
+    assert.ok(entry.label === "bad" || entry.label === "good", entry.address);
+  }
+});
+
+test("dataset: both classes reach the minimum publishable sample", () => {
+  const bad = BENCHMARK_DATASET.filter((e) => e.label === "bad").length;
+  const good = BENCHMARK_DATASET.filter((e) => e.label === "good").length;
+  assert.ok(bad >= MIN_SAMPLE, `known-bad ${bad} < MIN_SAMPLE ${MIN_SAMPLE}`);
+  assert.ok(good >= MIN_SAMPLE, `known-good ${good} < MIN_SAMPLE ${MIN_SAMPLE}`);
+});
+
+test("dataset: interleaved so a truncated run samples both classes", () => {
+  // The first 2*MIN_SAMPLE entries must contain both labels — that is the
+  // property a time-budget-truncated cron pass relies on.
+  const head = BENCHMARK_DATASET.slice(0, MIN_SAMPLE * 2);
+  assert.ok(head.some((e) => e.label === "bad"));
+  assert.ok(head.some((e) => e.label === "good"));
+});
+
+test("separation markers are the documented literals", () => {
+  // These strings are load-bearing across modules (runner writes them,
+  // outcome-reader partitions on them, outcome-writer excludes them) and in
+  // raw SQL fragments that cannot import the constant. Lock them down.
+  assert.equal(OPERATOR_BENCHMARK_SOURCE, "operator_benchmark");
+  assert.equal(BENCHMARK_SEED_KIND, "benchmark_seed");
+});
+
+// ---------- report arithmetic ----------
+
+let seq = 0;
+function row(over: Partial<BenchmarkRow>): BenchmarkRow {
+  return {
+    relatedWallet: over.relatedWallet ?? `0x${String(seq++).padStart(40, "0")}`,
+    recommendation: "BLOCK",
+    outcomeType: "confirmed_fraud",
+    detectedAt: "2026-08-06T00:00:00Z",
+    ...over,
+  };
+}
+
+function batch(n: number, over: Partial<BenchmarkRow>): BenchmarkRow[] {
+  return Array.from({ length: n }, () =>
+    row({ ...over, relatedWallet: `0x${String(seq++).padStart(40, "0")}` }),
+  );
+}
+
+test("empty input produces an honest empty report", () => {
+  const r = computeBenchmarkReport([]);
+  assert.equal(r.knownBad.total, 0);
+  assert.equal(r.knownGood.total, 0);
+  assert.equal(r.knownBad.detectionRate, null);
+  assert.equal(r.knownGood.falsePositiveRate, null);
+  assert.equal(r.lastScanAt, null);
+});
+
+test("known-bad: BLOCK and WARN are detections, ALLOW is a miss", () => {
+  const rows = [
+    ...batch(MIN_SAMPLE, { outcomeType: "confirmed_fraud", recommendation: "BLOCK" }),
+    ...batch(MIN_SAMPLE, { outcomeType: "confirmed_fraud", recommendation: "WARN" }),
+    ...batch(MIN_SAMPLE * 2, { outcomeType: "confirmed_fraud", recommendation: "ALLOW" }),
+  ];
+  const r = computeBenchmarkReport(rows);
+  assert.equal(r.knownBad.total, MIN_SAMPLE * 4);
+  assert.equal(r.knownBad.detected, MIN_SAMPLE * 2);
+  assert.equal(r.knownBad.missed, MIN_SAMPLE * 2);
+  assert.equal(r.knownBad.detectionRate, 50);
+  assert.equal(r.knownBad.missRate, 50);
+});
+
+test("known-good: only BLOCK counts as a false positive; WARN is reported but not a rate", () => {
+  const rows = [
+    ...batch(MIN_SAMPLE * 2, { outcomeType: "confirmed_legitimate", recommendation: "ALLOW" }),
+    ...batch(MIN_SAMPLE, { outcomeType: "confirmed_legitimate", recommendation: "WARN" }),
+    ...batch(MIN_SAMPLE, { outcomeType: "confirmed_legitimate", recommendation: "BLOCK" }),
+  ];
+  const r = computeBenchmarkReport(rows);
+  assert.equal(r.knownGood.total, MIN_SAMPLE * 4);
+  assert.equal(r.knownGood.allowed, MIN_SAMPLE * 2);
+  assert.equal(r.knownGood.warned, MIN_SAMPLE);
+  assert.equal(r.knownGood.blocked, MIN_SAMPLE);
+  assert.equal(r.knownGood.falsePositiveRate, 25);
+});
+
+test("re-scans do not multiply the sample: latest scan per address wins", () => {
+  const wallet = "0x" + "ab".repeat(20);
+  const rows: BenchmarkRow[] = [
+    row({
+      relatedWallet: wallet,
+      outcomeType: "confirmed_fraud",
+      recommendation: "ALLOW",
+      detectedAt: "2026-07-01T00:00:00Z",
+    }),
+    row({
+      relatedWallet: wallet,
+      outcomeType: "confirmed_fraud",
+      recommendation: "BLOCK",
+      detectedAt: "2026-08-01T00:00:00Z",
+    }),
+  ];
+  const r = computeBenchmarkReport(rows);
+  assert.equal(r.knownBad.total, 1);
+  assert.equal(r.knownBad.detected, 1);
+  assert.equal(r.knownBad.missed, 0);
+  assert.equal(r.scans, 2); // raw scan count still reported honestly
+});
+
+test("address dedup is case-insensitive", () => {
+  const rows: BenchmarkRow[] = [
+    row({ relatedWallet: "0x" + "AB".repeat(20), outcomeType: "confirmed_fraud" }),
+    row({ relatedWallet: "0x" + "ab".repeat(20), outcomeType: "confirmed_fraud" }),
+  ];
+  const r = computeBenchmarkReport(rows);
+  assert.equal(r.knownBad.total, 1);
+});
+
+test("below the minimum sample, rates are null, never noise", () => {
+  const rows = batch(MIN_SAMPLE - 1, {
+    outcomeType: "confirmed_fraud",
+    recommendation: "BLOCK",
+  });
+  const r = computeBenchmarkReport(rows);
+  assert.equal(r.knownBad.total, MIN_SAMPLE - 1);
+  assert.equal(r.knownBad.detectionRate, null);
+  assert.equal(r.knownBad.missRate, null);
+});
+
+test("unknown outcome types and null wallets are ignored, not misfiled", () => {
+  const rows: BenchmarkRow[] = [
+    row({ outcomeType: "some_future_type" }),
+    row({ relatedWallet: null }),
+    ...batch(1, { outcomeType: "confirmed_fraud", recommendation: "BLOCK" }),
+  ];
+  const r = computeBenchmarkReport(rows);
+  assert.equal(r.knownBad.total, 1);
+  assert.equal(r.knownGood.total, 0);
+  assert.equal(r.scans, 1);
+});
+
+test("null or unknown recommendations are excluded from totals", () => {
+  const rows: BenchmarkRow[] = [
+    row({ outcomeType: "confirmed_fraud", recommendation: null }),
+    row({ outcomeType: "confirmed_fraud", recommendation: "MAYBE" }),
+  ];
+  const r = computeBenchmarkReport(rows);
+  assert.equal(r.knownBad.total, 0);
+});

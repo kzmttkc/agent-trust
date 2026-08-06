@@ -105,6 +105,13 @@ export async function collectWatchedTrustEvents(
           gte(trustEvents.createdAt, since),
           isNotNull(trustEvents.wallet),
           sql`(${trustEvents.signals}->>'kind') IS DISTINCT FROM 'payee_score'`,
+          // Benchmark seeds (2026-08-06, src/lib/benchmark/) are excluded
+          // too: their ground-truth outcome is written by the runner at scan
+          // time, so letting the auto detector also scan them could attach a
+          // second, conflicting auto outcome to the same seeded verdict —
+          // and OFAC-listed wallets are dormant on Base, so it would mostly
+          // manufacture wallet_dormant noise. NULL-safe like the line above.
+          sql`(${trustEvents.signals}->>'kind') IS DISTINCT FROM 'benchmark_seed'`,
           notInArray(trustEvents.id, alreadyTerminal),
         ),
       )
@@ -264,7 +271,17 @@ export async function getOutcomesForWallet(
       .from(verdictOutcomes)
       // relatedWallet is not consistently lowercased at write time (it can
       // come from a checksummed on-chain address), so compare case-insensitively.
-      .where(sql`lower(${verdictOutcomes.relatedWallet}) = ${wallet.toLowerCase()}`)
+      // Operator-benchmark rows (2026-08-06) are excluded: this feed steers
+      // the payee scoring engine, and a benchmark must observe production
+      // scoring, never steer it — otherwise the benchmark changes the very
+      // thing it measures, and operator-written labels would leak into
+      // customer-facing verdicts through the back door.
+      .where(
+        and(
+          sql`lower(${verdictOutcomes.relatedWallet}) = ${wallet.toLowerCase()}`,
+          sql`${verdictOutcomes.source} <> 'operator_benchmark'`,
+        ),
+      )
       .orderBy(desc(verdictOutcomes.detectedAt))
       .limit(limit);
 

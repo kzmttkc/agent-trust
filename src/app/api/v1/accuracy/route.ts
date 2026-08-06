@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/api/client-ip";
 import { consumeIpRateLimit } from "@/lib/api/ip-rate-limit";
 import { computeAccuracyReport } from "@/lib/scoring/accuracy";
-import { fetchAccuracyRows } from "@/lib/db/outcome-reader";
+import { computeBenchmarkReport } from "@/lib/scoring/benchmark-report";
+import { fetchAccuracyRows, fetchBenchmarkRows } from "@/lib/db/outcome-reader";
 import { logServerError } from "@/lib/util/log";
 
 /**
@@ -42,7 +43,17 @@ export async function GET(request: NextRequest) {
   try {
     const rows = await fetchAccuracyRows(90);
     const report = computeAccuracyReport(rows);
-    const body = { ...report, windowDays: 90, generatedAt: new Date(now).toISOString() };
+    // Operator benchmark rides along as its OWN key, never merged into the
+    // external fields: fetchAccuracyRows excludes source='operator_benchmark'
+    // at the SQL layer and fetchBenchmarkRows selects only it, so the two
+    // objects partition verdict_outcomes — a consumer cannot double-count.
+    const operatorBenchmark = computeBenchmarkReport(await fetchBenchmarkRows(90));
+    const body = {
+      ...report,
+      operatorBenchmark,
+      windowDays: 90,
+      generatedAt: new Date(now).toISOString(),
+    };
     cached = { body, expiresAt: now + CACHE_TTL_MS };
     return NextResponse.json(body, {
       headers: { "Cache-Control": "public, s-maxage=600, stale-while-revalidate=1200" },

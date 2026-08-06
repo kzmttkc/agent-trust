@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { computeAccuracyReport, type AccuracyReport } from "@/lib/scoring/accuracy";
-import { fetchAccuracyRows } from "@/lib/db/outcome-reader";
+import { computeBenchmarkReport, type BenchmarkReport } from "@/lib/scoring/benchmark-report";
+import { fetchAccuracyRows, fetchBenchmarkRows } from "@/lib/db/outcome-reader";
 
 /**
  * /accuracy — the page competitors cannot copy without doing the work.
@@ -41,7 +42,19 @@ export default async function AccuracyPage() {
     report = computeAccuracyReport([]);
   }
 
+  // Operator benchmark — self-seeded on purpose, and therefore fetched,
+  // computed, and rendered as its OWN section: fetchAccuracyRows excludes
+  // these rows at the SQL layer, so nothing here can pad the external
+  // figures above. See src/lib/benchmark/dataset.ts for the address sources.
+  let benchmark: BenchmarkReport;
+  try {
+    benchmark = computeBenchmarkReport(await fetchBenchmarkRows(90));
+  } catch {
+    benchmark = computeBenchmarkReport([]);
+  }
+
   const hasAnyData = report.observedVerdicts > 0;
+  const hasBenchmarkData = benchmark.knownBad.total + benchmark.knownGood.total > 0;
 
   return (
     <main className="mx-auto max-w-3xl px-5 py-16 md:px-8">
@@ -56,8 +69,19 @@ export default async function AccuracyPage() {
         next, and the aggregate is published here — including the number that flatters us least.
       </p>
 
+      {/* external usage — the operator benchmark below is deliberately NOT
+          part of these figures (excluded at the SQL layer, outcome-reader.ts):
+          self-seeded rows padding the external sample would be exactly the
+          asserted-not-measured move this page exists against. */}
+      <h2 className="mt-12 text-xl font-semibold text-zinc-900">External usage</h2>
+      <p className="mt-2 text-sm text-zinc-500">
+        Verdicts requested by API users, judged by what the wallet did afterwards. Operator-run
+        benchmark scans are excluded from every number in this section and reported separately
+        below.
+      </p>
+
       {/* headline figures */}
-      <div className="mt-10 grid gap-4 sm:grid-cols-2">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-zinc-200 p-6">
           <p className="text-sm text-zinc-500">
             ALLOW verdicts that later showed adverse activity
@@ -144,6 +168,67 @@ export default async function AccuracyPage() {
         for what that means in practice.
       </p>
 
+      {/* operator benchmark — self-seeded and labeled as such. Hiding the
+          origin of these rows would turn "measured, not asserted" into a
+          fabrication, so the section says who ran the scans in its first
+          sentence. */}
+      <h2 className="mt-12 text-xl font-semibold text-zinc-900">
+        Operator benchmark (labeled addresses)
+      </h2>
+      <p className="mt-2 text-sm text-zinc-500">
+        These scans are run by us, not by customers — a controlled test, published separately so it
+        can never be mistaken for (or padded into) external usage. Weekly, the engine scores a
+        fixed, versioned set of addresses whose real-world outcome is already public knowledge:
+        &ldquo;known bad&rdquo; addresses from the US OFAC sanctions (SDN) list, and &ldquo;known
+        good&rdquo; addresses of long-operating, publicly identified organizations and individuals.
+        The engine should refuse the former and pass the latter; each address counts once, using
+        its most recent scan.
+      </p>
+
+      {hasBenchmarkData ? (
+        <>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-zinc-200 p-6">
+              <p className="text-sm text-zinc-500">
+                Known-bad addresses flagged (BLOCK or WARN)
+              </p>
+              <p className="mt-2 text-3xl">
+                <Rate value={benchmark.knownBad.detectionRate} />
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {benchmark.knownBad.detected} of {benchmark.knownBad.total} flagged,{" "}
+                {benchmark.knownBad.missed} allowed (our misses)
+              </p>
+            </div>
+            <div className="rounded-xl border border-zinc-200 p-6">
+              <p className="text-sm text-zinc-500">
+                Known-good addresses wrongly blocked (our false positives)
+              </p>
+              <p className="mt-2 text-3xl">
+                <Rate value={benchmark.knownGood.falsePositiveRate} />
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {benchmark.knownGood.allowed} of {benchmark.knownGood.total} allowed,{" "}
+                {benchmark.knownGood.warned} warned, {benchmark.knownGood.blocked} blocked
+              </p>
+            </div>
+          </div>
+          <p className="mt-4 text-sm text-zinc-500">
+            {benchmark.scans.toLocaleString("en-US")} benchmark scans in the last 90 days
+            {benchmark.lastScanAt
+              ? `, most recent ${new Date(benchmark.lastScanAt).toISOString().slice(0, 10)}`
+              : ""}
+            . Address set and per-address sources are versioned in the codebase
+            (methodology below).
+          </p>
+        </>
+      ) : (
+        <p className="mt-4 text-sm text-zinc-500">
+          No benchmark scans in the current window yet — the first weekly pass publishes here
+          automatically.
+        </p>
+      )}
+
       {/* methodology */}
       <h2 className="mt-12 text-xl font-semibold text-zinc-900">Methodology (v{report.methodologyVersion})</h2>
       <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-zinc-600">
@@ -176,6 +261,26 @@ export default async function AccuracyPage() {
         <li>
           <strong>Window.</strong> Rolling 90 days, aggregate counts only — no wallet addresses, no
           agent ids, no per-customer data on this page or in the API response.
+        </li>
+        <li>
+          <strong>Operator benchmark.</strong> Run by the operator against a fixed, versioned
+          address set and stored with a dedicated source tag
+          (<code>operator_benchmark</code>) so it is excluded from all external figures at the
+          query level. Known-bad = current ETH entries of the US Treasury OFAC SDN list (public
+          domain; retrieved via the nightly extraction at
+          {/* same break-all treatment as the endpoint path above — long URLs
+              must not force horizontal scroll at 320px */}
+          <code className="break-all"> github.com/0xB10C/ofac-sanctioned-digital-currency-addresses</code>).
+          Known-good = long-operating addresses publicly attributed via official publications,
+          on-chain ENS names, or public label consensus, with no adverse reports at assembly and
+          verified activity on Base — the chain the engine scores — so the test measures
+          discrimination, not chain coverage. Scoring uses the same engine and fail-closed rules
+          as a live lookup, with no customer list attached. Judgment: flagging (BLOCK/WARN) a
+          known-bad address is a detection and allowing it is a miss; allowing a known-good
+          address is correct and blocking it is a false positive, with warnings on good addresses
+          reported separately. The full address set with per-address sources lives in the
+          codebase at <code className="break-all">src/lib/benchmark/dataset.ts</code>, and rates
+          follow the same {report.minSample}+ minimum-sample rule.
         </li>
       </ul>
 
