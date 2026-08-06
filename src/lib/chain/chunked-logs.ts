@@ -1,5 +1,6 @@
 import type { BlockTag } from "viem";
 import type { getPublicClient } from "./client";
+import { mapWithConcurrency } from "@/lib/util/concurrency";
 
 type ChainClient = ReturnType<typeof getPublicClient>;
 export type ChainGetLogsParams = Parameters<ChainClient["getLogs"]>[0];
@@ -15,6 +16,28 @@ export function getLogsChunkSize(): bigint {
   } catch {
     return 2_000n;
   }
+}
+
+/**
+ * How many eth_getLogs chunks to fetch in parallel.
+ *
+ * Wide catch-up ranges (250k blocks / 2k chunk = ~125 sequential round-trips
+ * per event) were the owner-indexer's dominant follow-through cost: at
+ * ~150-300ms per Neon-region → RPC round-trip that is 20-40s of pure waiting,
+ * per event, per run. A small fixed fan-out cuts that near-linearly while
+ * staying well inside Alchemy's concurrent-request budget. Kept conservative
+ * (default 4) and env-tunable so ops can dial it to 1 (identical to the old
+ * strictly-sequential behaviour) if a provider starts rate-limiting — the
+ * per-chunk exponential backoff + bisection in fetchRange still absorbs bursts
+ * regardless of this value. Do NOT raise this into the tens: the goal is to
+ * outpace Base's block production, not to hammer the RPC.
+ */
+export function getLogsChunkConcurrency(): number {
+  const raw = process.env.GET_LOGS_CHUNK_CONCURRENCY;
+  if (!raw) return 4;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 4;
+  return Math.max(1, Math.min(8, Math.floor(parsed)));
 }
 
 function getLogsChunkDelayMs(): number {
@@ -126,11 +149,17 @@ async function fetchRange(
 
 /**
  * eth_getLogs over a wide block range, splitting into chunks and bisecting on RPC range errors.
+ *
+ * Chunks are fetched with a small bounded fan-out (getLogsChunkConcurrency) to
+ * outpace Base's block production during catch-up, but the returned logs are
+ * always reassembled in ascending block order so callers that rely on ordering
+ * (e.g. transfer replay) see exactly what the old sequential scan produced.
  */
 export async function getLogsChunked(
   client: ChainClient,
   params: ChainGetLogsParams & { fromBlock: bigint },
   chunkSize = getLogsChunkSize(),
+  concurrency = getLogsChunkConcurrency(),
 ): Promise<ChainLog[]> {
   const toBlock = await resolveToBlock(client, params.toBlock);
   const fromBlock = params.fromBlock;
@@ -140,19 +169,40 @@ export async function getLogsChunked(
 
   if (fromBlock > toBlock) return [];
 
-  const results: ChainLog[] = [];
-  let start = fromBlock;
-  const delayMs = getLogsChunkDelayMs();
-
-  while (start <= toBlock) {
+  // Pre-compute the chunk ranges up front so fetches can fan out while the
+  // per-chunk order in the final array stays deterministic (index-aligned).
+  const ranges: { start: bigint; end: bigint }[] = [];
+  for (let start = fromBlock; start <= toBlock; start += chunkSize) {
     const end = start + chunkSize - 1n > toBlock ? toBlock : start + chunkSize - 1n;
-    const logs = await fetchRange(client, rest, start, end);
-    results.push(...logs);
-    start = end + 1n;
-    if (delayMs > 0 && start <= toBlock) {
-      await sleep(delayMs);
-    }
+    ranges.push({ start, end });
   }
 
+  const delayMs = getLogsChunkDelayMs();
+  const effectiveConcurrency = Math.max(1, concurrency);
+
+  // Sequential path preserved byte-for-byte for concurrency === 1 (and when a
+  // pacing delay is configured, so the delay keeps its "space out RPC calls"
+  // meaning rather than becoming a no-op under parallelism).
+  if (effectiveConcurrency === 1 || delayMs > 0) {
+    const results: ChainLog[] = [];
+    for (let i = 0; i < ranges.length; i++) {
+      const { start, end } = ranges[i]!;
+      const logs = await fetchRange(client, rest, start, end);
+      results.push(...logs);
+      if (delayMs > 0 && i < ranges.length - 1) {
+        await sleep(delayMs);
+      }
+    }
+    return results;
+  }
+
+  const perChunk = await mapWithConcurrency(
+    ranges,
+    effectiveConcurrency,
+    ({ start, end }) => fetchRange(client, rest, start, end),
+  );
+
+  const results: ChainLog[] = [];
+  for (const logs of perChunk) results.push(...logs);
   return results;
 }
