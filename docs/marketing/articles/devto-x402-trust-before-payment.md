@@ -3,7 +3,6 @@ title: "x402 proves payment. It doesn’t prove trust — so we built Vouch"
 published: false
 description: "How we score both sides of an x402 payment on Base — payer trust for API providers, payee trust for paying agents. ALLOW / WARN / BLOCK with settlement attestation."
 tags: web3, ai, typescript, api, blockchain
-cover_image: ../assets/vouch-banner.png
 ---
 
 # x402 proves payment. It doesn’t prove trust — so we built Vouch
@@ -15,7 +14,7 @@ If you run an x402 API, that gap is the whole product risk. ERC-8004 gives agent
 
 And the risk runs both ways. The agent *sending* the payment has the mirror problem: is the wallet on the other side of this 402 a real service, or a burner that will take the USDC and vanish? So Vouch now scores **both sides**: payer trust for API providers, payee trust for paying agents.
 
-This post is a build-in-public snapshot of a **closed beta** on Base.
+This post is a build-in-public snapshot of Vouch on Base.
 
 ## The flows we care about
 
@@ -51,7 +50,7 @@ Sample seller-side middleware lives in the repo: `examples/x402-trust-gate`.
 | ERC-8004 reputation | Feedback volume / average, with Sybil dampening |
 | Wallet heuristics | Age, activity, burner patterns, funder clusters |
 | Manual WL/BL | Per-customer policy (after the chain score) |
-| x402 settlements | Attested payment history (**10% weight** in closed β) |
+| x402 settlements | Attested payment history (**10% weight** — still accumulating data) |
 
 Recommendations: roughly **≥70 ALLOW**, **40–69 WARN**, **&lt;40 BLOCK** (blacklist / high Sybil risk forces BLOCK). Scores are **informational** — not a guarantee or credit rating.
 
@@ -91,25 +90,27 @@ curl -X POST -H "Authorization: Bearer $VOUCH_API_KEY" \
   https://agent-trust-tawny.vercel.app/api/v1/payments/x402
 ```
 
-Also available: agent-ID scoring, batch scores, outcome reporting (`POST /v1/events/{id}/outcome` — tell us what actually happened after a verdict), MCP tools (`check_wallet_trust`, `attest_x402_payment`), and a thin TypeScript client in `packages/sdk`. The SDK and MCP server don't cover the payee endpoint yet — next on the list, along with a spend-policy helper for agent runtimes.
+Also available: agent-ID scoring, batch scores, outcome reporting (`POST /v1/events/{id}/outcome` — tell us what actually happened after a verdict), MCP tools (`check_wallet_trust`, `attest_x402_payment`), and a TypeScript client on npm: `npm install @vouchscore/sdk` (MCP server: `@vouchscore/mcp-server`). The SDK and MCP server don't cover the payee endpoint yet — next on the list, along with a spend-policy helper for agent runtimes.
 
 ## Design choices we won’t apologize for
 
 - **Fail closed** on wallet binding / critical RPC failure when verifying binders — better a 502/BLOCK than a silent ALLOW.
 - **Attestations are verified on-chain before they count** — a well-formed wallet + txHash isn't enough to fabricate settlement history; the tx must be real, successful, and attributable to the claimed wallet.
 - **Whitelist is not a Sybil free pass** — high Sybil risk refuses to promote WARN→ALLOW.
-- **Free anonymous public scoring stays frozen** — closed beta first; we want paying integrators, not scrape farms.
+- **Free anonymous public scoring stays frozen** — API key required for every score; we want real integrators, not scrape farms.
 - **x402 settlement weight starts small (10%)** — data must accumulate before it deserves more.
+- **Every score explains itself** — the response ships a `breakdown` of the four weighted components (identity / reputation / wallet / x402), each with its score, weight, and contribution, so a gateway can log *why* a verdict was what it was, not just the number.
 
-## Closed beta
+## Try it
 
-We’re inviting a small set of **x402 API providers** (payer gating + settlement attestation) and **agent-runtime builders** (payee screening before your agents spend).
+Built for **x402 API providers** (payer gating + settlement attestation) and **agent-runtime builders** (payee screening before your agents spend).
 
-- Product: [agent-trust-tawny.vercel.app](https://agent-trust-tawny.vercel.app)
+- Sign up: [agent-trust-tawny.vercel.app/signup](https://agent-trust-tawny.vercel.app/signup) — free account, no invite code
+- SDK: `npm install @vouchscore/sdk`
 - Code & docs: [github.com/kzmttkc/agent-trust](https://github.com/kzmttkc/agent-trust)
 - Guides: `docs/x402-integration.md`, `docs/mcp-setup.md`, `docs/openapi.yaml`
 
-Want in? **Reply here or DM** with what you’re building (no invite codes in public posts). We’ll send a key if it’s a fit.
+Building something in this space? **Reply here or DM** — happy to compare notes.
 
 ---
 
