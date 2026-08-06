@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db/client";
 import { verifiedPayees } from "@/lib/db/schema";
 import { isValidAddress } from "@/lib/chain/client";
 import { scorePayeeWallet } from "@/lib/scoring/payee-engine";
+import TrackView from "@/components/site/TrackView";
 
 // N-16 — public payee profile: verified identity claim + live payee score.
 // The two-sided surface: spending agents check it, payees link it.
@@ -55,8 +56,32 @@ export default async function PayeePage({
     score = null;
   }
 
+  // 2026-08-06 growth: coarse score band for the payee_view event. The
+  // recommendation is the product's own three-way banding (ALLOW/WARN/BLOCK),
+  // so we map it instead of inventing new numeric thresholds that could
+  // drift from the scoring engine. The wallet address is deliberately NOT a
+  // prop — aggregating per-address in analytics is both a privacy smell and
+  // useless (the URL path already exists in the automatic pageview).
+  const band = !score
+    ? "unavailable"
+    : score.recommendation === "ALLOW"
+      ? "high"
+      : score.recommendation === "WARN"
+        ? "medium"
+        : score.recommendation === "BLOCK"
+          ? "low"
+          : "unknown";
+
   return (
     <main className="mx-auto max-w-2xl px-5 py-16 md:px-8">
+      {/* payee_view: the two-sided loop's read side. referrer=external is the
+          closest observable proxy for badge-embed inflow (the badge image on a
+          payee's own site links here); the referring URL itself is never sent. */}
+      <TrackView
+        event="payee_view"
+        props={{ band, verified: Boolean(entry) }}
+        withReferrerType
+      />
       <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">
         {entry ? "Verified payee" : "Payee"}
       </p>
