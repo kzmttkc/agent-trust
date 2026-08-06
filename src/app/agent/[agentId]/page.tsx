@@ -56,7 +56,19 @@ export default async function AgentPage({
     | { value: number; recommendation: string; paymentCount: number; uniqueDays: number }
     | null = null;
   try {
-    const result = await scoreAgentById(agentId);
+    // 2026-08-06: scoreAgentById reads chain state several calls deep. A HANG
+    // in that await chain (a slow/unreachable RPC) is not a rejection, so the
+    // catch below never fires and the whole page hangs until Vercel kills it
+    // with a 504 — reproduced 504 on /agent/1 in production, the same failure
+    // class already fixed in /api/demo/score. Race the score against a timeout
+    // well under the platform limit so an unresponsive dependency degrades to
+    // "Score unavailable right now." instead of taking the page down.
+    const result = await Promise.race([
+      scoreAgentById(agentId),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("agent_score_timeout")), 8_000),
+      ),
+    ]);
     score = {
       value: result.trustScore,
       recommendation: result.recommendation,

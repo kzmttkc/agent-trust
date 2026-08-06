@@ -81,7 +81,16 @@ export async function GET(
     cacheExpiresAt: string;
   } | null = null;
   try {
-    const result = await scoreAgentById(agentId);
+    // 2026-08-06: key-less public endpoint. A hang in scoreAgentById's deep
+    // chain reads is not a rejection, so the catch never fires and the request
+    // 504s (same class as /api/demo/score and the /agent page). Race a timeout
+    // so an unresponsive RPC degrades to a null score, not a hung request.
+    const result = await Promise.race([
+      scoreAgentById(agentId),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("agent_score_timeout")), 8_000),
+      ),
+    ]);
     score = {
       trustScore: result.trustScore,
       recommendation: result.recommendation,
