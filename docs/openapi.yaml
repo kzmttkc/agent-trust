@@ -9,6 +9,16 @@ info:
     **Disclaimer:** Scores are informational only and do not constitute a guarantee,
     credit assessment, or investment advice.
 
+    **Rate limits:** a per-account monthly quota (Free 1,000 / Pro 50,000 /
+    Scale 500,000), shared across keys, reset at the UTC month boundary. Each
+    `/score` is 1 unit; a `/scores/batch` of N agents is N units. Scored
+    responses carry `X-RateLimit-Limit`, `X-RateLimit-Used`, and
+    `X-RateLimit-Remaining`. There is no per-second burst throttle on
+    authenticated calls — you may spend the quota as fast as you like; a `429`
+    with `Retry-After` means the monthly quota is exhausted. Separate IP-based
+    abuse throttles (e.g. 60 auth-failures/min/IP) exist only to blunt
+    key-guessing and scraping and are not hit by valid authenticated traffic.
+
   contact:
     name: Vouch API Support
   license:
@@ -369,6 +379,100 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /webhooks:
+    get:
+      operationId: listWebhooks
+      tags: [Webhooks]
+      summary: List this key's webhook endpoints
+      description: Signing secrets are never returned — they are shown once at registration.
+      responses:
+        "200":
+          description: The key's endpoints and the full list of subscribable events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhooks:
+                    type: array
+                    items: { $ref: "#/components/schemas/Webhook" }
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/WebhookEventType" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createWebhook
+      tags: [Webhooks]
+      summary: Register a webhook endpoint (max 5 per key)
+      description: |
+        The signing secret is returned ONCE in this response — store it; it is
+        never retrievable again. `url` must be https to a public host and is
+        SSRF-validated here AND at every delivery (a DNS record can change
+        between the two). `events` must be a non-empty subset of the event list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+                  description: https URL to a public host (no credentials, no private/reserved IPs)
+                events:
+                  type: array
+                  minItems: 1
+                  items: { $ref: "#/components/schemas/WebhookEventType" }
+      responses:
+        "201":
+          description: Registered; secret shown once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, url, events, secret]
+                properties:
+                  id: { type: string, format: uuid }
+                  url: { type: string, format: uri }
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/WebhookEventType" }
+                  secret:
+                    type: string
+                    description: HMAC signing secret (whsec_…), shown only here
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Per-key webhook limit reached (max 5)
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /webhooks/{id}:
+    delete:
+      operationId: deleteWebhook
+      tags: [Webhooks]
+      summary: Remove a webhook endpoint this key owns
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Not found (or not owned by this key — indistinguishable on purpose)
+
 components:
   securitySchemes:
     bearerAuth:
@@ -482,6 +586,15 @@ components:
           $ref: "#/components/schemas/Recommendation"
         signals:
           $ref: "#/components/schemas/TrustSignals"
+        breakdown:
+          $ref: "#/components/schemas/ScoreBreakdown"
+        reasons:
+          type: array
+          items: { type: string }
+          description: >-
+            Stable machine-readable codes behind the verdict, derived from the
+            same signals (for integrators' compliance logs). Cannot disagree
+            with the recommendation.
         scoredAt:
           type: string
           format: date-time
@@ -517,6 +630,95 @@ components:
                 distinctWallets: { type: integer }
                 recentPayments30d: { type: integer }
                 walletHasHistory: { type: boolean }
+
+    ScoreComponent:
+      type: object
+      required: [score, weight, contribution]
+      properties:
+        score:
+          type: number
+          description: 0-100 component score fed into the weighting
+        weight:
+          type: number
+          description: Its weight in the chain-signal sum (identity 0.2 / reputation 0.3 / wallet 0.2 / x402 0.1)
+        contribution:
+          type: number
+          description: score × weight ÷ 0.8; the four contributions sum to weightedSubtotal
+
+    ScoreBreakdown:
+      type: object
+      description: >-
+        N-21 explainability. Decomposition of the chain score into its four
+        weighted components plus the sybil adjustment — the exact arithmetic of
+        the weighting, so it cannot disagree with trustScore. Omitted on
+        hard-blocked verdicts where no weighting ran. The manual whitelist/
+        blacklist layer is intentionally excluded (see manualOverride).
+      required: [components, weightedSubtotal, sybilPenalty, prePolicyScore]
+      properties:
+        components:
+          type: object
+          required: [identity, reputation, wallet, x402]
+          properties:
+            identity: { $ref: "#/components/schemas/ScoreComponent" }
+            reputation: { $ref: "#/components/schemas/ScoreComponent" }
+            wallet: { $ref: "#/components/schemas/ScoreComponent" }
+            x402: { $ref: "#/components/schemas/ScoreComponent" }
+        weightedSubtotal:
+          type: number
+          description: Weighted average of the four components before the sybil penalty
+        sybilPenalty:
+          type: number
+          description: Points removed by sybil/availability flags (<= 0); see signals.sybil.flags
+        prePolicyScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: weightedSubtotal + sybilPenalty, clamped; equals trustScore unless a manual list moved it
+
+    WebhookEventType:
+      type: string
+      enum: [watch.verdict_changed, outcome.recorded, list.changed]
+      description: >-
+        Subscribable webhook events. watch.verdict_changed = a watchlist
+        target's recommendation moved on a re-scan; outcome.recorded = an
+        outcome landed on a verdict you requested; list.changed = your own
+        manual whitelist/blacklist changed. Scores themselves are never pushed.
+
+    Webhook:
+      type: object
+      required: [id, url, events, active]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/WebhookEventType" }
+        active:
+          type: boolean
+          description: Set false automatically after 20 consecutive failed deliveries
+
+    WebhookDelivery:
+      type: object
+      description: >-
+        The JSON body POSTed to your endpoint. Signed with header
+        `Vouch-Signature: t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<rawBody>">`.
+        Verify by recomputing the HMAC with your whsec_ secret in constant time
+        and rejecting a timestamp more than 300s old (replay guard). Delivery is
+        at-most-once (no retry); dedupe on `id`.
+      required: [id, type, createdAt, data]
+      properties:
+        id:
+          type: string
+          description: Unique event id (evt_…); use as an idempotency key
+        type: { $ref: "#/components/schemas/WebhookEventType" }
+        createdAt: { type: string, format: date-time }
+        data:
+          type: object
+          description: >-
+            Event-specific. watch.verdict_changed: watchId, targetType, target,
+            chainId, previous{score,recommendation}, current{score,recommendation}.
+            outcome.recorded: trustEventId, outcomeType, source, wallet, agentId.
+            list.changed: action, wallet, listType.
 
     DataDepth:
       type: string
