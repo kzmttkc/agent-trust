@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/api/client-ip";
-import { consumeIpRateLimit } from "@/lib/api/ip-rate-limit";
+import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { scoreAgentById } from "@/lib/scoring/engine";
 import { logServerError } from "@/lib/util/log";
 
@@ -77,9 +77,11 @@ export async function GET(request: NextRequest) {
   const ip = getClientIp(request) ?? "unknown";
   const limited = await consumeIpRateLimit(`demo-score:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!limited.allowed) {
+    // 2026-08-06: emit the full RateLimit-* set (not just Retry-After) so the
+    // key-less paths share one visible contract.
     return NextResponse.json(
       { live: false, reason: "rate_limited" },
-      { status: 429, headers: { "Retry-After": String(limited.retryAfter ?? 60) } },
+      { status: 429, headers: ipRateLimitHeaders(limited) },
     );
   }
 

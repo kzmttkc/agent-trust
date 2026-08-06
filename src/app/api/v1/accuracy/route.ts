@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/api/client-ip";
-import { consumeIpRateLimit } from "@/lib/api/ip-rate-limit";
+import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { computeAccuracyReport } from "@/lib/scoring/accuracy";
 import { computeBenchmarkReport } from "@/lib/scoring/benchmark-report";
 import { fetchAccuracyRows, fetchBenchmarkRows } from "@/lib/db/outcome-reader";
@@ -34,9 +34,11 @@ export async function GET(request: NextRequest) {
   const ip = getClientIp(request) ?? "unknown";
   const limited = await consumeIpRateLimit(`accuracy:${ip}`, 20, 60_000);
   if (!limited.allowed) {
+    // 2026-08-06: full RateLimit-* header set, consistent with the other
+    // key-less public paths.
     return NextResponse.json(
       { error: "rate_limited" },
-      { status: 429, headers: { "Retry-After": String(limited.retryAfter ?? 60) } },
+      { status: 429, headers: ipRateLimitHeaders(limited) },
     );
   }
 

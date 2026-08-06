@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
+import { getClientIp } from "@/lib/api/client-ip";
+import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { getDb } from "@/lib/db/client";
 import { verifiedPayees } from "@/lib/db/schema";
 import { isValidAddress } from "@/lib/chain/client";
@@ -9,10 +11,26 @@ import { isValidAddress } from "@/lib/chain/client";
 // (a cached score on third-party sites would outlive its freshness window).
 export const revalidate = 3600;
 
+// 2026-08-06 security (self-audit item 1): key-less path. Each distinct
+// address is a cache-miss that costs a DB lookup, and the address is
+// attacker-chosen (unlike a CDN-cached hit), so an unbounded /api/badge/:addr
+// loop over fresh addresses bypasses the cache entirely. Cap per IP. Generous
+// because legit embeds are served from the CDN cache and never reach here.
+const BADGE_LIMIT = 60;
+const BADGE_WINDOW_MS = 60_000;
+
 export async function GET(
-  _req: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ address: string }> },
 ) {
+  const ip = getClientIp(request) ?? "unknown";
+  const limited = await consumeIpRateLimit(`badge:${ip}`, BADGE_LIMIT, BADGE_WINDOW_MS);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: ipRateLimitHeaders(limited) },
+    );
+  }
   const { address } = await params;
   const clean = address.replace(/\.svg$/, "");
   if (!isValidAddress(clean)) {

@@ -15,6 +15,24 @@ function authorizeAdmin(request: NextRequest): boolean {
 
 export async function GET(request: NextRequest) {
   const deep = request.nextUrl.searchParams.get("deep") === "1";
+
+  // 2026-08-06 security (self-audit item 4): the unauthenticated liveness
+  // probe now returns ONLY {status:"ok"}. It previously leaked version
+  // (0.1.0), chain, and the erc8004 flag — fingerprinting material, and a
+  // "0.1.0" visible to a prospect reads as pre-production. A liveness check
+  // needs to answer exactly one question: is the service up. Detailed service
+  // metadata moved behind the same admin gate as the deep checks below.
+  if (!deep) {
+    return NextResponse.json({ status: "ok" });
+  }
+
+  // Always require admin for deep health — never gate on APP_ENV alone.
+  if (!authorizeAdmin(request)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  // Authenticated callers get the full picture, including the service
+  // metadata that used to be public.
   const payload: Record<string, unknown> = {
     status: "ok",
     service: "vouch-trust-api",
@@ -22,15 +40,6 @@ export async function GET(request: NextRequest) {
     chain: "base",
     erc8004: true,
   };
-
-  if (!deep) {
-    return NextResponse.json(payload);
-  }
-
-  // Always require admin for deep health — never gate on APP_ENV alone.
-  if (!authorizeAdmin(request)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
 
   const deepResult = await runDeepHealthChecks();
   payload.status = deepResult.status;
