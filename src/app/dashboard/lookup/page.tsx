@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
+import { buttonClass } from "@/components/ui/Button";
 
 type ScoreResult = {
   agentId: string;
@@ -83,7 +84,7 @@ export default function DashboardLookupPage() {
         <button
           type="submit"
           disabled={loading}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+          className={buttonClass()}
         >
           {loading ? "Looking up..." : "Lookup score"}
         </button>

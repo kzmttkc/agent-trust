@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { computeAccuracyReport, type AccuracyReport } from "@/lib/scoring/accuracy";
 import { computeBenchmarkReport, type BenchmarkReport } from "@/lib/scoring/benchmark-report";
 import { fetchAccuracyRows, fetchBenchmarkRows } from "@/lib/db/outcome-reader";
@@ -120,7 +121,9 @@ export default async function AccuracyPage() {
           <tbody>
             {report.byRecommendation.map((row) => (
               <tr key={row.recommendation} className="border-b border-zinc-100">
-                <td className="py-2 pr-2 sm:pr-4 font-mono">{row.recommendation}</td>
+                <td className="py-2 pr-2 sm:pr-4">
+                  <VerdictBadge verdict={row.recommendation} />
+                </td>
                 <td className="py-2 pr-2 sm:pr-4">{row.resolved}</td>
                 <td className="py-2 pr-2 sm:pr-4">{row.wentBad}</td>
                 <td className="py-2 pr-2 sm:pr-4">{row.stayedGood}</td>

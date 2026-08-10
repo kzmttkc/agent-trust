@@ -10,6 +10,7 @@
 import { usePathname } from "next/navigation";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteFooter } from "@/components/site/SiteFooter";
+import { buttonClass } from "@/components/ui/Button";
 
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -30,7 +31,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           some browsers would otherwise scroll without moving focus. */}
       <a
         href="#main-content"
-        className="sr-only rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"
+        className={buttonClass({ className: "sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50" })}
       >
         Skip to main content
       </a>

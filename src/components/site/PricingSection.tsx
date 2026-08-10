@@ -90,8 +90,8 @@ export function PricingSection() {
                 props={{ plan: id }}
                 className={`mt-6 flex min-h-11 items-center justify-center rounded-md px-4 text-center text-sm font-medium transition-[background-color] ${
                   highlighted
-                    ? "bg-zinc-900 text-white hover:bg-zinc-800"
-                    : "border border-zinc-300 text-zinc-900 hover:bg-zinc-50"
+                    ? "bg-brand-deep text-white hover:bg-brand"
+                    : "border border-brand-mist text-brand-deep hover:bg-zinc-50"
                 }`}
               >
                 {id === "free" ? "Get API key" : `Start with ${plan.name}`}

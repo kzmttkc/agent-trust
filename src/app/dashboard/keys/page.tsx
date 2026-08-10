@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { track } from "@/lib/analytics";
+import { buttonClass } from "@/components/ui/Button";
 
 type KeyInfo = {
   id: string;
@@ -156,7 +157,7 @@ export default function DashboardKeysPage() {
       <button
         type="button"
         onClick={createKey}
-        className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+        className={buttonClass()}
       >
         Create new key
       </button>

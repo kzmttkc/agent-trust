@@ -15,6 +15,8 @@
 
 import { useEffect, useState } from "react";
 
+import { VerdictBadge } from "./VerdictBadge";
+
 const SAMPLE = {
   agentId: "42",
   score: 78,
@@ -47,12 +49,6 @@ type CardData = {
   x402Payments: string;
   sybilRisk: string;
   scoredAt?: string;
-};
-
-const RECOMMENDATION_STYLE: Record<string, string> = {
-  ALLOW: "bg-emerald-100 text-emerald-800",
-  WARN: "bg-amber-100 text-amber-800",
-  BLOCK: "bg-red-100 text-red-800",
 };
 
 export function ScorePreviewCard() {
@@ -91,17 +87,21 @@ export function ScorePreviewCard() {
   }, []);
 
   const offset = CIRCUMFERENCE * (1 - data.score / 100);
-  const badgeStyle = RECOMMENDATION_STYLE[data.recommendation] ?? RECOMMENDATION_STYLE.ALLOW;
 
   return (
     <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        {/* 2026-08-11: 差し色のシアンは「いま本物のチェーン状態を読んでいる」
+            ことを示すこのラベルだけに使う。静的サンプル時は zinc のまま
+            ＝色が状態を持つ（装飾ではない）。 */}
+        <p
+          className={`text-xs font-medium uppercase tracking-wide ${
+            data.live ? "text-signal" : "text-zinc-500"
+          }`}
+        >
           {data.live ? "Live score · Base" : "Sample response"}
         </p>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeStyle}`}>
-          {data.recommendation}
-        </span>
+        <VerdictBadge verdict={data.recommendation} />
       </div>
 
       <div className="mt-5 flex items-center gap-5">
@@ -118,7 +118,7 @@ export function ScorePreviewCard() {
               cy="48"
               r={RADIUS}
               fill="none"
-              stroke="#18181b"
+              stroke="var(--color-brand-deep)"
               strokeWidth="8"
               strokeLinecap="round"
               strokeDasharray={CIRCUMFERENCE}

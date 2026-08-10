@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { dashboardLogout } from "@/lib/dashboard/client";
+import { buttonClass } from "@/components/ui/Button";
 
 const nav = [
   { href: "/dashboard", label: "Overview" },
@@ -98,7 +99,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="mt-4 rounded-md bg-zinc-900 px-4 py-2 text-sm text-white"
+            className={buttonClass({ className: "mt-4" })}
           >
             Retry
           </button>
@@ -114,7 +115,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           the top of the tab order and the page content on every view. */}
       <a
         href="#dashboard-main"
-        className="sr-only rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50"
+        className={buttonClass({ className: "sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50" })}
       >
         Skip to main content
       </a>
@@ -144,7 +145,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={`block rounded-md px-3 py-2 text-sm ${
                   active
-                    ? "bg-zinc-900 font-medium text-white"
+                    ? "bg-brand-deep font-medium text-white"
                     : "text-zinc-700 hover:bg-zinc-200/70"
                 }`}
               >

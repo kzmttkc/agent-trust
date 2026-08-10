@@ -6,6 +6,7 @@ import { PricingSection } from "@/components/site/PricingSection";
 import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import { BILLING_PLANS } from "@/lib/billing/plans";
+import { buttonClass } from "@/components/ui/Button";
 
 const SITE_URL = "https://agent-trust-tawny.vercel.app";
 
@@ -133,7 +134,7 @@ export default async function Home() {
                 href="/signup"
                 event="lp_cta_click"
                 props={{ position: "hero" }}
-                className="rounded-md bg-zinc-900 px-6 py-3 text-base font-semibold text-white transition-[background-color] hover:bg-zinc-800"
+                className={buttonClass({ size: "md" })}
               >
                 Get a free API key
               </TrackedLink>
@@ -141,7 +142,7 @@ export default async function Home() {
                 href="/docs/api"
                 event="docs_click"
                 props={{ position: "hero" }}
-                className="text-sm font-medium text-zinc-600 underline underline-offset-4 hover:text-zinc-900"
+                className="text-sm font-medium text-brand underline underline-offset-4 hover:text-brand-deep"
               >
                 Read the API reference
               </TrackedLink>
@@ -339,7 +340,7 @@ if (score.recommendation !== "ALLOW") {
             href="/signup"
             event="lp_cta_click"
             props={{ position: "final" }}
-            className="mt-2 rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-[background-color] hover:bg-zinc-800"
+            className={buttonClass({ className: "mt-2" })}
           >
             Get API key
           </TrackedLink>

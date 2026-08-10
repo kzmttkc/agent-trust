@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
+import { buttonClass } from "@/components/ui/Button";
 
 type Entry = {
   id: string;
@@ -132,7 +133,7 @@ export default function DashboardListsPage() {
           <option value="whitelist">Whitelist</option>
           <option value="blacklist">Blacklist</option>
         </select>
-        <button type="submit" className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
+        <button type="submit" className={buttonClass()}>
           Add
         </button>
       </form>
@@ -146,10 +147,10 @@ export default function DashboardListsPage() {
           rows={4}
           className="w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm"
         />
-        <button type="submit" className="rounded-md border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50">
+        <button type="submit" className={buttonClass({ variant: "secondary" })}>
           Import CSV
         </button>
-        {importMessage && <p className="text-sm text-green-700">{importMessage}</p>}
+        {importMessage && <p className="text-sm text-emerald-700">{importMessage}</p>}
       </form>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">

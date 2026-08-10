@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
+import { buttonClass } from "@/components/ui/Button";
 
 type BillingInfo = {
   plan: string;
@@ -122,7 +123,7 @@ export default function DashboardBillingPage() {
                   type="button"
                   disabled={loading !== null}
                   onClick={() => upgrade(planId)}
-                  className="mt-4 w-full rounded-md bg-zinc-900 px-3 py-2 text-sm text-white disabled:opacity-60"
+                  className={buttonClass({ className: "mt-4 w-full" })}
                 >
                   {loading === planId ? "Redirecting..." : `Upgrade to ${plan.name}`}
                 </button>

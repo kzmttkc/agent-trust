@@ -5,6 +5,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { track } from "@/lib/analytics";
 import { signupAction, type SignupState } from "./actions";
+import { buttonClass } from "@/components/ui/Button";
 
 // 2026-08-06 growth: failure-reason allowlist for the signup_failed event.
 // PII guard — analytics props must never carry user input (email/name/invite
@@ -119,7 +120,7 @@ export default function SignupPage() {
         {/* Plain link (not a router push) so this works with JS disabled too. */}
         <Link
           href="/dashboard"
-          className="rounded-md bg-zinc-900 px-4 py-2 text-center text-sm font-medium text-white"
+          className={buttonClass()}
         >
           Go to dashboard
         </Link>
@@ -231,7 +232,7 @@ export default function SignupPage() {
         <button
           type="submit"
           disabled={pending || !acceptedTerms}
-          className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          className={buttonClass({ className: "w-full" })}
         >
           {pending ? "Creating..." : "Create account"}
         </button>

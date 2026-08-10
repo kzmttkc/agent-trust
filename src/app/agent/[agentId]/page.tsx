@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
@@ -140,7 +141,7 @@ export default async function AgentPage({
               role="img"
               aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
             >
-              {score.value} <span className="text-base font-mono">{score.recommendation}</span>
+              {score.value} <VerdictBadge verdict={score.recommendation} className="align-middle" />
             </span>
           </p>
         ) : (

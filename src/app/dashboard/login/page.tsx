@@ -6,6 +6,7 @@ import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { track } from "@/lib/analytics";
 import { loginAction } from "./actions";
+import { buttonClass } from "@/components/ui/Button";
 
 // useSearchParams must sit under a Suspense boundary. It surfaces the fixed
 // error code the no-JS Server Action redirect leaves in ?error= (see actions.ts).
@@ -109,7 +110,7 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+          className={buttonClass({ className: "w-full" })}
         >
           {loading ? "Signing in..." : "Continue"}
         </button>

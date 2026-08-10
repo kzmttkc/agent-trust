@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { buttonClass } from "@/components/ui/Button";
 
 type NavItem = { label: string; href: string };
 
@@ -45,20 +46,20 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 md:px-8">
-        <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold text-zinc-900">
+        <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold text-brand-deep">
           <span>Vouch</span>
         </Link>
 
         <nav aria-label="Main navigation" className="hidden items-center gap-6 text-sm text-zinc-600 md:flex">
           {NAV_ITEMS.map((item) => (
-            <Link key={item.href} href={item.href} className="hover:text-zinc-900">
+            <Link key={item.href} href={item.href} className="hover:text-brand-deep">
               {item.label}
             </Link>
           ))}
         </nav>
 
         <div className="hidden items-center gap-4 md:flex">
-          <Link href="/dashboard/login" className="text-sm text-zinc-600 hover:text-zinc-900">
+          <Link href="/dashboard/login" className="text-sm text-zinc-600 hover:text-brand-deep">
             Dashboard
           </Link>
           {/* 2026-08-06 a11y: `transition` (and `transition-colors`) include
@@ -69,7 +70,7 @@ export function SiteHeader() {
               actually animates here, so name it explicitly. */}
           <Link
             href="/signup"
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-[background-color] hover:bg-zinc-800"
+            className={buttonClass()}
           >
             Get API key
           </Link>
@@ -123,7 +124,7 @@ export function SiteHeader() {
           </Link>
           <Link
             href="/signup"
-            className="mt-2 rounded-md bg-zinc-900 px-4 py-2 text-center text-sm font-medium text-white"
+            className={buttonClass({ className: "mt-2 w-full" })}
             onClick={() => setMobileOpen(false)}
           >
             Get API key

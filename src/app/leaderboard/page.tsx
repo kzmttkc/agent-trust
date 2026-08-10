@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { fetchLeaderboard } from "@/lib/db/leaderboard";
 
 // N-17 — public agent leaderboard. Latest verdict per agent, aggregate only.
@@ -91,7 +92,9 @@ export default async function LeaderboardPage() {
                     {r.seeded ? <SeedTag /> : null}
                   </td>
                   <td className="py-2 pr-4 font-semibold">{r.trustScore}</td>
-                  <td className="py-2 pr-4 font-mono">{r.recommendation}</td>
+                  <td className="py-2 pr-4">
+                    <VerdictBadge verdict={r.recommendation} />
+                  </td>
                   <td className="py-2 text-zinc-500">{r.scoredAt.slice(0, 10)}</td>
                 </tr>
               ))}

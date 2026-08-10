@@ -2,6 +2,16 @@ import Link from "next/link";
 import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 
+// 2026-08-11: sticky 簡易目次の項目。リンク先の id は各 <section> に付けてある。
+const TOC = [
+  { href: "#rate-limits", label: "Rate limits" },
+  { href: "#endpoints", label: "Endpoints" },
+  { href: "#score-breakdown", label: "Score breakdown" },
+  { href: "#webhooks", label: "Webhooks" },
+  { href: "#availability", label: "Availability" },
+  { href: "#error-codes", label: "Error codes" },
+];
+
 type Endpoint = {
   method: "GET" | "POST";
   path: string;
@@ -184,6 +194,30 @@ export default function ApiDocsPage() {
           growth_ledger.py (the true value moment, a scored API call, happens
           server-side and never reaches Plausible). */}
       <TrackView event="docs_view" />
+
+      {/* 2026-08-11 UI監査5: このページはモバイル375pxで約21,000px の一枚岩で、
+          「Webhooksの署名検証」を探す読者はスクロールし続ける以外の手段が無かった
+          （見出しジャンプはスクリーンリーダー利用者にしか無い）。JSを足さずに
+          済ませたいのでネイティブのアンカーだけで組む。header が sticky top-0 /
+          h-16 なので、この帯は top-16、飛び先は scroll-mt-32（帯2本ぶん）。 */}
+      <nav
+        aria-label="On this page"
+        className="sticky top-16 z-30 -mx-4 border-b border-zinc-200 bg-white/95 px-4 py-2 backdrop-blur md:-mx-8 md:px-8"
+      >
+        <ul className="-mb-1 flex gap-4 overflow-x-auto pb-1 text-xs whitespace-nowrap">
+          {TOC.map((item) => (
+            <li key={item.href}>
+              <a
+                href={item.href}
+                className="text-brand hover:text-brand-deep hover:underline underline-offset-4"
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
       <div className="space-y-3">
         <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
         <h1 className="text-3xl font-semibold tracking-tight">API reference</h1>
@@ -212,7 +246,7 @@ export default function ApiDocsPage() {
           burst behaviour was nowhere — a synchronous gate needs both to size a
           deployment. Values are read from the code (auth.ts PLAN_LIMITS,
           ip-rate-limit call sites), not asserted. */}
-      <section className="space-y-3">
+      <section id="rate-limits" className="scroll-mt-32 space-y-3">
         <h2 className="text-lg font-semibold tracking-tight">Rate limits</h2>
         <p className="text-sm text-zinc-600">
           Scoring is synchronous, so plan for both the monthly quota and the
@@ -262,7 +296,7 @@ export default function ApiDocsPage() {
         </ul>
       </section>
 
-      <section className="space-y-5">
+      <section id="endpoints" className="scroll-mt-32 space-y-5">
         {endpoints.map((ep) => (
           <div
             key={ep.path}
@@ -291,7 +325,7 @@ export default function ApiDocsPage() {
                   tabIndex={0}
                   role="region"
                   aria-label={`Request body for ${ep.method} ${ep.path}`}
-                  className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-zinc-400"
+                  className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
                 >
                   <code>{ep.request}</code>
                 </pre>
@@ -306,7 +340,7 @@ export default function ApiDocsPage() {
                 tabIndex={0}
                 role="region"
                 aria-label={`Response for ${ep.method} ${ep.path}`}
-                className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-zinc-400"
+                className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
               >
                 <code>{ep.response}</code>
               </pre>
@@ -315,7 +349,7 @@ export default function ApiDocsPage() {
         ))}
       </section>
 
-      <section className="space-y-3">
+      <section id="score-breakdown" className="scroll-mt-32 space-y-3">
         {/* 2026-08-06 N-21: explainability. Integrators kept asking "why this
             number" — the breakdown answers it in the response itself, so a
             compliance log can record the arithmetic, not just the verdict. */}
@@ -364,7 +398,7 @@ export default function ApiDocsPage() {
         </p>
       </section>
 
-      <section className="space-y-4">
+      <section id="webhooks" className="scroll-mt-32 space-y-4">
         {/* 2026-08-06 N-15/C-9 doc gap: the watchlist mentioned the
             watch.verdict_changed webhook but nothing documented registration,
             the payload envelope, or signature verification — the receiver could
@@ -428,7 +462,7 @@ export default function ApiDocsPage() {
             tabIndex={0}
             role="region"
             aria-label="Webhook delivery payload envelope"
-            className="mt-2 overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-zinc-400"
+            className="mt-2 overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
           >
             <code>{`POST https://your-host.example/vouch-hook
 Content-Type: application/json
@@ -467,7 +501,7 @@ User-Agent: vouch-webhooks/1
             tabIndex={0}
             role="region"
             aria-label="Node.js webhook signature verification example"
-            className="mt-2 overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-zinc-400"
+            className="mt-2 overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
           >
             <code>{`import { createHmac, timingSafeEqual } from "node:crypto";
 
@@ -518,7 +552,7 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
         </div>
       </section>
 
-      <section className="space-y-3">
+      <section id="availability" className="scroll-mt-32 space-y-3">
         {/* 2026-08-06: B2B buyers ask for an SLA. Written to the real
             operational posture (single-operator closed beta on Vercel + Neon +
             Base RPC, daily deep health probe), not an aspirational number —
@@ -568,7 +602,7 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
         </ul>
       </section>
 
-      <section className="space-y-3">
+      <section id="error-codes" className="scroll-mt-32 space-y-3">
         <h2 className="text-lg font-semibold tracking-tight">Error codes</h2>
         <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
           <table className="w-full text-left text-sm">
