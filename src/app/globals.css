@@ -29,6 +29,15 @@
               #18181b は紺ボタンの上ではほぼ見えなくなるため置き換えた。
      signal = 「いまライブで動いている」ことを示すラベル用。白地に 5.36:1（AA）。
    装飾目的の着色には使わない。 */
+/* 2026-08-11: 1つ前のデプロイ(5422250)は、新しいHTML（bg-brand-deep クラス付き）を
+   配信しながら CSS チャンクだけ変更前のものを返した（本番実測: 配信CSSに
+   `outline:2px solid #18181b` と `Arial,Helvetica,sans-serif` が残っており
+   brand-deep の定義が0件＝プライマリボタンが背景透明で描画される状態）。
+   Vercel のビルドログに "Restored build cache from previous deployment" があり、
+   Turbopack のビルドキャッシュが globals.css の変更を取りこぼしたのが原因。
+   このコメント自体が CSS の内容ハッシュを変えてチャンクを作り直させる。
+   同種の事故を疑うときは、HTMLだけでなく **配信されている .css の中身** を
+   見ること（HTMLが新しくてもCSSが古いことがある）。 */
 @theme {
   --color-brand-deep: #233456;
   --color-brand: #3e537c;
@@ -50,6 +59,14 @@
    decide whether to pay a wallet. Forcing light mode site-wide until
    dark mode is implemented deliberately (with `dark:` variants throughout)
    is the safe fix; it doesn't remove any dark-mode UI because none exists. */
+
+html {
+  /* 2026-08-11: /docs/api に sticky 簡易目次を入れたので、アンカー移動が瞬間
+     ワープではなく「どこへ飛んだか」が分かる挙動になるようにする。
+     下の prefers-reduced-motion ブロックが scroll-behavior:auto へ戻すため、
+     動きを減らす設定の人には適用されない。 */
+  scroll-behavior: smooth;
+}
 
 body {
   background: var(--background);
