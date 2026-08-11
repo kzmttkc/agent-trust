@@ -1,8 +1,15 @@
 /**
  * SiteFooter — standard footer (2026-07-20 company-wide header/footer standard).
  * Vouch is a stealth/pseudonymous Web3 product (mode B minimal disclosure,
- * see legal_requirements.md #4). No entity name is shown; contact is via
- * email only. No billing is live yet, so no Legal Notice (tokushoho-equivalent)
+ * see legal_requirements.md #4). Mode B withholds the operator's *personal*
+ * identifiers (legal name, address, phone) — those stay disclosure-on-request.
+ * It does not withhold the trade name: per brand.md (2026-07-31 Takeshi ruling,
+ * which postdates legal_requirements.md), every product carries KIZUNA Creation
+ * as the maker. The other two mode-B products already do — Soroi ships
+ * "© {year} Soroi（KIZUNA Creation）" in its *English* locale and Verilot
+ * "© {year} Verilot（KIZUNA Creation）" — so the same format is used here
+ * verbatim, full-width parens and all. Contact remains email-only.
+ * No billing is live yet, so no Legal Notice (tokushoho-equivalent)
  * link is shown — /legal/notice explains this and is linked from /legal/notice
  * itself once billing goes live.
  */
@@ -77,7 +84,7 @@ export function SiteFooter() {
         </p>
 
         <div className="mt-6 border-t border-zinc-200 pt-6 text-xs text-zinc-500">
-          <p>© {year} Vouch</p>
+          <p>© {year} Vouch（KIZUNA Creation）</p>
         </div>
       </div>
     </footer>
