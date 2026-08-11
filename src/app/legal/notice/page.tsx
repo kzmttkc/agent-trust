@@ -28,10 +28,10 @@ export default function LegalNoticePage() {
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">How Vouch is operated</h2>
         <p>
-          Vouch is developed and operated by an individual proprietor. It is offered as a
-          business-to-business (B2B) API product for agent and service operators who need to
-          verify agents before accepting payment — it is not marketed or sold as a
-          consumer product.
+          Vouch is developed and operated by an individual proprietor, trading as KIZUNA
+          Creation. It is offered as a business-to-business (B2B) API product for agent and
+          service operators who need to verify agents before accepting payment — it is not
+          marketed or sold as a consumer product.
         </p>
       </section>
 

@@ -5,11 +5,13 @@
  * identifiers (legal name, address, phone) — those stay disclosure-on-request.
  * It does not withhold the trade name: per brand.md (2026-07-31 Takeshi ruling,
  * which postdates legal_requirements.md), every product carries KIZUNA Creation
- * as the maker. The other two mode-B products already do — Soroi ships
- * "© {year} Soroi（KIZUNA Creation）" in its *English* locale and Verilot
- * "© {year} Verilot（KIZUNA Creation）" — so the same format is used here
- * verbatim, full-width parens and all. Contact remains email-only.
- * No billing is live yet, so no Legal Notice (tokushoho-equivalent)
+ * as the maker. Soroi and Verilot use full-width parens
+ * "© {year} X（KIZUNA Creation）" because both are Japanese-primary products
+ * whose English text is a translated locale. Vouch has no locale switching —
+ * it is English throughout — so it instead follows Banto's English-locale
+ * page (app/business/en/page.tsx), which renders the same credit in ASCII
+ * parens: "© {year} 番頭(Banto) (KIZUNA Creation)". Contact remains
+ * email-only. No billing is live yet, so no Legal Notice (tokushoho-equivalent)
  * link is shown — /legal/notice explains this and is linked from /legal/notice
  * itself once billing goes live.
  */
@@ -84,7 +86,7 @@ export function SiteFooter() {
         </p>
 
         <div className="mt-6 border-t border-zinc-200 pt-6 text-xs text-zinc-500">
-          <p>© {year} Vouch（KIZUNA Creation）</p>
+          <p>© {year} Vouch (KIZUNA Creation)</p>
         </div>
       </div>
     </footer>
