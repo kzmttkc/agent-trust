@@ -192,3 +192,43 @@ test("N-18: reason codes cannot disagree with the verdict they explain", () => {
       .includes("wallet:burner"),
   );
 });
+
+// ============================================================
+// 2026-08-12 — the `*_unavailable` class must fail CLOSED as a class.
+//
+// assessSybilRisk used to enumerate the unavailable-flags one by one. Every
+// new one had to remember to be added, and a forgotten one fails OPEN: it
+// arrives as a single flag, scores "medium", and can still clear an ALLOW
+// gate — a lookup that checked nothing reported as "checked, looks fine".
+// That is the exact inversion the fail-closed design exists to prevent.
+// ============================================================
+
+test("a newly introduced *_unavailable flag is high risk without being enumerated", () => {
+  // Not named anywhere in assessSybilRisk — the class match must catch it.
+  assert.equal(assessSybilRisk(["sybil_checks_unavailable"]), "high");
+  assert.equal(assessSybilRisk(["some_future_source_unavailable"]), "high");
+});
+
+test("an unavailable read can never clear an ALLOW gate, even whitelisted", () => {
+  const risk = assessSybilRisk(["sybil_checks_unavailable"]);
+  assert.equal(resolveRecommendation(99, "whitelist", risk), "BLOCK");
+});
+
+test("the previously enumerated flags keep their exact verdicts", () => {
+  for (const flag of [
+    "owner_count_unavailable",
+    "feedback_stats_unavailable",
+    "reputation_summary_unavailable",
+    "wallet_metrics_unavailable",
+  ]) {
+    assert.equal(assessSybilRisk([flag]), "high", flag);
+    assert.equal(resolveRecommendation(100, "none", assessSybilRisk([flag])), "BLOCK", flag);
+  }
+});
+
+test("flags that are not availability failures keep their old, milder handling", () => {
+  // A single ordinary flag is still "medium" — the class match must key on the
+  // _unavailable suffix, not broaden everything into a BLOCK.
+  assert.equal(assessSybilRisk(["new_burner_wallet"]), "medium");
+  assert.equal(assessSybilRisk([]), "low");
+});

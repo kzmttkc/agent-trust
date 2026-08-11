@@ -30,8 +30,44 @@ import type { AgentIdentity } from "@/lib/chain/erc8004";
 import { getX402PaymentStats } from "@/lib/db/x402-payments";
 import { getDataCoverage } from "@/lib/health/data-coverage";
 import type { ScoreRequestContext, TrustScoreResult, TrustSignals } from "./types";
+import { createDeadline, withDeadline } from "@/lib/util/deadline";
 
 const CACHE_MAX_ENTRIES = 10_000;
+
+/**
+ * Wall-clock budget for one score, and the per-signal allowances inside it.
+ *
+ * WHY (2026-08-12 outage). Every optional signal below is wrapped in
+ * try/catch so an unavailable upstream degrades to an `*_unavailable` flag —
+ * "fail-closed, not fail-wrong", exactly as the API docs promise. But
+ * try/catch only fires on a REJECTION. A merely SLOW dependency was invisible
+ * to it: the 7-day feedback scan took ~30s, so the designed degradation never
+ * ran and the caller's 8s race fired instead — /api/demo/score and /agent/[id]
+ * both returned "unavailable" by timeout rather than by fallback.
+ *
+ * SCORE_BUDGET_MS sits under both callers' 8s races so the engine degrades
+ * itself, honestly and with reasons attached, before anyone times it out.
+ * Per-signal allowances draw from that shared budget, so a SEQUENCE of slow
+ * steps still cannot exceed the total.
+ *
+ * These bound the WAIT, never the STRICTNESS: a signal that misses its budget
+ * becomes `*_unavailable`, which the sybil layer penalizes. Nothing here can
+ * make a verdict more permissive.
+ */
+const SCORE_BUDGET_MS = 6_000;
+const IDENTITY_BUDGET_MS = 3_000;
+const SIGNAL_BUDGET_MS = 3_500;
+const SYBIL_BUDGET_MS = 2_000;
+
+/**
+ * A degraded signal is an operational fact worth seeing in logs — the
+ * 2026-08-12 outage was invisible for days precisely because the engine
+ * swallowed the reason and the health endpoint still said "ok".
+ */
+function logSignalDegraded(signal: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[vouch] score_signal_degraded: ${signal}: ${message.slice(0, 200)}`);
+}
 
 /** Chain-derived score payload — policy layer is always applied fresh on read. */
 type CachedChainPayload = {
@@ -94,7 +130,13 @@ export async function scoreAgentById(
   agentId: bigint,
   ctx: ScoreRequestContext = {},
 ): Promise<TrustScoreResult> {
-  const identity = await fetchAgentIdentity(agentId, ctx.chainId);
+  const deadline = createDeadline(SCORE_BUDGET_MS);
+
+  const identity = await withDeadline(
+    fetchAgentIdentity(agentId, ctx.chainId),
+    deadline.budgetFor(IDENTITY_BUDGET_MS),
+    "agent_identity",
+  );
   const verificationBlock = await verifyWalletBinding(agentId, identity, ctx.verifyWallet);
   if (verificationBlock) {
     return verificationBlock;
@@ -111,39 +153,74 @@ export async function scoreAgentById(
     memoryCache.delete(cacheKey);
   }
 
-  let reputation: Awaited<ReturnType<typeof fetchReputationSummary>>;
-  let reputationUnavailable = false;
-  try {
-    reputation = await fetchReputationSummary(agentId, ctx.chainId);
-  } catch {
-    reputationUnavailable = true;
-    reputation = { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
-  }
+  // These four reads are independent of one another — only `identity` (above)
+  // gates them. They used to run strictly one after another, so their latencies
+  // ADDED UP inside a single request; the 7-day feedback scan alone spent ~30s
+  // there. Running them together means the request waits for the slowest, not
+  // for the sum, which is what makes a real per-signal budget affordable.
+  // Each still degrades independently to its own `*_unavailable` flag.
+  const signalBudget = deadline.budgetFor(SIGNAL_BUDGET_MS);
 
-  let feedbackStats: Awaited<ReturnType<typeof fetchRecentFeedbackStats>>;
-  let feedbackStatsUnavailable = false;
-  try {
-    feedbackStats = await fetchRecentFeedbackStats(agentId, 7, ctx.chainId);
-  } catch {
-    feedbackStatsUnavailable = true;
-    feedbackStats = { recentCount: 0, uniqueClients: 0, windowDays: 7 };
-  }
+  const settled = await Promise.all([
+    withDeadline(fetchReputationSummary(agentId, ctx.chainId), signalBudget, "reputation_summary")
+      .then((value) => ({ ok: true as const, value }))
+      .catch((error: unknown) => ({ ok: false as const, error })),
 
-  let walletMetrics: Awaited<ReturnType<typeof fetchWalletMetrics>> | null = null;
-  let walletMetricsUnavailable = false;
-  if (walletAddress) {
-    try {
-      walletMetrics = await fetchWalletMetrics(walletAddress as Address, ctx.chainId);
-    } catch {
-      walletMetricsUnavailable = true;
-      walletMetrics = {
-        address: walletAddress as Address,
-        ageDays: 0,
-        txCount: 0,
-        funder: null,
-        firstTxTimestamp: null,
-      };
-    }
+    withDeadline(
+      fetchRecentFeedbackStats(agentId, 7, ctx.chainId),
+      signalBudget,
+      "feedback_stats",
+    )
+      .then((value) => ({ ok: true as const, value }))
+      .catch((error: unknown) => ({ ok: false as const, error })),
+
+    walletAddress
+      ? withDeadline(
+          fetchWalletMetrics(walletAddress as Address, ctx.chainId),
+          signalBudget,
+          "wallet_metrics",
+        )
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error }))
+      : Promise.resolve({ ok: true as const, value: null }),
+
+    walletAddress
+      ? withDeadline(getX402PaymentStats(walletAddress), signalBudget, "x402_stats")
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error }))
+      : Promise.resolve({
+          ok: true as const,
+          value: { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null },
+        }),
+  ] as const);
+
+  const [reputationResult, feedbackResult, walletResult, x402Result] = settled;
+
+  const reputationUnavailable = !reputationResult.ok;
+  const reputation = reputationResult.ok
+    ? reputationResult.value
+    : { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
+  if (!reputationResult.ok) logSignalDegraded("reputation_summary", reputationResult.error);
+
+  const feedbackStatsUnavailable = !feedbackResult.ok;
+  const feedbackStats = feedbackResult.ok
+    ? feedbackResult.value
+    : { recentCount: 0, uniqueClients: 0, windowDays: 7 };
+  if (!feedbackResult.ok) logSignalDegraded("feedback_stats", feedbackResult.error);
+
+  const walletMetricsUnavailable = !walletResult.ok;
+  let walletMetrics: Awaited<ReturnType<typeof fetchWalletMetrics>> | null = walletResult.ok
+    ? walletResult.value
+    : null;
+  if (!walletResult.ok) {
+    logSignalDegraded("wallet_metrics", walletResult.error);
+    walletMetrics = {
+      address: walletAddress as Address,
+      ageDays: 0,
+      txCount: 0,
+      funder: null,
+      firstTxTimestamp: null,
+    };
   }
 
   const walletScore = normalizeWalletScore({
@@ -151,19 +228,12 @@ export async function scoreAgentById(
     txCount: walletMetrics?.txCount ?? 0,
   });
 
-  let x402Stats: Awaited<ReturnType<typeof getX402PaymentStats>> = {
-    paymentCount: 0,
-    uniqueDays: 0,
-    lastPaymentAt: null,
-  };
-  let x402StatsUnavailable = false;
-  if (walletAddress) {
-    try {
-      x402Stats = await getX402PaymentStats(walletAddress);
-    } catch {
-      x402StatsUnavailable = true;
-    }
-  }
+  const x402StatsUnavailable = !x402Result.ok;
+  const x402Stats: Awaited<ReturnType<typeof getX402PaymentStats>> = x402Result.ok
+    ? x402Result.value
+    : { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null };
+  if (!x402Result.ok) logSignalDegraded("x402_stats", x402Result.error);
+
   const x402Score = scoreX402Payments(x402Stats);
 
   const identityScore = scoreIdentity(identity.registered, Boolean(identity.tokenUri));
@@ -178,19 +248,32 @@ export async function scoreAgentById(
     reputation.summaryValueDecimals,
   );
 
-  const sybilFlags =
-    walletMetrics !== null
-      ? await detectSybilFlags({
-          identity,
-          walletMetrics,
-          feedbackStats,
-          totalFeedbackCount: reputation.count,
-        })
-      : await detectReputationSybilFlags({
-          identity,
-          feedbackStats,
-          totalFeedbackCount: reputation.count,
-        });
+  // The sybil checks read the owner/funder indexes (DB). A hang here used to
+  // be unbounded too; it now degrades to `sybil_checks_unavailable`, which
+  // assessSybilRisk treats as high risk → BLOCK. "We could not check" must
+  // never surface as "we checked and it was fine".
+  let sybilFlags: string[];
+  try {
+    sybilFlags = await withDeadline(
+      walletMetrics !== null
+        ? detectSybilFlags({
+            identity,
+            walletMetrics,
+            feedbackStats,
+            totalFeedbackCount: reputation.count,
+          })
+        : detectReputationSybilFlags({
+            identity,
+            feedbackStats,
+            totalFeedbackCount: reputation.count,
+          }),
+      deadline.budgetFor(SYBIL_BUDGET_MS),
+      "sybil_checks",
+    );
+  } catch (error) {
+    logSignalDegraded("sybil_checks", error);
+    sybilFlags = ["sybil_checks_unavailable"];
+  }
 
   if (feedbackStatsUnavailable) {
     sybilFlags.push("feedback_stats_unavailable");

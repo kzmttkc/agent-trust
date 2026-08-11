@@ -32,6 +32,13 @@ export function toRecommendation(score: number, isBlacklisted: boolean): Recomme
 export function assessSybilRisk(flags: string[]): SybilRisk {
   if (flags.includes("wallet_mismatch")) return "high";
   if (flags.includes("wallet_verification_failed")) return "high";
+  // Any read we could not complete is high risk, by the invariant above.
+  // Enumerating them one by one meant every NEW `*_unavailable` flag had to
+  // remember to be added here, and a forgotten one fails OPEN — it would slip
+  // through as a single flag ("medium") and could still clear an ALLOW gate.
+  // Matching the whole class closes that hole for present and future flags.
+  // The named checks below stay for readability and as executable documentation.
+  if (flags.some((flag) => flag.endsWith("_unavailable"))) return "high";
   if (flags.includes("owner_count_unavailable")) return "high";
   if (flags.includes("feedback_stats_unavailable")) return "high";
   if (flags.includes("reputation_summary_unavailable")) return "high";

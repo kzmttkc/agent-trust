@@ -5,6 +5,7 @@ import {
   getOwnerIndexerLagThreshold,
   getOwnerIndexerStatus,
 } from "@/lib/db/owner-index";
+import { runScoringProbe } from "./scoring-probe";
 
 export type DeepHealthStatus = "ok" | "degraded";
 
@@ -67,6 +68,20 @@ export async function runDeepHealthChecks(): Promise<DeepHealthResult> {
     criticalFailure = true;
   }
 
+  // The check that actually matters. `rpc` above only proves the endpoint can
+  // answer eth_getBlockNumber — it stayed green throughout the 2026-08-12
+  // outage, while eth_getLogs failed and every score on the site timed out.
+  // Probing the real scoreAgentById() path is the only way this endpoint can
+  // tell the truth about the product's core capability.
+  const scoring = await runScoringProbe();
+  checks.scoring = scoring.status;
+  checks.scoring_latency_ms = String(scoring.latencyMs);
+  if (scoring.status === "error") {
+    criticalFailure = true;
+  } else if (scoring.unavailable.length > 0) {
+    checks.scoring_unavailable = scoring.unavailable.join(",");
+  }
+
   const indexerStatus = await getOwnerIndexerStatus(
     liveTip !== undefined ? { liveTip } : undefined,
   );
@@ -98,7 +113,9 @@ export async function runDeepHealthChecks(): Promise<DeepHealthResult> {
   }
 
   return {
-    status: criticalFailure ? "degraded" : "ok",
+    // A cautious-but-working score is not "ok" — it means an upstream is down
+    // and every verdict it produces is being forced conservative.
+    status: criticalFailure || scoring.status !== "ok" ? "degraded" : "ok",
     criticalFailure,
     checks,
     ...(envErrors.length > 0 ? { env: { ok: false as const } } : {}),

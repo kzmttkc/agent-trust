@@ -138,6 +138,29 @@ export type RecentFeedbackStats = {
   windowDays: number;
 };
 
+/**
+ * Log-scan settings for the LIVE request path (2026-08-12 outage fix).
+ *
+ * The 7-day feedback window is ~302,400 Base blocks, and providers cap
+ * eth_getLogs at 10,000 blocks per call — so this scan is ~31 round-trips at
+ * best. It was running with the INDEXER's settings: a 2,000-block chunk (152
+ * round-trips) plus GET_LOGS_CHUNK_DELAY_MS, whose mere presence forces
+ * getLogsChunked onto its strictly-sequential path. Those settings are correct
+ * for a nightly batch job that should be polite to the RPC; applied to an
+ * interactive score they turned a ~2s scan into a ~30s one and blew every
+ * caller's time budget.
+ *
+ * Batch pacing must not leak into a request a human is waiting on, so the live
+ * path states its own terms: provider-max chunks, real fan-out, no pacing
+ * delay, and a hard ceiling. Overrunning the ceiling is not fatal — the caller
+ * converts it into `feedback_stats_unavailable`, which the verdict layer
+ * treats as high risk. Slower is allowed to mean "more cautious"; it is never
+ * allowed to mean "hangs".
+ */
+const LIVE_SCAN_CHUNK_BLOCKS = 10_000n;
+const LIVE_SCAN_CONCURRENCY = 6;
+const LIVE_SCAN_DEADLINE_MS = 3_000;
+
 const newFeedbackEvent = parseAbiItem(
   "event NewFeedback(uint256 indexed agentId, address indexed clientAddress, uint64 feedbackIndex, int128 value, uint8 valueDecimals, string indexed indexedTag1, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
 );
@@ -166,13 +189,19 @@ export async function fetchRecentFeedbackStats(
         ? latestBlock - blocksPerDay * BigInt(windowDays)
         : floorBlock;
 
-    const logs = (await getLogsChunked(client, {
-      address: ERC8004_ADDRESSES.reputationRegistry,
-      event: newFeedbackEvent,
-      args: { agentId },
-      fromBlock,
-      toBlock: "latest",
-    })) as Array<{ args: { clientAddress?: Address } }>;
+    const logs = (await getLogsChunked(
+      client,
+      {
+        address: ERC8004_ADDRESSES.reputationRegistry,
+        event: newFeedbackEvent,
+        args: { agentId },
+        fromBlock,
+        toBlock: "latest",
+      },
+      LIVE_SCAN_CHUNK_BLOCKS,
+      LIVE_SCAN_CONCURRENCY,
+      { deadlineMs: LIVE_SCAN_DEADLINE_MS, delayMs: 0 },
+    )) as Array<{ args: { clientAddress?: Address } }>;
 
     const clients = new Set<string>();
     for (const log of logs) {

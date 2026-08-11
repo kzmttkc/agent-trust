@@ -1,6 +1,7 @@
 import type { BlockTag } from "viem";
 import type { getPublicClient } from "./client";
 import { mapWithConcurrency } from "@/lib/util/concurrency";
+import { type Deadline, DeadlineExceededError, createDeadline } from "@/lib/util/deadline";
 
 type ChainClient = ReturnType<typeof getPublicClient>;
 export type ChainGetLogsParams = Parameters<ChainClient["getLogs"]>[0];
@@ -76,6 +77,70 @@ async function resolveToBlock(
 /** JSON-RPC error code some providers (e.g. Base's public RPC) use for rate limiting. */
 const JSON_RPC_RATE_LIMIT_CODE = -32016;
 
+/**
+ * Provider codes that mean "this range asked for too much" — the one class of
+ * failure a narrower range can actually fix.
+ *   -32005  generic "limit exceeded" (Infura/Alchemy result-cap)
+ *   -32614  Base public RPC's "eth_getLogs is limited to a 10,000 range"
+ */
+const RANGE_TOO_WIDE_CODES = new Set([-32005, -32614]);
+
+const RANGE_TOO_WIDE_PATTERNS = [
+  "more than", // "query returned more than 10000 results"
+  "limited to", // "eth_getLogs is limited to a 10,000 range"
+  "block range", // "exceeds maximum block range", "block range is too wide"
+  "range is too",
+  "range too",
+  "too many results",
+  "response size", // "response size exceeded"
+  "response too large",
+  "result set too large",
+  "query timeout", // provider gave up on a wide scan; a narrower one may land
+  "took too long",
+  "range limit",
+];
+
+/**
+ * Is this error one that BISECTING can plausibly resolve?
+ *
+ * WHY THIS GATE EXISTS (2026-08-12 incident). fetchRange used to bisect on
+ * ANY error. For a failure that halving can never fix — a provider rejecting
+ * the request shape ("JSON is not a valid request object."), an expired key,
+ * a dead endpoint — that turns ONE failed call into ~2^depth failed calls.
+ * Production logs showed a 2,000-block chunk bisected down to 15-block ranges:
+ * thousands of doomed requests, which is what consumed the scoring path's
+ * entire time budget and produced the "Score unavailable" outage.
+ *
+ * Bisection is for over-wide ranges. Everything else must fail fast so the
+ * caller's `*_unavailable` degradation path can run honestly.
+ */
+export function isRangeTooWideError(error: unknown): boolean {
+  const err = error as {
+    code?: number;
+    status?: number;
+    details?: string;
+    shortMessage?: string;
+    message?: string;
+    cause?: { code?: number; details?: string; message?: string };
+  };
+
+  if (err?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.code)) return true;
+  if (err?.cause?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.cause.code)) return true;
+
+  const text = [
+    err?.details,
+    err?.shortMessage,
+    err?.message,
+    err?.cause?.details,
+    err?.cause?.message,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return RANGE_TOO_WIDE_PATTERNS.some((pattern) => text.includes(pattern));
+}
+
 function isRateLimitError(error: unknown): boolean {
   const err = error as {
     status?: number;
@@ -111,8 +176,10 @@ async function fetchRange(
   fromBlock: bigint,
   toBlock: bigint,
   rateLimitRetries = 0,
+  deadline?: Deadline,
 ): Promise<ChainLog[]> {
   if (fromBlock > toBlock) return [];
+  deadline?.throwIfExpired("getLogsChunked");
 
   try {
     return await client.getLogs({
@@ -121,12 +188,30 @@ async function fetchRange(
       toBlock,
     } as ChainGetLogsParams);
   } catch (error) {
+    if (error instanceof DeadlineExceededError) throw error;
+
     if (isRateLimitError(error) && rateLimitRetries < RATE_LIMIT_MAX_RETRIES) {
+      const backoff = RATE_LIMIT_BASE_DELAY_MS * 2 ** rateLimitRetries;
+      // Don't sleep past the deadline just to make a call we can't afford.
+      if (deadline && backoff >= deadline.remaining()) {
+        throw new DeadlineExceededError("getLogsChunked", backoff);
+      }
       console.log(
         `[chunked-logs] rate-limited ${fromBlock}-${toBlock}, retry ${rateLimitRetries + 1}/${RATE_LIMIT_MAX_RETRIES}`,
       );
-      await sleep(RATE_LIMIT_BASE_DELAY_MS * 2 ** rateLimitRetries);
-      return fetchRange(client, params, fromBlock, toBlock, rateLimitRetries + 1);
+      await sleep(backoff);
+      return fetchRange(client, params, fromBlock, toBlock, rateLimitRetries + 1, deadline);
+    }
+
+    // Only an over-wide range is fixable by halving. Bisecting on anything
+    // else (bad request shape, auth failure, dead endpoint) multiplies one
+    // failure into ~2^depth failures — the 2026-08-12 outage. Fail fast and
+    // let the caller degrade honestly.
+    if (!isRangeTooWideError(error)) {
+      console.log(
+        `[chunked-logs] non-range failure on ${fromBlock}-${toBlock}, not bisecting: ${(error as Error)?.constructor?.name} ${redactSecrets((error as Error)?.message).slice(0, 200)}`,
+      );
+      throw error;
     }
 
     const span = toBlock - fromBlock;
@@ -141,8 +226,8 @@ async function fetchRange(
     );
 
     const mid = fromBlock + span / 2n;
-    const left = await fetchRange(client, params, fromBlock, mid);
-    const right = await fetchRange(client, params, mid + 1n, toBlock);
+    const left = await fetchRange(client, params, fromBlock, mid, 0, deadline);
+    const right = await fetchRange(client, params, mid + 1n, toBlock, 0, deadline);
     return [...left, ...right];
   }
 }
@@ -160,7 +245,15 @@ export async function getLogsChunked(
   params: ChainGetLogsParams & { fromBlock: bigint },
   chunkSize = getLogsChunkSize(),
   concurrency = getLogsChunkConcurrency(),
+  options?: {
+    /** Wall-clock ceiling for the whole scan. Required on request paths. */
+    deadlineMs?: number;
+    /** Override the env pacing delay (batch pacing must not leak into live requests). */
+    delayMs?: number;
+  },
 ): Promise<ChainLog[]> {
+  const deadline =
+    options?.deadlineMs === undefined ? undefined : createDeadline(options.deadlineMs);
   const toBlock = await resolveToBlock(client, params.toBlock);
   const fromBlock = params.fromBlock;
   const { fromBlock: _ignoredFrom, toBlock: _ignoredTo, ...rest } = params;
@@ -177,7 +270,7 @@ export async function getLogsChunked(
     ranges.push({ start, end });
   }
 
-  const delayMs = getLogsChunkDelayMs();
+  const delayMs = options?.delayMs ?? getLogsChunkDelayMs();
   const effectiveConcurrency = Math.max(1, concurrency);
 
   // Sequential path preserved byte-for-byte for concurrency === 1 (and when a
@@ -187,9 +280,13 @@ export async function getLogsChunked(
     const results: ChainLog[] = [];
     for (let i = 0; i < ranges.length; i++) {
       const { start, end } = ranges[i]!;
-      const logs = await fetchRange(client, rest, start, end);
+      deadline?.throwIfExpired("getLogsChunked");
+      const logs = await fetchRange(client, rest, start, end, 0, deadline);
       results.push(...logs);
       if (delayMs > 0 && i < ranges.length - 1) {
+        if (deadline && delayMs >= deadline.remaining()) {
+          throw new DeadlineExceededError("getLogsChunked", delayMs);
+        }
         await sleep(delayMs);
       }
     }
@@ -199,7 +296,7 @@ export async function getLogsChunked(
   const perChunk = await mapWithConcurrency(
     ranges,
     effectiveConcurrency,
-    ({ start, end }) => fetchRange(client, rest, start, end),
+    ({ start, end }) => fetchRange(client, rest, start, end, 0, deadline),
   );
 
   const results: ChainLog[] = [];

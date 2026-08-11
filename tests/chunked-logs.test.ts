@@ -179,3 +179,71 @@ test("concurrency env clamps to a sane bounded range", () => {
     else process.env.GET_LOGS_CHUNK_CONCURRENCY = prev;
   }
 });
+
+// ============================================================
+// 2026-08-12 incident — the bisection amplifier.
+//
+// fetchRange treated EVERY getLogs failure as "the range is too wide" and
+// recursively halved it. For errors that halving can never fix (a provider
+// rejecting the request shape, an auth failure, a dead endpoint) that turns
+// ONE failed call into ~2^depth failed calls: production logs showed a 2,000
+// block chunk bisected down to 15-block ranges, thousands of doomed requests
+// deep, which is what consumed the scoring path's entire time budget.
+//
+// Bisection must be reserved for errors that bisection can actually resolve.
+// Everything else has to fail fast and let the caller's `*_unavailable`
+// degradation path run.
+// ============================================================
+
+test("a non-range error fails fast instead of bisecting", async () => {
+  const { client, calls } = makeClient({
+    onRange: () => new Error("JSON is not a valid request object."),
+  });
+  await assert.rejects(
+    () => getLogsChunked(client, { fromBlock: 0n, toBlock: 1_999n }, 2_000n, 1),
+    /JSON is not a valid request object/,
+  );
+  // Exactly one attempt — no halving, no amplification.
+  assert.equal(calls.length, 1, `expected 1 call, got ${calls.length} (bisection amplified)`);
+});
+
+test("an auth/provider failure is not retried into thousands of calls", async () => {
+  const { client, calls } = makeClient({
+    onRange: () => Object.assign(new Error("Unauthorized"), { status: 401 }),
+  });
+  await assert.rejects(() =>
+    getLogsChunked(client, { fromBlock: 0n, toBlock: 9_999n }, 10_000n, 1),
+  );
+  assert.equal(calls.length, 1, `expected 1 call, got ${calls.length}`);
+});
+
+test("range-shaped errors still bisect (regression guard)", async () => {
+  for (const message of [
+    "query returned more than 10000 results",
+    "eth_getLogs is limited to a 10,000 range",
+    "block range is too wide",
+    "response size exceeded",
+  ]) {
+    const { client, calls } = makeClient({
+      onRange: (r) => (r.end - r.start > 4n ? new Error(message) : [{ blockNumber: r.start, id: "x" }]),
+    });
+    const logs = await getLogsChunked(client, { fromBlock: 0n, toBlock: 9n }, 10n, 1);
+    assert.ok(calls.length > 1, `"${message}" should have bisected, saw ${calls.length} call(s)`);
+    assert.ok(logs.length >= 1, `"${message}" produced no logs`);
+  }
+});
+
+test("a scan that outlives its deadline aborts instead of running unbounded", async () => {
+  // 1,000 sequential chunks, each costing ~1ms inside the fake client.
+  const { client, calls } = makeClient({ onRange: () => [] });
+  await assert.rejects(
+    () =>
+      getLogsChunked(client, { fromBlock: 0n, toBlock: 99_999n }, 100n, 1, { deadlineMs: 100 }),
+    /deadline/i,
+  );
+  // Stopped early rather than grinding through all 1,000 chunks.
+  assert.ok(
+    calls.length < 1000,
+    `expected an early abort, made all ${calls.length} calls`,
+  );
+});
