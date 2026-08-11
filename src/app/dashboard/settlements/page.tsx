@@ -50,7 +50,7 @@ export default function DashboardSettlementsPage() {
         <h2 className="text-2xl font-semibold">x402 settlements</h2>
         <p className="text-sm text-zinc-600">
           Payment attestations written back by your gateways via{" "}
-          <code className="rounded bg-zinc-100 px-1">POST /v1/payments/x402</code>. These feed
+          <code className="rounded bg-zinc-100 px-1 text-zinc-700">POST /v1/payments/x402</code>. These feed
           the 10% settlement weight in trust scores.
         </p>
       </div>

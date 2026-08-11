@@ -222,8 +222,8 @@ export default function ApiDocsPage() {
         <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
         <h1 className="text-3xl font-semibold tracking-tight">API reference</h1>
         <p className="text-zinc-600">
-          Authenticate with <code className="rounded bg-zinc-100 px-1">Authorization: Bearer</code>{" "}
-          API key. Base URL: <code className="rounded bg-zinc-100 px-1">https://agent-trust-tawny.vercel.app/api/v1</code>
+          Authenticate with <code className="rounded bg-zinc-100 px-1 text-zinc-700">Authorization: Bearer</code>{" "}
+          API key. Base URL: <code className="rounded bg-zinc-100 px-1 text-zinc-700">https://agent-trust-tawny.vercel.app/api/v1</code>
           {" "}(custom domain not yet registered).
         </p>
         <p className="text-sm text-zinc-500">
@@ -356,10 +356,10 @@ export default function ApiDocsPage() {
         <h2 className="text-lg font-semibold tracking-tight">Score breakdown</h2>
         <p className="text-sm text-zinc-600">
           Every scored verdict (agent and wallet endpoints, and each element of a
-          batch) carries a <code className="rounded bg-zinc-100 px-1">breakdown</code>{" "}
+          batch) carries a <code className="rounded bg-zinc-100 px-1 text-zinc-700">breakdown</code>{" "}
           object that decomposes the chain score into its four weighted
           components. It is derived from the same numbers the verdict used, so it
-          can never disagree with <code className="rounded bg-zinc-100 px-1">trustScore</code>.
+          can never disagree with <code className="rounded bg-zinc-100 px-1 text-zinc-700">trustScore</code>.
         </p>
         <ul className="list-disc space-y-2 pl-5 text-sm text-zinc-600">
           <li>
@@ -392,8 +392,8 @@ export default function ApiDocsPage() {
         </ul>
         <p className="text-sm text-zinc-600">
           Hard-blocked verdicts (wallet mismatch, unregistered agent) omit{" "}
-          <code className="rounded bg-zinc-100 px-1">breakdown</code> — no weighting
-          ran — and carry a <code className="rounded bg-zinc-100 px-1">blockReason</code>{" "}
+          <code className="rounded bg-zinc-100 px-1 text-zinc-700">breakdown</code> — no weighting
+          ran — and carry a <code className="rounded bg-zinc-100 px-1 text-zinc-700">blockReason</code>{" "}
           instead. Treat the field as optional.
         </p>
       </section>
@@ -411,7 +411,7 @@ export default function ApiDocsPage() {
           something you care about changes — most importantly a watched target
           whose verdict moved (e.g. an <code>ALLOW</code> you gated a payment on
           becoming a <code>BLOCK</code>). Register with{" "}
-          <code className="rounded bg-zinc-100 px-1">POST /api/v1/webhooks</code>{" "}
+          <code className="rounded bg-zinc-100 px-1 text-zinc-700">POST /api/v1/webhooks</code>{" "}
           (above); up to 5 endpoints per key.
         </p>
 
@@ -629,7 +629,7 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
           </table>
         </div>
         <p className="text-sm text-zinc-600">
-          Error bodies are shaped as <code className="rounded bg-zinc-100 px-1">{`{ "error": string, "details"?: object }`}</code>.
+          Error bodies are shaped as <code className="rounded bg-zinc-100 px-1 text-zinc-700">{`{ "error": string, "details"?: object }`}</code>.
         </p>
       </section>
 

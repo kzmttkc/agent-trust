@@ -22,7 +22,7 @@ function shortWallet(wallet: string | null): string {
 // annotates without competing with the real ranking data.
 function SeedTag() {
   return (
-    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-zinc-700">
       benchmark
     </span>
   );
@@ -84,7 +84,9 @@ export default async function LeaderboardPage() {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={r.identity} className="border-b border-zinc-100">
-                  <td className="py-2 pr-4 text-zinc-400">{i + 1}</td>
+                  {/* 順位は表の意味を担う情報なので装飾扱いにしない。
+                      2026-08-12: zinc-400 は白地 2.62:1 で AA 不合格だった → zinc-500 (4.83:1)。 */}
+                  <td className="py-2 pr-4 text-zinc-500">{i + 1}</td>
                   <td className="py-2 pr-4">
                     <span className="font-mono">
                       {r.agentId ? `Agent #${r.agentId}` : shortWallet(r.wallet)}

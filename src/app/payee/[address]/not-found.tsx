@@ -14,7 +14,7 @@ export default function PayeeNotFound() {
         That is not a valid wallet address
       </h1>
       <p className="mt-4 text-zinc-600">
-        A payee profile URL must be a full Ethereum-style address: <code className="rounded bg-zinc-100 px-1">0x</code>{" "}
+        A payee profile URL must be a full Ethereum-style address: <code className="rounded bg-zinc-100 px-1 text-zinc-700">0x</code>{" "}
         followed by 40 hexadecimal characters (0-9, a-f) — 42 characters in total.
       </p>
       <div className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50 p-5 text-sm">

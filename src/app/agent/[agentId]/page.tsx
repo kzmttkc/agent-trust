@@ -127,7 +127,7 @@ export default async function AgentPage({
           This agent has not registered a trust passport.{" "}
           <span className="text-zinc-500">
             Own it? POST a signed claim to{" "}
-            <code className="rounded bg-zinc-100 px-1">/api/v1/agents/verify</code> — free, no API key,
+            <code className="rounded bg-zinc-100 px-1 text-zinc-700">/api/v1/agents/verify</code> — free, no API key,
             signature required.
           </span>
         </p>
@@ -156,9 +156,9 @@ export default async function AgentPage({
         <p className="mt-2 text-xs text-zinc-500">
           <Link href="/accuracy" className="underline">Methodology and measured accuracy</Link>.{" "}
           Machine-readable passport:{" "}
-          <code className="break-all rounded bg-zinc-100 px-1">/api/v1/agents/{agentId.toString()}/passport</code>.{" "}
+          <code className="break-all rounded bg-zinc-100 px-1 text-zinc-700">/api/v1/agents/{agentId.toString()}/passport</code>.{" "}
           Badge for your site:{" "}
-          <code className="break-all rounded bg-zinc-100 px-1">/api/badge/agent/{agentId.toString()}</code>
+          <code className="break-all rounded bg-zinc-100 px-1 text-zinc-700">/api/badge/agent/{agentId.toString()}</code>
         </p>
       </div>
     </main>

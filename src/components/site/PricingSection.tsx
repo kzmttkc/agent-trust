@@ -54,6 +54,9 @@ export function PricingSection() {
               <ul className="mt-5 flex-1 space-y-2 text-sm text-zinc-600">
                 {FEATURES[id].map((feature) => (
                   <li key={feature} className="flex items-start gap-2">
+                    {/* 2026-08-12: チェックは「その機能が含まれる」という意味を担う
+                        グラフィックなので WCAG 1.4.11 の 3:1 が要る。zinc-400 は白
+                        カード上 2.62:1 だった → zinc-500 (白地 4.83:1)。 */}
                     <svg
                       width={16}
                       height={16}
@@ -63,7 +66,7 @@ export function PricingSection() {
                       strokeWidth={2}
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      className="mt-0.5 shrink-0 text-zinc-400"
+                      className="mt-0.5 shrink-0 text-zinc-500"
                     >
                       <path d="M20 6L9 17l-5-5" />
                     </svg>

@@ -13,7 +13,7 @@ export default function AgentNotFound() {
       </h1>
       <p className="mt-4 text-zinc-600">
         An agent passport URL is an ERC-8004 agent id — a whole number, e.g.{" "}
-        <code className="rounded bg-zinc-100 px-1">/agent/42</code>.
+        <code className="rounded bg-zinc-100 px-1 text-zinc-700">/agent/42</code>.
       </p>
       <p className="mt-6 text-sm text-zinc-600">
         Check the id for a typo, then try again. You can also{" "}

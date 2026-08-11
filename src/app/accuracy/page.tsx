@@ -30,7 +30,8 @@ export const revalidate = 600;
 
 function Rate({ value }: { value: number | null }) {
   if (value === null) {
-    return <span className="text-zinc-400">insufficient data</span>;
+    // 2026-08-12: zinc-400 は白地 2.62:1 で AA 不合格 → zinc-500 (4.83:1)。
+    return <span className="text-zinc-500">insufficient data</span>;
   }
   return <span className="font-semibold text-zinc-900">{value}%</span>;
 }
@@ -152,7 +153,7 @@ export default async function AccuracyPage() {
             the numbers look good would defeat its own point.
           </>
         )}{" "}
-        Raw JSON: <code className="rounded bg-zinc-100 px-1">GET /api/v1/accuracy</code>.
+        Raw JSON: <code className="rounded bg-zinc-100 px-1 text-zinc-700">GET /api/v1/accuracy</code>.
       </p>
 
       {/* 2026-08-06 (L4 legal review): publishing measured rates is the point

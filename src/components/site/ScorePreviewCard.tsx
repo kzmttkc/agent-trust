@@ -142,8 +142,11 @@ export function ScorePreviewCard() {
       <p className="mt-5 overflow-x-auto rounded-md bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-600">
         GET /api/v1/agents/{data.agentId}/score
       </p>
+      {/* 2026-08-12 コントラスト是正: 下の注釈は zinc-400 (#A1A1AA) で、白地の
+          実描画が 2.62:1 しかなく AA (4.5:1) を大きく割っていた。zinc-500 (#71717A)
+          は白地 4.83:1。11px は太字18.66px未満なので大文字扱いにできず 4.5 が要る。 */}
       {data.live && data.scoredAt ? (
-        <p className="mt-2 text-[11px] text-zinc-400">
+        <p className="mt-2 text-[11px] text-zinc-500">
           Computed from on-chain state at {new Date(data.scoredAt).toUTCString()} — this is a real
           registered agent, not a mock.
         </p>

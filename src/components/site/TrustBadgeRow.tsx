@@ -41,7 +41,11 @@ function Icon({ name }: { name: TrustBadge["icon"] }) {
     strokeWidth: 1.8,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
-    className: "shrink-0 text-zinc-400",
+    /* 2026-08-12 コントラスト是正: このアイコンは隣のラベルと同じ主張を担う
+       意味のあるグラフィックなので WCAG 1.4.11 の 3:1 が要る。zinc-400
+       (#A1A1AA) はこの行の地 bg-zinc-50 上で 2.5〜2.6:1 だった。zinc-500
+       (#71717A) は #FAFAFA 上 4.63:1・白地 4.83:1。 */
+    className: "shrink-0 text-zinc-500",
   };
 
   switch (name) {

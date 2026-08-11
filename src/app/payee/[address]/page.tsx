@@ -112,7 +112,7 @@ export default async function PayeePage({
         <p className="mt-6 text-zinc-600">
           This wallet has not registered a verified-payee profile.{" "}
           <span className="text-zinc-500">
-            Own it? POST a signed claim to <code className="rounded bg-zinc-100 px-1">/api/v1/payees/verify</code>{" "}
+            Own it? POST a signed claim to <code className="rounded bg-zinc-100 px-1 text-zinc-700">/api/v1/payees/verify</code>{" "}
             — free, no API key, signature required.
           </span>
         </p>
@@ -153,7 +153,7 @@ export default async function PayeePage({
               screen, taking the whole page into horizontal scroll. The wallet
               heading above already solves this with break-all — the same fix was
               simply missing here. */}
-          Badge for your site: <code className="break-all rounded bg-zinc-100 px-1">/api/badge/{wallet}</code>
+          Badge for your site: <code className="break-all rounded bg-zinc-100 px-1 text-zinc-700">/api/badge/{wallet}</code>
         </p>
       </div>
     </main>

@@ -180,10 +180,10 @@ export default function TermsPage() {
           <li>
             <strong>Prove control of the address.</strong> Sign our canonical message with the
             wallet in question and{" "}
-            <code className="rounded bg-zinc-100 px-1">POST /api/v1/payees/verify</code>. A valid
+            <code className="rounded bg-zinc-100 px-1 text-zinc-700">POST /api/v1/payees/verify</code>. A valid
             signature is the proof — no key required, no charge. That registers you as a verified
             payee, publishes a profile at{" "}
-            <code className="rounded bg-zinc-100 px-1">/payee/&lt;address&gt;</code>, and feeds
+            <code className="rounded bg-zinc-100 px-1 text-zinc-700">/payee/&lt;address&gt;</code>, and feeds
             back into how the address is scored.{" "}
             <a className="underline" href="/docs/api">
               The API reference
