@@ -12,8 +12,27 @@ const identityRegistryAbi = parseAbi([
   "function totalSupply() view returns (uint256)",
 ]);
 
+/**
+ * ReputationRegistry ABI — corrected 2026-08-12 against the DEPLOYED contract.
+ *
+ * The previous signature took `bytes32 tag1, bytes32 tag2`. The registry at
+ * 0x8004BAa1… (ERC-1967 proxy → 0x16e0fa7f…) has no such function: its
+ * selector 0x31259cff is absent from the implementation bytecode, so EVERY
+ * call reverted, for every agent, since the feature shipped. The engine
+ * faithfully converted that into `reputation_summary_unavailable`, which
+ * assessSybilRisk maps to high risk → BLOCK. That is why every score on the
+ * site read 3/BLOCK: not a rate limit, not a timeout, an ABI that never
+ * matched the chain.
+ *
+ * The deployed function is 0x81bbba58 — tags are `string`, not `bytes32`. It
+ * also rejects an empty client list ("clientAddresses required"), so the
+ * caller must supply one; getClients() is the registry's own accessor for it.
+ *
+ * Verified on Base mainnet: agent 1 → 20 clients, count=39, avg 81.
+ */
 const reputationRegistryAbi = parseAbi([
-  "function getSummary(uint256 agentId, address[] clientAddresses, bytes32 tag1, bytes32 tag2) view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals)",
+  "function getClients(uint256 agentId) view returns (address[])",
+  "function getSummary(uint256 agentId, address[] clientAddresses, string tag1, string tag2) view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals)",
 ]);
 
 export type AgentIdentity = {
@@ -111,15 +130,32 @@ export async function fetchReputationSummary(agentId: bigint, chainId?: number) 
   }
 
   const client = getPublicClient(chainId);
-  const emptyClients: Address[] = [];
-  const zeroBytes32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as const;
 
   try {
+    const clients = (await client.readContract({
+      address: ERC8004_ADDRESSES.reputationRegistry,
+      abi: reputationRegistryAbi,
+      functionName: "getClients",
+      args: [agentId],
+    })) as readonly Address[];
+
+    // No clients means no feedback has ever been left — a FACT about this
+    // agent, not a failed read. Returning zeros here (rather than letting the
+    // empty-list revert become `reputation_summary_unavailable`) is the
+    // difference between "this agent has no reputation yet" and "we could not
+    // check its reputation". The first is a low score; the second is a BLOCK.
+    // Conflating them would BLOCK every brand-new agent on the network.
+    if (clients.length === 0) {
+      return { count: 0, summaryValue: 0, summaryValueDecimals: 0 };
+    }
+
     const [count, summaryValue, summaryValueDecimals] = await client.readContract({
       address: ERC8004_ADDRESSES.reputationRegistry,
       abi: reputationRegistryAbi,
       functionName: "getSummary",
-      args: [agentId, emptyClients, zeroBytes32, zeroBytes32],
+      // Empty tags = no tag filter, i.e. summarise all feedback from these
+      // clients — the same intent the old `bytes32(0)` args carried.
+      args: [agentId, clients, "", ""],
     });
 
     return {
