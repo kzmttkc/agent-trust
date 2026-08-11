@@ -114,31 +114,58 @@ const RANGE_TOO_WIDE_PATTERNS = [
  * Bisection is for over-wide ranges. Everything else must fail fast so the
  * caller's `*_unavailable` degradation path can run honestly.
  */
-export function isRangeTooWideError(error: unknown): boolean {
+/**
+ * Drop the lines viem appends that echo OUR request back at us — the endpoint
+ * URL, the serialized request body, and the library version. Only the
+ * provider's own words should decide whether a range was too wide.
+ */
+function stripRequestEcho(message: string | undefined): string {
+  if (!message) return "";
+  return message
+    .split("\n")
+    .filter((line) => !/^\s*(URL|Request body|Version):/i.test(line))
+    .join("\n");
+}
+
+export function rangeTooWideReason(error: unknown): string | null {
   const err = error as {
     code?: number;
     status?: number;
     details?: string;
     shortMessage?: string;
     message?: string;
-    cause?: { code?: number; details?: string; message?: string };
+    cause?: { code?: number; details?: string; shortMessage?: string; message?: string };
   };
 
-  if (err?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.code)) return true;
-  if (err?.cause?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.cause.code)) return true;
+  if (err?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.code)) return `code:${err.code}`;
+  if (err?.cause?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.cause.code)) {
+    return `cause.code:${err.cause.code}`;
+  }
 
+  // Match the provider's complaint, not our own outgoing request. viem embeds
+  // the request URL and the FULL request body inside error.message, so a naive
+  // substring test there is really testing our own payload — and the payload
+  // of a wide scan naturally contains range-ish words. Strip those echo lines
+  // first, then match. err.message still has to be considered because plain
+  // (non-viem) errors carry their text nowhere else.
   const text = [
     err?.details,
     err?.shortMessage,
-    err?.message,
+    stripRequestEcho(err?.message),
     err?.cause?.details,
-    err?.cause?.message,
+    err?.cause?.shortMessage,
+    stripRequestEcho(err?.cause?.message),
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
 
-  return RANGE_TOO_WIDE_PATTERNS.some((pattern) => text.includes(pattern));
+  const pattern = RANGE_TOO_WIDE_PATTERNS.find((candidate) => text.includes(candidate));
+  return pattern ? `text:${pattern}` : null;
+}
+
+export function isRangeTooWideError(error: unknown): boolean {
+  return rangeTooWideReason(error) !== null;
 }
 
 function isRateLimitError(error: unknown): boolean {
@@ -207,9 +234,12 @@ async function fetchRange(
     // else (bad request shape, auth failure, dead endpoint) multiplies one
     // failure into ~2^depth failures — the 2026-08-12 outage. Fail fast and
     // let the caller degrade honestly.
-    if (!isRangeTooWideError(error)) {
+    const rangeReason = rangeTooWideReason(error);
+    if (!rangeReason) {
+      const err = error as { code?: number; details?: string; shortMessage?: string };
       console.log(
-        `[chunked-logs] non-range failure on ${fromBlock}-${toBlock}, not bisecting: ${(error as Error)?.constructor?.name} ${redactSecrets((error as Error)?.message).slice(0, 200)}`,
+        `[chunked-logs] non-range failure on ${fromBlock}-${toBlock}, not bisecting` +
+          ` code=${err?.code} details=${JSON.stringify(err?.details ?? err?.shortMessage)?.slice(0, 200)}`,
       );
       throw error;
     }
@@ -222,7 +252,7 @@ async function fetchRange(
       throw error;
     }
     console.log(
-      `[chunked-logs] bisecting ${fromBlock}-${toBlock} due to: ${(error as Error)?.constructor?.name} ${redactSecrets((error as Error)?.message).slice(0, 150)}`,
+      `[chunked-logs] bisecting ${fromBlock}-${toBlock} matched=${rangeReason} due to: ${redactSecrets((error as Error)?.message).slice(0, 150)}`,
     );
 
     const mid = fromBlock + span / 2n;

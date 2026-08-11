@@ -247,3 +247,43 @@ test("a scan that outlives its deadline aborts instead of running unbounded", as
     `expected an early abort, made all ${calls.length} calls`,
   );
 });
+
+test("range words echoed back inside our own request do not trigger bisection", async () => {
+  // viem puts the endpoint URL and the FULL serialized request body into
+  // error.message. Matching range keywords against that string tests our own
+  // payload, not the provider's complaint — and a wide scan's payload is
+  // exactly where range-ish words show up. Only the provider's words count.
+  const viemShaped = Object.assign(
+    new Error(
+      [
+        "JSON is not a valid request object.",
+        "",
+        "URL: https://rpc.example.com/v2/key?note=limited%20to%20a%20block%20range",
+        'Request body: {"method":"eth_getLogs","params":[{"comment":"more than a query timeout"}]}',
+        "",
+        "Details: JSON is not a valid request object.",
+        "Version: viem@2.55.1",
+      ].join("\n"),
+    ),
+    { code: -32600, details: "JSON is not a valid request object.", shortMessage: "JSON is not a valid request object." },
+  );
+
+  const { client, calls } = makeClient({ onRange: () => viemShaped });
+  await assert.rejects(() =>
+    getLogsChunked(client, { fromBlock: 0n, toBlock: 9_999n }, 10_000n, 1),
+  );
+  assert.equal(calls.length, 1, `expected 1 call, got ${calls.length} (echoed text caused bisection)`);
+});
+
+test("a provider that really does complain about the range still bisects", async () => {
+  const providerComplaint = Object.assign(new Error("HTTP request failed."), {
+    code: -32614,
+    details: "eth_getLogs is limited to a 10,000 range",
+  });
+  const { client, calls } = makeClient({
+    onRange: (r) => (r.end - r.start > 4n ? providerComplaint : [{ blockNumber: r.start, id: "x" }]),
+  });
+  const logs = await getLogsChunked(client, { fromBlock: 0n, toBlock: 9n }, 10n, 1);
+  assert.ok(calls.length > 1, "should have bisected");
+  assert.ok(logs.length >= 1);
+});

@@ -80,7 +80,15 @@ export async function runScoringProbe(): Promise<ScoringProbe> {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`[vouch] scoring_probe failed: ${message.slice(0, 300)}`);
+    // The engine wraps upstream failures as `new Error(tag, { cause })`. The
+    // tag alone ("agent_identity_unavailable") says WHICH read died but not
+    // WHY, which is the half an operator actually needs.
+    const cause = error instanceof Error ? error.cause : undefined;
+    const causeText =
+      cause instanceof Error
+        ? ` | cause: ${(cause as { details?: string })?.details ?? cause.message}`
+        : "";
+    console.error(`[vouch] scoring_probe failed: ${message.slice(0, 200)}${causeText.slice(0, 300)}`);
     probe = {
       status: "error",
       unavailable: [],
