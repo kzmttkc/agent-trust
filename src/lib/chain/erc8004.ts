@@ -1,6 +1,6 @@
 import { type Address, isAddress, parseAbi, parseAbiItem, zeroAddress } from "viem";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
-import { getLogsChunked } from "./chunked-logs";
+import { getLogsChunked, getLogsChunkSize } from "./chunked-logs";
 import { getPublicClient } from "./client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "./config";
 import { DEFAULT_CHAIN_ID, chainById } from "./chains";
@@ -141,24 +141,40 @@ export type RecentFeedbackStats = {
 /**
  * Log-scan settings for the LIVE request path (2026-08-12 outage fix).
  *
- * The 7-day feedback window is ~302,400 Base blocks, and providers cap
- * eth_getLogs at 10,000 blocks per call — so this scan is ~31 round-trips at
- * best. It was running with the INDEXER's settings: a 2,000-block chunk (152
- * round-trips) plus GET_LOGS_CHUNK_DELAY_MS, whose mere presence forces
- * getLogsChunked onto its strictly-sequential path. Those settings are correct
- * for a nightly batch job that should be polite to the RPC; applied to an
- * interactive score they turned a ~2s scan into a ~30s one and blew every
- * caller's time budget.
+ * The 7-day feedback window is ~302,400 Base blocks and eth_getLogs is capped
+ * per call, so this scan is dozens of round-trips at best. It had been running
+ * with the INDEXER's settings — including GET_LOGS_CHUNK_DELAY_MS, whose mere
+ * presence forces getLogsChunked onto its strictly-sequential path. Correct for
+ * a nightly batch job that should be polite to the RPC; applied to an
+ * interactive score it turned the scan into a ~30s one and blew every caller's
+ * time budget.
  *
- * Batch pacing must not leak into a request a human is waiting on, so the live
- * path states its own terms: provider-max chunks, real fan-out, no pacing
- * delay, and a hard ceiling. Overrunning the ceiling is not fatal — the caller
- * converts it into `feedback_stats_unavailable`, which the verdict layer
- * treats as high risk. Slower is allowed to mean "more cautious"; it is never
- * allowed to mean "hangs".
+ * Overrunning the ceiling below is not fatal — the caller converts it into
+ * `feedback_stats_unavailable`, which the verdict layer treats as high risk.
+ * Slower is allowed to mean "more cautious"; never "hangs".
+ *
+ * Chunk width: the operator's configured value, never wider.
+ *
+ * A first cut hardcoded 10,000 here ("the provider maximum"). Production
+ * proved that wrong: the configured provider answers a 10,000-block
+ * eth_getLogs with a block-range complaint, so EVERY chunk bisected
+ * (10,000 → 5,000 → 2,500 …), multiplying one scan into far more calls than
+ * the polite sequential version it replaced — and the resulting burst had the
+ * provider returning 429 to unrelated reads in the same request, including the
+ * identity read the whole score depends on. GET_LOGS_CHUNK_BLOCKS exists
+ * precisely because someone already measured what this endpoint accepts;
+ * overriding it with a guess made the outage worse, not better.
+ *
+ * What the live path DOES override is the batch pacing delay (below): that
+ * setting exists to be kind to the RPC during nightly catch-up, and its mere
+ * presence forces getLogsChunked onto its strictly-sequential path — correct
+ * for a cron, wrong for a request someone is waiting on.
  */
-const LIVE_SCAN_CHUNK_BLOCKS = 10_000n;
-const LIVE_SCAN_CONCURRENCY = 6;
+function liveScanChunkBlocks(): bigint {
+  const configured = getLogsChunkSize();
+  return configured < 10_000n ? configured : 10_000n;
+}
+const LIVE_SCAN_CONCURRENCY = 4;
 const LIVE_SCAN_DEADLINE_MS = 3_000;
 
 const newFeedbackEvent = parseAbiItem(
@@ -198,7 +214,7 @@ export async function fetchRecentFeedbackStats(
         fromBlock,
         toBlock: "latest",
       },
-      LIVE_SCAN_CHUNK_BLOCKS,
+      liveScanChunkBlocks(),
       LIVE_SCAN_CONCURRENCY,
       { deadlineMs: LIVE_SCAN_DEADLINE_MS, delayMs: 0 },
     )) as Array<{ args: { clientAddress?: Address } }>;
