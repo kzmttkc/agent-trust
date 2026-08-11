@@ -175,6 +175,41 @@ export const ownerAgents = pgTable(
   ],
 );
 
+/**
+ * ERC-8004 NewFeedback events (2026-08-12). Written only by the trusted
+ * indexer (src/lib/indexer/feedback-indexer.ts); read by
+ * fetchRecentFeedbackStats to answer "how much feedback, from how many
+ * distinct clients, in the last N days" without an eth_getLogs scan on the
+ * request path.
+ *
+ * The window is expressed in BLOCK NUMBERS, not timestamps, because that is
+ * exactly how the chain scan it replaces defined "recent"
+ * (`latestBlock - blocksPerDay * windowDays`). Storing a timestamp and
+ * filtering on it would be a quieter definition change to a sybil signal, and
+ * the whole point of this table is that the signal's meaning does not move.
+ *
+ * SQL: scripts/sql/2026-08-12-feedback-events.sql (fallback-tolerant readers —
+ * every consumer tolerates a missing table).
+ */
+export const feedbackEvents = pgTable(
+  "feedback_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    chainId: bigint("chain_id", { mode: "number" }).notNull().default(8453),
+    agentId: bigint("agent_id", { mode: "bigint" }).notNull(),
+    clientAddress: text("client_address").notNull(),
+    blockNumber: bigint("block_number", { mode: "bigint" }).notNull(),
+    logIndex: integer("log_index").notNull(),
+    txHash: text("tx_hash").notNull(),
+    indexedAt: timestamp("indexed_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("feedback_events_log_unique").on(t.chainId, t.txHash, t.logIndex),
+    index("feedback_events_agent_block_idx").on(t.chainId, t.agentId, t.blockNumber),
+    index("feedback_events_block_idx").on(t.chainId, t.blockNumber),
+  ],
+);
+
 export const indexerCheckpoints = pgTable("indexer_checkpoints", {
   scope: text("scope").primaryKey(),
   lastBlock: bigint("last_block", { mode: "bigint" }).notNull(),

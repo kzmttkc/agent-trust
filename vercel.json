@@ -13,6 +13,10 @@
       "schedule": "0 5 * * *"
     },
     {
+      "path": "/api/cron/index-feedback",
+      "schedule": "0 2 * * *"
+    },
+    {
       "path": "/api/cron/monitor-health",
       "schedule": "0 6 * * *"
     },

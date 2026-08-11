@@ -1,9 +1,19 @@
 import { type Address, isAddress, parseAbi, parseAbiItem, zeroAddress } from "viem";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
+import { getIndexedFeedbackWindow } from "@/lib/db/feedback-index";
 import { getLogsChunked, getLogsChunkSize } from "./chunked-logs";
 import { getPublicClient } from "./client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "./config";
 import { DEFAULT_CHAIN_ID, chainById } from "./chains";
+import {
+  feedbackWindowFromBlock,
+  indexCoversWindow,
+  summarizeFeedback,
+  tailMaxBlocks,
+  tailScanFits,
+  type FeedbackEntry,
+  type RecentFeedbackStats,
+} from "./feedback-window";
 
 const identityRegistryAbi = parseAbi([
   "function ownerOf(uint256 tokenId) view returns (address)",
@@ -168,124 +178,177 @@ export async function fetchReputationSummary(agentId: bigint, chainId?: number) 
   }
 }
 
-export type RecentFeedbackStats = {
-  recentCount: number;
-  uniqueClients: number;
-  windowDays: number;
-};
+export type { RecentFeedbackStats } from "./feedback-window";
+
+export const NEW_FEEDBACK_EVENT = parseAbiItem(
+  "event NewFeedback(uint256 indexed agentId, address indexed clientAddress, uint64 feedbackIndex, int128 value, uint8 valueDecimals, string indexed indexedTag1, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
+);
 
 /**
- * Log-scan settings for the LIVE request path (2026-08-12 outage fix).
+ * Chunk width for any live scan here: the operator's configured value, never
+ * wider.
  *
- * The 7-day feedback window is ~302,400 Base blocks and eth_getLogs is capped
- * per call, so this scan is dozens of round-trips at best. It had been running
- * with the INDEXER's settings — including GET_LOGS_CHUNK_DELAY_MS, whose mere
- * presence forces getLogsChunked onto its strictly-sequential path. Correct for
- * a nightly batch job that should be polite to the RPC; applied to an
- * interactive score it turned the scan into a ~30s one and blew every caller's
- * time budget.
- *
- * Overrunning the ceiling below is not fatal — the caller converts it into
- * `feedback_stats_unavailable`, which the verdict layer treats as high risk.
- * Slower is allowed to mean "more cautious"; never "hangs".
- *
- * Chunk width: the operator's configured value, never wider.
- *
- * A first cut hardcoded 10,000 here ("the provider maximum"). Production
- * proved that wrong: the configured provider answers a 10,000-block
- * eth_getLogs with a block-range complaint, so EVERY chunk bisected
- * (10,000 → 5,000 → 2,500 …), multiplying one scan into far more calls than
- * the polite sequential version it replaced — and the resulting burst had the
- * provider returning 429 to unrelated reads in the same request, including the
- * identity read the whole score depends on. GET_LOGS_CHUNK_BLOCKS exists
- * precisely because someone already measured what this endpoint accepts;
- * overriding it with a guess made the outage worse, not better.
- *
- * What the live path DOES override is the batch pacing delay (below): that
- * setting exists to be kind to the RPC during nightly catch-up, and its mere
- * presence forces getLogsChunked onto its strictly-sequential path — correct
- * for a cron, wrong for a request someone is waiting on.
+ * A first cut hardcoded 10,000 ("the provider maximum"). Production proved
+ * that wrong: the configured provider answers a 10,000-block eth_getLogs with
+ * a block-range complaint, so EVERY chunk bisected (10,000 → 5,000 → 2,500 …),
+ * multiplying one scan into far more calls than the sequential version it
+ * replaced — and the resulting burst had the provider returning 429 to
+ * unrelated reads in the same request, including the identity read the whole
+ * score depends on. GET_LOGS_CHUNK_BLOCKS exists precisely because someone
+ * already measured what this endpoint accepts.
  */
 function liveScanChunkBlocks(): bigint {
   const configured = getLogsChunkSize();
   return configured < 10_000n ? configured : 10_000n;
 }
+
 /**
- * Blast radius, not throughput.
+ * Live-tail scan settings.
  *
- * A 7-day window is ~302,400 Base blocks; at the operator's configured chunk
- * width that is well over a hundred eth_getLogs calls, which CANNOT complete
- * inside any sane request budget on the current RPC plan. The scan therefore
- * ends in `feedback_stats_unavailable` either way — but while it runs it fires
- * a burst large enough for the provider to start answering 429 to OTHER reads
- * in the same request, including the identity read the entire score depends
- * on. Measured: the health probe failing with
- * `agent_identity_unavailable | cause: Too Many Requests`.
+ * These bound the ONLY chain scan left on the request path: the blocks between
+ * the indexer's checkpoint and the tip. That gap is a day or two at worst (see
+ * FEEDBACK_TAIL_MAX_DAYS), roughly a dozen chunks in the common case, so a
+ * 2.5s ceiling inside the engine's 3,500ms signal budget is generous rather
+ * than tight. Overrunning it is not fatal — the caller converts it into
+ * `feedback_stats_unavailable`, which the verdict layer treats as high risk.
+ * Slower is allowed to mean "more cautious"; never "hangs".
  *
- * So the live attempt is deliberately small and short. Same outcome, a
- * fraction of the quota, and it stops taking the rest of the score down with
- * it. The durable fix is to INDEX NewFeedback events the way owner/funder
- * events already are and read this from the DB — a scan this wide does not
- * belong on a request path at all. Tracked for a decision; deliberately not
- * done here, because silently reshaping a sybil signal is not a hotfix.
+ * The batch pacing delay is overridden to 0: GET_LOGS_CHUNK_DELAY_MS exists to
+ * be kind to the RPC during nightly catch-up, and its mere presence forces
+ * getLogsChunked onto its strictly-sequential path — correct for a cron, wrong
+ * for a request someone is waiting on.
  */
-const LIVE_SCAN_CONCURRENCY = 2;
-const LIVE_SCAN_DEADLINE_MS = 1_500;
+const TAIL_SCAN_CONCURRENCY = 2;
+const TAIL_SCAN_DEADLINE_MS = 2_500;
 
-const newFeedbackEvent = parseAbiItem(
-  "event NewFeedback(uint256 indexed agentId, address indexed clientAddress, uint64 feedbackIndex, int128 value, uint8 valueDecimals, string indexed indexedTag1, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
-);
+type FeedbackLog = {
+  args?: { clientAddress?: Address };
+  blockNumber?: bigint | null;
+  logIndex?: number | null;
+  transactionHash?: string | null;
+};
 
+function toEntries(logs: readonly FeedbackLog[]): FeedbackEntry[] {
+  return logs.map((log) => ({
+    clientAddress: log.args?.clientAddress ?? null,
+    blockNumber: log.blockNumber ?? null,
+    txHash: log.transactionHash ?? null,
+    logIndex: log.logIndex ?? null,
+  }));
+}
+
+async function scanFeedbackLogs(
+  client: ReturnType<typeof getPublicClient>,
+  agentId: bigint,
+  fromBlock: bigint,
+  toBlock: bigint | "latest",
+  options?: { deadlineMs?: number },
+): Promise<FeedbackEntry[]> {
+  const logs = (await getLogsChunked(
+    client,
+    {
+      address: ERC8004_ADDRESSES.reputationRegistry,
+      event: NEW_FEEDBACK_EVENT,
+      args: { agentId },
+      fromBlock,
+      toBlock,
+    },
+    liveScanChunkBlocks(),
+    TAIL_SCAN_CONCURRENCY,
+    { deadlineMs: options?.deadlineMs, delayMs: 0 },
+  )) as FeedbackLog[];
+
+  return toEntries(logs);
+}
+
+/**
+ * Recent feedback volume and reviewer diversity — the input to
+ * `review_velocity_anomaly`.
+ *
+ * WHAT CHANGED (2026-08-12). This used to scan a 7-day window (~302,400 Base
+ * blocks) with eth_getLogs on every uncached score: ~151 round-trips at the
+ * operator's configured chunk width, which cannot complete inside any request
+ * budget on the current RPC plan. It always ended in
+ * `feedback_stats_unavailable`, assessSybilRisk mapped that to high risk, and
+ * resolveRecommendation turned it into an unconditional BLOCK — so EVERY agent
+ * scored BLOCK regardless of merit, no matter how good its other signals were.
+ *
+ * The answer now comes from two sources that together cover the whole window:
+ * rows written by the nightly indexer, plus a short live scan of the blocks
+ * the indexer has not reached yet. The return type, its fields and their
+ * meaning are unchanged, and so is every consumer — sybil.ts, verdict.ts and
+ * helpers.ts are untouched by this change, deliberately.
+ *
+ * WHAT DID NOT CHANGE: coverage is still all-or-nothing. If the index does not
+ * reach back far enough, or the unindexed tail is too wide to read cheaply,
+ * this throws and the fail-closed chain runs exactly as before. A partial
+ * window would UNDERCOUNT, and undercounting is fail-open here — the anomaly
+ * is raised by feedback being plentiful, so missing rows make a sybil cluster
+ * look quieter than it is. "We could not check" must never be reported as
+ * "we checked and it was fine".
+ *
+ * `allowFullScan` is for callers with no request budget — the outcome-detector
+ * cron, which asks for windows up to 30 days that a young index cannot yet
+ * cover. It must never be set on a request path: that is the unbounded scan
+ * this function exists to get rid of.
+ */
 export async function fetchRecentFeedbackStats(
   agentId: bigint,
   windowDays = 7,
   chainId?: number,
+  options?: { allowFullScan?: boolean },
 ): Promise<RecentFeedbackStats> {
   if (isSkipChainReadsEnabled()) {
     return { recentCount: 0, uniqueClients: 0, windowDays };
   }
 
   const client = getPublicClient(chainId);
+  const resolvedChainId = chainId ?? DEFAULT_CHAIN_ID;
 
   try {
     const latestBlock = await client.getBlockNumber();
     // Chain-aware window: Base mints ~43,200 blocks/day, Ethereum ~7,200.
     // Using the Base figure everywhere would scan a 6x longer window on
     // mainnet — a silent 6x RPC bill and a wrong "recent" definition.
-    const chainMeta = chainById(chainId ?? DEFAULT_CHAIN_ID);
-    const blocksPerDay = BigInt(chainMeta?.blocksPerDay ?? 43_200);
-    const floorBlock = chainMeta?.registryFromBlock ?? IDENTITY_REGISTRY_FROM_BLOCK;
-    const fromBlock =
-      latestBlock > blocksPerDay * BigInt(windowDays)
-        ? latestBlock - blocksPerDay * BigInt(windowDays)
-        : floorBlock;
+    const meta = chainById(resolvedChainId);
+    const blocksPerDay = meta?.blocksPerDay ?? 43_200;
+    const floorBlock = meta?.registryFromBlock ?? IDENTITY_REGISTRY_FROM_BLOCK;
+    const fromBlock = feedbackWindowFromBlock(
+      latestBlock,
+      windowDays,
+      blocksPerDay,
+      floorBlock,
+    );
 
-    const logs = (await getLogsChunked(
-      client,
-      {
-        address: ERC8004_ADDRESSES.reputationRegistry,
-        event: newFeedbackEvent,
-        args: { agentId },
-        fromBlock,
-        toBlock: "latest",
-      },
-      liveScanChunkBlocks(),
-      LIVE_SCAN_CONCURRENCY,
-      { deadlineMs: LIVE_SCAN_DEADLINE_MS, delayMs: 0 },
-    )) as Array<{ args: { clientAddress?: Address } }>;
+    const index = await getIndexedFeedbackWindow(resolvedChainId, agentId, fromBlock);
 
-    const clients = new Set<string>();
-    for (const log of logs) {
-      if (log.args.clientAddress) {
-        clients.add(log.args.clientAddress.toLowerCase());
+    if (index && indexCoversWindow(index.coverageStart, fromBlock)) {
+      const gap = latestBlock > index.checkpoint ? latestBlock - index.checkpoint : 0n;
+
+      if (!tailScanFits(gap, tailMaxBlocks(blocksPerDay))) {
+        // The indexer has fallen far enough behind that the unindexed tail is
+        // its own wide scan. Degrade rather than run it on a request path.
+        throw new Error("feedback_stats_unavailable");
       }
+
+      const tail =
+        gap > 0n
+          ? await scanFeedbackLogs(client, agentId, index.checkpoint + 1n, latestBlock, {
+              deadlineMs: TAIL_SCAN_DEADLINE_MS,
+            })
+          : [];
+
+      return summarizeFeedback([...index.entries, ...tail], fromBlock, windowDays);
     }
 
-    return {
-      recentCount: logs.length,
-      uniqueClients: clients.size,
-      windowDays,
-    };
+    if (!options?.allowFullScan) {
+      // No index, or an index too young for this window, and no budget to scan
+      // the whole thing live. This is the honest "unavailable".
+      throw new Error("feedback_stats_unavailable");
+    }
+
+    const full = await scanFeedbackLogs(client, agentId, fromBlock, "latest");
+    return summarizeFeedback(full, fromBlock, windowDays);
   } catch (error) {
     throw error instanceof Error
       ? error

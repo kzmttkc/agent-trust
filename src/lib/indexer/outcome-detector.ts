@@ -218,7 +218,13 @@ async function checkReputationNegativeFeedback(
   const windowMinutes = minutesBetween(eventCreatedAt, now);
   const windowDays = Math.min(30, Math.max(1, Math.ceil(windowMinutes / (24 * 60))));
 
-  const recent = await fetchRecentFeedbackStats(agentId, windowDays);
+  // Cron context, no request budget — and the windows asked for here reach 30
+  // days, which the feedback index only covers once it has been running that
+  // long. Falling back to a full chain scan is affordable here in a way it
+  // never was on the scoring path.
+  const recent = await fetchRecentFeedbackStats(agentId, windowDays, undefined, {
+    allowFullScan: true,
+  });
   if (recent.recentCount === 0) return null;
 
   const reputation = await fetchReputationSummary(agentId);

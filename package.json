@@ -16,6 +16,7 @@
     "check:env": "tsx scripts/check-production-env.ts",
     "indexer:funders": "tsx scripts/index-funders.ts",
     "indexer:owners": "tsx scripts/index-owners.ts",
+    "indexer:feedback": "tsx scripts/index-feedback.ts",
     "indexer:outcomes": "tsx scripts/index-outcomes.ts",
     "cron:purge-logs": "tsx scripts/purge-logs.ts",
     "benchmark:scan": "tsx scripts/run-benchmark.ts",
