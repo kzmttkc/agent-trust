@@ -210,8 +210,27 @@ function liveScanChunkBlocks(): bigint {
   const configured = getLogsChunkSize();
   return configured < 10_000n ? configured : 10_000n;
 }
-const LIVE_SCAN_CONCURRENCY = 4;
-const LIVE_SCAN_DEADLINE_MS = 3_000;
+/**
+ * Blast radius, not throughput.
+ *
+ * A 7-day window is ~302,400 Base blocks; at the operator's configured chunk
+ * width that is well over a hundred eth_getLogs calls, which CANNOT complete
+ * inside any sane request budget on the current RPC plan. The scan therefore
+ * ends in `feedback_stats_unavailable` either way — but while it runs it fires
+ * a burst large enough for the provider to start answering 429 to OTHER reads
+ * in the same request, including the identity read the entire score depends
+ * on. Measured: the health probe failing with
+ * `agent_identity_unavailable | cause: Too Many Requests`.
+ *
+ * So the live attempt is deliberately small and short. Same outcome, a
+ * fraction of the quota, and it stops taking the rest of the score down with
+ * it. The durable fix is to INDEX NewFeedback events the way owner/funder
+ * events already are and read this from the DB — a scan this wide does not
+ * belong on a request path at all. Tracked for a decision; deliberately not
+ * done here, because silently reshaping a sybil signal is not a hotfix.
+ */
+const LIVE_SCAN_CONCURRENCY = 2;
+const LIVE_SCAN_DEADLINE_MS = 1_500;
 
 const newFeedbackEvent = parseAbiItem(
   "event NewFeedback(uint256 indexed agentId, address indexed clientAddress, uint64 feedbackIndex, int128 value, uint8 valueDecimals, string indexed indexedTag1, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
