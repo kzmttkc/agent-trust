@@ -1,0 +1,24 @@
+# vercel CLI のデプロイは git を経由せず、この作業ディレクトリの中身をそのまま
+# アップロードする。.vercelignore があると .gitignore は参照されなくなるため、
+# 既定で外れていたものもここに全部書き出す（省くとビルド機へ上がってしまう）。
+.git
+node_modules
+.next
+.vercel
+
+# git worktree の複製。2026-08-12: CLI デプロイの1,264ファイルのうち945がこれで、
+# 複製側の tests/ が持つ禁止トークンが配信CSSに焼き込まれていた（805fda0 参照）。
+# CSS 側は @source not で閉じたが、そもそもビルド機へ送る理由がない。
+# tsconfig の include が **/*.ts なので、送れば型検査まで複製ぶん走ってしまう。
+.claude
+
+# Gate2 台帳（外部の申込メールを含む＝PII）とログ。ビルドに要らない。
+state
+logs
+
+# ローカルの環境ファイル。本番の値は Vercel 側の環境変数が正典。
+.env
+.env.*
+
+# tests/ は外していない。tsconfig の include が **/*.ts なので、
+# next build 中の型検査に必要。CSS への焼き込みは @source not で閉じてある。
