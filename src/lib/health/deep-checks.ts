@@ -1,6 +1,9 @@
 import { sql } from "drizzle-orm";
+import { chainById, DEFAULT_CHAIN_ID } from "@/lib/chain/chains";
+import { tailMaxBlocks } from "@/lib/chain/feedback-window";
 import { getProductionEnvErrors } from "@/lib/config/env";
 import { getDb } from "@/lib/db/client";
+import { getFeedbackIndexerStatus } from "@/lib/db/feedback-index";
 import {
   getOwnerIndexerLagThreshold,
   getOwnerIndexerStatus,
@@ -110,6 +113,31 @@ export async function runDeepHealthChecks(): Promise<DeepHealthResult> {
     } else {
       checks.owner_indexer = "ok";
     }
+  }
+
+  // The feedback index is now load-bearing for a verdict: when it stops
+  // advancing, the unindexed tail eventually exceeds what the request path is
+  // allowed to scan, `fetchRecentFeedbackStats` degrades, and every agent goes
+  // back to BLOCK — the exact outage this indexer was built to end. That
+  // failure is loud in the verdicts but silent in the infrastructure, so the
+  // lag is reported here where a human is already looking.
+  try {
+    const feedbackStatus = await getFeedbackIndexerStatus(
+      liveTip !== undefined ? { liveTip } : undefined,
+    );
+    if (!feedbackStatus) {
+      checks.feedback_indexer = "unconfigured";
+    } else {
+      const behind = feedbackStatus.blocksBehind;
+      checks.feedback_indexer_blocks_behind = behind?.toString() ?? "unknown";
+      // Past this the tail is wider than the live scan will attempt, so the
+      // signal is unavailable rather than merely stale.
+      const maxTail = tailMaxBlocks(chainById(DEFAULT_CHAIN_ID)?.blocksPerDay ?? 43_200);
+      checks.feedback_indexer =
+        behind !== null && behind > maxTail ? "lagging" : "ok";
+    }
+  } catch {
+    checks.feedback_indexer = "error";
   }
 
   return {
