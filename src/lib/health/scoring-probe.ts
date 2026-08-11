@@ -24,6 +24,14 @@ import { withDeadline } from "@/lib/util/deadline";
  */
 
 const PROBE_TTL_MS = 60_000;
+/**
+ * Failures are re-checked sooner than successes. A single transient blip (one
+ * 429 from the RPC) should not pin a 503 for a full minute — an uptime monitor
+ * would read that as a minute-long outage that never happened. Over-reporting
+ * costs trust in the signal almost as fast as under-reporting does; the point
+ * of this endpoint is to be believable in both directions.
+ */
+const PROBE_FAILURE_TTL_MS = 15_000;
 /** Under the engine's own 6s budget — a probe must never outlive what it probes. */
 const PROBE_DEADLINE_MS = 7_000;
 
@@ -96,6 +104,9 @@ export async function runScoringProbe(): Promise<ScoringProbe> {
     };
   }
 
-  cached = { probe, expiresAt: Date.now() + PROBE_TTL_MS };
+  cached = {
+    probe,
+    expiresAt: Date.now() + (probe.status === "error" ? PROBE_FAILURE_TTL_MS : PROBE_TTL_MS),
+  };
   return probe;
 }
