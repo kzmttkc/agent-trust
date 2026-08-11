@@ -159,6 +159,12 @@ export default function SignupPage() {
         onSubmit={() => track("signup_started")}
         className="space-y-4 rounded-xl border border-zinc-200 bg-white p-6"
       >
+        {/* 2026-08-12: 入力欄の枠線は border-zinc-500 (#71717A・白地 4.83:1)。
+            それまでの zinc-300 (#D4D4D8) は白地 1.48:1 で、WCAG 2.2 の 1.4.11
+            （非テキストコントラスト 3:1）を満たしていなかった。この枠線が入力欄の
+            唯一の境界表現なので免除されない。zinc は 400 が 2.56:1 で不足のため、
+            3:1 を満たす最も薄い階調が 500 になる（brand-mist #8f9cb2 も 2.78:1 で不可）。
+            同じ理由で lookup / lists / login の入力欄も同値に揃えてある。 */}
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Email</span>
           {/* autoComplete (WCAG 1.3.5 Identify Input Purpose) — lets the browser
@@ -167,7 +173,7 @@ export default function SignupPage() {
             type="email"
             name="email"
             autoComplete="email"
-            className="w-full rounded-md border border-zinc-300 px-3 py-2"
+            className="w-full rounded-md border border-zinc-500 px-3 py-2"
             required
           />
         </label>
@@ -177,7 +183,7 @@ export default function SignupPage() {
           <input
             name="name"
             autoComplete="name"
-            className="w-full rounded-md border border-zinc-300 px-3 py-2"
+            className="w-full rounded-md border border-zinc-500 px-3 py-2"
           />
         </label>
 
@@ -188,7 +194,7 @@ export default function SignupPage() {
               name="inviteCode"
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
-              className="w-full rounded-md border border-zinc-300 px-3 py-2"
+              className="w-full rounded-md border border-zinc-500 px-3 py-2"
               required
             />
           </label>
@@ -209,7 +215,7 @@ export default function SignupPage() {
             type="checkbox"
             checked={acceptedTerms}
             onChange={(e) => setAcceptedTerms(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300"
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-500"
             required
           />
           <span>

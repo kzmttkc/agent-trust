@@ -69,7 +69,7 @@ export default function DashboardLookupPage() {
             value={agentId}
             onChange={(event) => setAgentId(event.target.value)}
             placeholder="1"
-            className="w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm"
+            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
           />
         </label>
         <label className="block space-y-1 text-sm">
@@ -78,7 +78,7 @@ export default function DashboardLookupPage() {
             value={wallet}
             onChange={(event) => setWallet(event.target.value)}
             placeholder="0x..."
-            className="w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm"
+            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
           />
         </label>
         <button

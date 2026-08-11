@@ -87,6 +87,12 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
           </p>
         </div>
 
+        {/* 2026-08-12: 枠線を zinc-300 → zinc-500 にした（下の signup と同じ是正）。
+            ここだけ持っていた `outline-none focus:border-zinc-500` も外した。地色が
+            zinc-500 になった時点で focus 時の枠色変化は差分ゼロの死んだ指定になり、
+            フォーカス表示は globals.css の :focus-visible（シアン 2px・白地 3.68:1）が
+            実際に描画している側なので、他の入力欄と同じ挙動へ揃う。実測で確認済み
+            （Tab 移動時 outline: solid 2px rgb(8,145,178)）。 */}
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-zinc-700">API key</span>
           <input
@@ -96,7 +102,7 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             placeholder="vouch_live_..."
-            className="w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm outline-none focus:border-zinc-500"
+            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
             required
           />
         </label>

@@ -16,6 +16,11 @@
 //      文字にも、意味を担うアイコンにも使えない階調。
 //   2. bg-zinc-100 のチップ（code / badge）は文字色を明示する。継承すると
 //      親の text-zinc-500 が乗って 4.39:1 になり AA を割る。
+//   3. 入力欄（input / select / textarea）の枠線は白地 3:1 未満の階調を使わない。
+//      2026-08-12 追加。上の2件は「文字」の関門だったが、同じ日に本番実測で
+//      入力欄の枠線が 1.48:1（border-zinc-300）で全7箇所落ちていた。WCAG 2.2 の
+//      1.4.11 は非テキストにも 3:1 を要求し、枠線が入力欄の唯一の境界表現である
+//      以上は免除されない。文字だけ見張っていても同じ穴がもう一方から開く。
 // ============================================================
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -73,5 +78,75 @@ test("bg-zinc-100 のチップは文字色を明示する（継承した zinc-50
     hits,
     [],
     `bg-zinc-100 (#F4F4F5) の上では text-zinc-500 が 4.39:1 で AA を割る。チップ側に text-zinc-700 (9.50:1) を明示する: ${hits.join(", ")}`,
+  );
+});
+
+// 白地で 3:1 を満たさない枠線トークン。実測値は 2026-08-12 の計算による。
+//   zinc-200 1.24 / zinc-300 1.48 / zinc-400 2.56 / brand-mist 2.78
+// zinc は 400 と 500 の間に階調が無いので、3:1 を満たす最も薄い neutral は
+// zinc-500 (#71717A・4.83:1)。紺なら brand-lift (#55688c・5.61:1) 以上。
+const WEAK_BORDERS = [
+  "border-white",
+  "border-transparent",
+  "border-zinc-50",
+  "border-zinc-100",
+  "border-zinc-200",
+  "border-zinc-300",
+  "border-zinc-400",
+  "border-brand-mist",
+];
+
+/**
+ * `<input>` / `<select>` / `<textarea>` の開始タグ本体を切り出す。
+ *
+ * 単純な `<input[^>]*>` では取れない。`onChange={(event) => setWallet(...)}` の
+ * アロー関数に `>` が含まれていて、そこでタグが終わったことにされてしまうため
+ * （lists / lookup の入力欄はすべてこの形をしている＝関門が素通りになる）。
+ * 波括弧の深さと文字列リテラルを見ながら、深さ0の `>` まで進む。
+ */
+function controlTags(source: string): { line: number; body: string; tag: string }[] {
+  const out: { line: number; body: string; tag: string }[] = [];
+  const open = /<(input|select|textarea)(?=[\s/>])/g;
+  let m: RegExpExecArray | null;
+  while ((m = open.exec(source)) !== null) {
+    let i = m.index + m[0].length;
+    let depth = 0;
+    let quote: string | null = null;
+    for (; i < source.length; i++) {
+      const c = source[i];
+      if (quote) {
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (c === ">" && depth === 0) break;
+    }
+    out.push({
+      tag: m[1],
+      line: source.slice(0, m.index).split("\n").length,
+      body: source.slice(m.index, i),
+    });
+  }
+  return out;
+}
+
+test("入力欄の枠線に白地3:1未満のトークンを使わない（WCAG 1.4.11）", () => {
+  const hits: string[] = [];
+  for (const f of FILES) {
+    for (const t of controlTags(f.text)) {
+      for (const token of WEAK_BORDERS) {
+        // `focus:border-zinc-300` のような variant 付きは休止時の境界表現では
+        // ないので対象外にする（直前が `:` なら variant）。
+        const re = new RegExp(`(?<![\\w:-])${token}(?![\\w-])`);
+        if (re.test(t.body)) hits.push(`${f.path}:${t.line} <${t.tag}> ${token}`);
+      }
+    }
+  }
+  assert.deepEqual(
+    hits,
+    [],
+    `入力欄の枠線が白地 3:1 未満。border-zinc-500 (#71717A・4.83:1) 以上、または brand-lift (#55688c・5.61:1) 以上を使う: ${hits.join(", ")}`,
   );
 });

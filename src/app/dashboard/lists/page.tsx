@@ -122,13 +122,13 @@ export default function DashboardListsPage() {
           value={wallet}
           onChange={(event) => setWallet(event.target.value)}
           placeholder="0x..."
-          className="rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm"
+          className="rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
           required
         />
         <select
           value={listType}
           onChange={(event) => setListType(event.target.value as "whitelist" | "blacklist")}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className="rounded-md border border-zinc-500 px-3 py-2 text-sm"
         >
           <option value="whitelist">Whitelist</option>
           <option value="blacklist">Blacklist</option>
@@ -145,7 +145,7 @@ export default function DashboardListsPage() {
           onChange={(event) => setCsv(event.target.value)}
           placeholder={"wallet,list_type\n0x...,whitelist"}
           rows={4}
-          className="w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm"
+          className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
         />
         <button type="submit" className={buttonClass({ variant: "secondary" })}>
           Import CSV
