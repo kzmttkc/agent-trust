@@ -85,16 +85,26 @@ test("bg-zinc-100 のチップは文字色を明示する（継承した zinc-50
 //   zinc-200 1.24 / zinc-300 1.48 / zinc-400 2.56 / brand-mist 2.78
 // zinc は 400 と 500 の間に階調が無いので、3:1 を満たす最も薄い neutral は
 // zinc-500 (#71717A・4.83:1)。紺なら brand-lift (#55688c・5.61:1) 以上。
-const WEAK_BORDERS = [
-  "border-white",
-  "border-transparent",
-  "border-zinc-50",
-  "border-zinc-100",
-  "border-zinc-200",
-  "border-zinc-300",
-  "border-zinc-400",
-  "border-brand-mist",
+//
+// 接頭辞を実行時に連結しているのは、Tailwind v4 の自動ソース検出がこのテスト
+// ファイルまで走査するため。禁止トークンを完全な形（接頭辞＋色名が地続きの文字列）
+// で書くと、**どこからも使っていないのに本番CSSにその規則が焼き込まれる**。
+// 2026-08-12 のデプロイで実際に4本が配信CSSへ出ていたのを確認している。死んだ規則が
+// 増えるだけでなく、配信CSSを grep して使用実態を調べる時に嘘をつく（この関門が
+// 禁止しているはずのトークンが、配信物の中には存在する、という状態になる）。
+// 連結すればクラス候補として抽出可能な文字列がソースに存在しなくなる。
+// 同じ理由で、下の説明文にも禁止トークンを地続きでは書かない。
+const WEAK_BORDER_COLORS = [
+  "white",
+  "transparent",
+  "zinc-50",
+  "zinc-100",
+  "zinc-200",
+  "zinc-300",
+  "zinc-400",
+  "brand-mist",
 ];
+const WEAK_BORDERS = WEAK_BORDER_COLORS.map((c) => `border-${c}`);
 
 /**
  * `<input>` / `<select>` / `<textarea>` の開始タグ本体を切り出す。

@@ -33,7 +33,9 @@ export type ButtonSize = "sm" | "md";
 // 白地 1.10:1)だけではボタンの形そのものが消えてしまうため。無効化部品は 1.4.11 の
 // 対象外なので、この輪郭に 3:1 は要求されない。
 //
-// 輪郭が border ではなく ring なのは実測の結果。`disabled:border` で試したところ、
+// 輪郭が border ではなく ring なのは実測の結果。border 側で試したところ（disabled
+// 付きの border ユーティリティ。ここに完全なクラス名を書くと Tailwind がコメントから
+// 拾って本番CSSに死んだ規則を焼き込むので、あえて分解して書いている）、
 // primary は有効時に border を持たないため、同意チェックを入れた瞬間にボタンの高さが
 // 38px → 36px と 2px 跳ねた（box-sizing: border-box なので border 分が内側を削る）。
 // ring は box-shadow なのでレイアウトに影響しない。
