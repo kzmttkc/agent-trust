@@ -367,6 +367,25 @@ export async function fetchWalletHistoryHead(
   return { firstTx, incoming: null };
 }
 
+/**
+ * normalizeWalletScore (src/lib/scoring/helpers.ts) stops rewarding tx count
+ * past this — 100+ and 100,000+ score identically. Paginating beyond it buys
+ * nothing but request budget.
+ */
+const TX_COUNT_SATURATION = 100;
+
+/**
+ * 2026-08-13: このページ送りに早期終了が無かった。毎ページ満杯(100件)を返す
+ * 限り、活動量に関わらず必ず20ページ＝2000件ぶんを走査していた——スコアリング
+ * が txCount>=100 から先を区別しないのに。高活動ウォレット（取引所のホット
+ * ウォレット等）は必ず20ページ全部を消費し、それだけで Blockscout の
+ * 「~15リクエストで429」を単独で超える（このファイル冒頭の実測コメント参照）。
+ * 信頼シグナルの向きが逆転する: 活動が多いほど wallet_metrics_unavailable に
+ * 落ちやすくなり、fail-closed で BLOCK される。
+ *
+ * スコアリングが区別できる閾値に届いた時点で止める。区別できない情報を
+ * 集め続けるのをやめるだけで、txCount>=100 という答え自体は変わらない。
+ */
 export async function estimateTransactionCount(address: Address, chainId?: number): Promise<number> {
   const pageSize = 100;
   const addressLower = address.toLowerCase();
@@ -384,6 +403,7 @@ export async function estimateTransactionCount(address: Address, chainId?: numbe
       }
     }
 
+    if (nonSelf >= TX_COUNT_SATURATION) break;
     if (txs.length < pageSize) break;
   }
 

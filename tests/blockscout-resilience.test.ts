@@ -20,7 +20,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { Address } from "viem";
-import { fetchWalletTransactions, BlockscoutUnavailableError } from "@/lib/chain/blockscout";
+import { estimateTransactionCount, fetchWalletTransactions, BlockscoutUnavailableError } from "@/lib/chain/blockscout";
 import { fetchWalletMetrics, invalidateWalletMetricsCache } from "@/lib/chain/wallet-metrics";
 
 const WALLET = "0x89e9e1ab11dd1b138b1dce6d6a4a0926aafd5029" as Address;
@@ -195,4 +195,62 @@ test("a failed metrics read is not cached — the next call retries from scratch
   const metrics = await fetchWalletMetrics(WALLET);
   assert.ok(calls > failedCalls, "the failure must not have been cached as an answer");
   assert.equal(metrics.ageDays, 189, "and the recovered read produces the real age");
+});
+
+// ============================================================
+// 2026-08-13: estimateTransactionCount がこの限界そのものを自分で踏んでいた。
+//
+// スコアリングが tx 数を使うのは normalizeWalletScore の `txCount >= 100`
+// 段までで、それ以上は区別しない。なのに関数は毎ページ100件返る限り
+// 20ページ＝2000件ぶんを、活動量に関わらず必ず最後まで走査していた。
+// Binance のホットウォレットのような高活動アドレスは常に20ページ全部を
+// 消費し、それだけで「~15リクエストで429が始まる」上限を単独で超える。
+// 実測（本番、2026-08-13）: 既知の正常アドレス（Binance ホットウォレット等）が
+// wallet_metrics_unavailable → high risk → BLOCK になり、/accuracy の
+// known-good 誤検知率が 17/17=100% になった。過去に燃えた/agent/[id]の事故と
+// 同じ機構だが、震源は新規ウォレットではなく「活動が多すぎるウォレット」
+// ——信頼シグナルの向きが逆転している。
+// ============================================================
+const WALLET2 = "0x2222222222222222222222222222222222222222" as Address;
+
+function txPage(n: number, fromSelf = false): unknown[] {
+  return Array.from({ length: n }, (_, i) => ({
+    hash: `0x${i}`,
+    blockNumber: "1",
+    timeStamp: "1000",
+    from: fromSelf ? WALLET2 : "0x9999999999999999999999999999999999999999",
+    to: WALLET2,
+    value: "1",
+  }));
+}
+
+test("txCount の走査は、スコアリングが区別できる閾値(100)に届いたら止まる", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    // 毎ページ満杯(100件)を返し続ける——高活動ウォレットの実際の形。
+    return jsonResponse({ status: "1", message: "OK", result: txPage(100) });
+  };
+
+  const count = await estimateTransactionCount(WALLET2);
+  assert.ok(count >= 100, `100件到達を検出できていない (got ${count})`);
+  assert.ok(
+    calls <= 2,
+    `100件は1ページ目で届くはずなのに ${calls} リクエスト——早期終了していない`,
+  );
+});
+
+test("活動が薄いウォレットは従来どおり全ページ数える(閾値未満は取りこぼさない)", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    // 1ページ目に30件、2ページ目で尽きる——早期終了条件に達しない通常ケース。
+    return calls === 1
+      ? jsonResponse({ status: "1", message: "OK", result: txPage(30) })
+      : jsonResponse({ status: "1", message: "OK", result: [] });
+  };
+
+  const count = await estimateTransactionCount(WALLET2);
+  assert.equal(count, 30);
+  assert.equal(calls, 1, "1ページ目が満杯未満なら、そこで履歴の終わりが分かる");
 });
