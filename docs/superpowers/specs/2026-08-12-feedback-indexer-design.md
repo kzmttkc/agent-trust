@@ -144,8 +144,57 @@ merge(index.rows, tailLogs) を (txHash, logIndex) で重複排除
 - `canTailScan` — 上限判定の境界値
 - 被覆不足時に DB 経路を選ばないこと
 
+## 追記（2026-08-12、本番デプロイ後に判明）
+
+**ライブ側のRPCは `eth_getLogs` を返さない。** 上の設計をデプロイした直後、
+本番は再び 49/BLOCK に戻った。ログ:
+
+```
+[chunked-logs] bisecting 49851354-49851374 matched=text:block range
+  due to: JSON is not a valid request object.
+```
+
+680ブロックという極小の正常なクエリである。範囲でもレート制限でもなく、
+`BASE_RPC_URL` の口がこのメソッドを受け付けていない。同じ形の要求を
+`INDEXER_RPC_URL` の口は345,600ブロック・173チャンクを24.8秒・無失敗で返した。
+
+これが元の障害のもう半分だった。7日走査は往復が多すぎただけでなく、
+**そもそもこのメソッドを返さない口に投げられていた**。走査をcronへ移して量は
+解決したが、残したtail走査が同じ口を使っていれば同じ理由で失敗する。
+
+対応: `getLogScanClient()` を足し、ログ読み取りは「ログを返す口」へ向ける
+（どの経路が要求したかに依らない）。インデクサ用RPCを分けている理由は
+*バッチ*の量をライブ側の予算から外すことなので、上限2日・2.5秒・通常1チャンクの
+tail読み取りをそこへ乗せても分離の意図は壊れない。
+
+あわせて二分割ガードの漏れを塞いだ。範囲語がecho除去の届かない経路から
+matcher に入っていた。どのフィールドかを追うより、「要求が不正／許可されていない
+と言われたら範囲を半分にしても答えは変わらない」を数値コードより先に効かせる
+（`NEVER_RANGE_PATTERNS`）。
+
+## 運用メモ
+
+本番DBは Neon プロジェクト `vouch-agent-trust` の **`vouch`** データベース。
+同一エンドポイントに `postgres` / `neondb` も居る。リポジトリ直下の
+`.env.production.local` は `neondb` を指しており本番ではない（owner索引0件、
+trust_events最終 2026-08-06）。Vercelの環境変数は全て Sensitive なので
+CLI / ダッシュボードのどちらからも読み戻せない。
+
 ## 検証
 
 1. `npm run build`
 2. `npx tsx --test tests/*.test.ts`
 3. 本番DDL適用 → cron手動起動 → 妥当なエージェントが非BLOCKを返すことを確認
+
+実測（2026-08-12）:
+
+| | 修正前 | 修正後 |
+|---|---|---|
+| エージェント1 | 49 / BLOCK / sybil=high | **83 / ALLOW / sybil=low** |
+| deep health | degraded | **ok**（scoring 647ms、feedback_indexer ok） |
+
+ブートストラップ 24.8秒 / 17,578件。日次cronは 02:26 UTC に無人で走り、
+18,074件・checkpoint前進を確認（Hobbyの±59分ずれ込み込み）。
+シグナルは緩んだのではなく効いている: 56260番（1クライアントから7日で1,492件）は
+`review_velocity_anomaly` が発火してWARN、25975番（9クライアントから12,796件）は
+健全な高頻度として velocity では落ちない。この判別は今まで一度も動いていなかった。
