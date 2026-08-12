@@ -35,25 +35,61 @@ export class BlockscoutUnavailableError extends Error {
 
 /**
  * Blockscout's public API rate-limits aggressively, and it is the sole source
- * of wallet age / tx-count / funder data. Measured 2026-08-12 against
- * base.blockscout.com: a burst of the shape one score produces starts drawing
- * `HTTP 429 "Too many requests"` after ~15 requests, and once tripped it keeps
- * returning 429 for a while. That is exactly the failure that surfaced as the
- * showcase agent scoring 48/BLOCK with sybilRisk:"high" and walletAgeDays 0 —
- * a rate-limited fetch throws, the engine flags wallet_metrics_unavailable,
- * and the verdict is (correctly, but needlessly) failed closed.
+ * of wallet age / tx-count / funder data. That is exactly the failure that
+ * surfaced as the showcase agent scoring 48/BLOCK with sybilRisk:"high" and
+ * walletAgeDays 0 — a rate-limited fetch throws, the engine flags
+ * wallet_metrics_unavailable, and the verdict is (correctly, but needlessly)
+ * failed closed.
  *
  * Probing the API from outside with a few spaced-out requests reports it
  * perfectly healthy, which is why upstream looked fine while Vouch was cut off:
  * the load pattern, not the endpoint, is what fails.
  *
- * So transient answers get a bounded retry before they are allowed to become a
- * verdict. This does NOT soften the verdict: when the data genuinely cannot be
- * fetched the error still propagates and the caller still fails closed. It only
- * stops a recoverable blip from being treated as an answer.
+ * MEASURED 2026-08-13 against base.blockscout.com, and the numbers are far
+ * harsher than the "~15 requests" this file used to claim:
+ *
+ *   - the etherscan-compatible `/api?module=...` (v1) endpoint answers 3
+ *     back-to-back requests and returns HTTP 429 on the 4th;
+ *   - once tripped it is a PENALTY BOX, not a token bucket: requests kept
+ *     drawing 429 for 95+ seconds, and every request made while limited
+ *     extends the lockout. Retrying a 429 does not recover it — it deepens it;
+ *   - the `/api/v2/...` endpoints on the same host are governed by a
+ *     SEPARATE and far more permissive limiter: 17 consecutive
+ *     `/addresses/{a}/counters` calls with no pacing at all returned 200.
+ *
+ * That measurement is what the two mechanisms below encode:
+ *
+ *   1. PACING (`passRateGate`) — v1 request starts are serialized and spaced,
+ *      so a scan cannot fire the burst that trips the limiter in the first
+ *      place. This is the actual repair: the previous code had no pacing at
+ *      all, so the weekly benchmark scan tripped the limiter on its 5th
+ *      address and then failed closed on all 37 remaining ones.
+ *   2. COOLDOWN (`openRateLimitCooldown`) — once a refusal is seen, callers
+ *      stop issuing v1 requests for a while instead of hammering the penalty
+ *      box deeper. The old policy retried a 429 after 250ms, three times, for
+ *      every address; that is the behaviour that turned one refusal into a
+ *      run-long outage.
+ *
+ * NEITHER SOFTENS A VERDICT. A read that genuinely cannot be completed still
+ * throws, the caller still flags `wallet_metrics_unavailable`, and the engine
+ * still fails closed to BLOCK. Both mechanisms only stop Vouch from
+ * manufacturing the outage it then fails closed on.
  */
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 250;
+
+/** Minimum spacing between v1 request STARTS. 3 rapid requests trip the
+ *  limiter, so stay well under one per second. */
+const DEFAULT_V1_MIN_INTERVAL_MS = 1_500;
+/** How long to stop issuing v1 requests after a refusal is observed. */
+const DEFAULT_V1_COOLDOWN_MS = 10_000;
+
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 
 function isRateLimitMessage(message: string): boolean {
   const lower = message.toLowerCase();
@@ -68,6 +104,46 @@ function retryDelayMs(attempt: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---- v1 request pacing + cooldown ------------------------------------------
+// Process-wide on purpose: the limiter counts requests per client, so a
+// per-caller budget would be no budget at all. `gateTail` is a promise chain
+// each caller appends itself to, which serializes the WAIT (not the request):
+// callers take their turn, sleep out the remaining interval, then fire.
+let gateTail: Promise<unknown> = Promise.resolve();
+let lastRequestStartedAt = 0;
+let rateLimitCooldownUntil = 0;
+
+/** Milliseconds remaining before v1 requests may resume. 0 = go. */
+function cooldownRemainingMs(): number {
+  return Math.max(0, rateLimitCooldownUntil - Date.now());
+}
+
+function openRateLimitCooldown(): void {
+  const cooldown = envMs("BLOCKSCOUT_COOLDOWN_MS", DEFAULT_V1_COOLDOWN_MS);
+  rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + cooldown);
+}
+
+async function passRateGate(): Promise<void> {
+  const minInterval = envMs("BLOCKSCOUT_MIN_INTERVAL_MS", DEFAULT_V1_MIN_INTERVAL_MS);
+  if (minInterval <= 0) return;
+  const turn = gateTail.then(async () => {
+    const wait = lastRequestStartedAt + minInterval - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastRequestStartedAt = Date.now();
+  });
+  // A rejected link must not poison every caller queued behind it.
+  gateTail = turn.catch(() => undefined);
+  await turn;
+}
+
+/** Test seam: drop the pacing/cooldown state so cases do not inherit each
+ *  other's timing. Never called by product code. */
+export function resetBlockscoutRateGate(): void {
+  gateTail = Promise.resolve();
+  lastRequestStartedAt = 0;
+  rateLimitCooldownUntil = 0;
 }
 
 function getBlockscoutBaseUrl(chainId?: number): string {
@@ -105,6 +181,14 @@ async function blockscoutGetOnce<T>(
     url.searchParams.set("apikey", apiKey);
   }
 
+  // Refuse to spend a request we already know will be refused. Not retryable:
+  // the whole point is to stop adding requests to a penalty box that counts
+  // them. The caller still gets an error and still fails closed.
+  if (cooldownRemainingMs() > 0) {
+    throw new BlockscoutUnavailableError("blockscout_rate_limit_cooldown", undefined, false);
+  }
+  await passRateGate();
+
   let response: Response;
   try {
     response = await fetch(url.toString(), {
@@ -112,15 +196,25 @@ async function blockscoutGetOnce<T>(
       next: { revalidate: 0 },
     });
   } catch (error) {
-    // Connection reset / DNS / socket hang-up: worth one more try.
+    // Connection reset / DNS / socket hang-up: worth one more try. A network
+    // blip is not a rate limit, so it does not open the cooldown.
     throw new BlockscoutUnavailableError("blockscout_network_error", error, true);
   }
 
   if (!response.ok) {
-    // 429 = rate limited, 5xx = their side is unwell. Both pass with time.
+    // 429 = rate limited: measured to be a penalty box, so back off globally
+    // and do NOT retry — a retry is what deepens it. 5xx = their side is
+    // unwell, which does pass with time and is worth one more try.
     // Any other 4xx is our request being wrong; repeating it changes nothing.
-    const retryable = response.status === 429 || response.status >= 500;
-    throw new BlockscoutUnavailableError(`blockscout_http_${response.status}`, undefined, retryable);
+    if (response.status === 429) {
+      openRateLimitCooldown();
+      throw new BlockscoutUnavailableError("blockscout_http_429", undefined, false);
+    }
+    throw new BlockscoutUnavailableError(
+      `blockscout_http_${response.status}`,
+      undefined,
+      response.status >= 500,
+    );
   }
 
   let data: BlockscoutResponse<T>;
@@ -142,10 +236,16 @@ async function blockscoutGetOnce<T>(
   // Blockscout also serves its rate-limit refusal this way (HTTP 200 with
   // status:"0" and a "Too many requests" message), so read the message too.
   const message = data.message ?? "";
+  if (isRateLimitMessage(message)) {
+    // Same refusal as a 429, just dressed as HTTP 200. Same response: back off
+    // globally, do not retry into the penalty box.
+    openRateLimitCooldown();
+    throw new BlockscoutUnavailableError(`blockscout_api_error:${message}`, undefined, false);
+  }
   throw new BlockscoutUnavailableError(
     `blockscout_api_error:${message || data.status || "unknown"}`,
     undefined,
-    isRateLimitMessage(message),
+    false,
   );
 }
 
@@ -308,17 +408,51 @@ export async function fetchFirstIncomingTransfer(
 }
 
 /**
- * The wallet's first transaction AND its first *incoming* transfer, in one
- * pass over the ascending txlist.
+ * normalizeWalletScore (src/lib/scoring/helpers.ts) stops rewarding tx count
+ * past this — 100+ and 100,000+ score identically. Paginating beyond it buys
+ * nothing but request budget.
+ */
+const TX_COUNT_SATURATION = 100;
+
+/** Hard ceiling on the ascending walk. Reached only by a wallet whose oldest
+ *  pages are almost entirely self-transfers; everything else saturates or runs
+ *  out of history on page 1. */
+const MAX_HISTORY_PAGES = 10;
+
+export interface WalletHistoryHead {
+  /** Oldest transaction on this chain — the wallet's age. */
+  firstTx: BlockscoutTx | null;
+  /** Oldest incoming value transfer — who funded this wallet. */
+  incoming: { funder: Address; blockNumber: bigint; timestamp: number } | null;
+  /** Transactions not counting self-to-self, over the pages scanned, capped at
+   *  TX_COUNT_SATURATION (scoring cannot tell 100 from 100,000 apart). */
+  nonSelfTxCount: number;
+}
+
+/**
+ * Everything fetchWalletMetrics needs about a wallet's history, in ONE pass.
  *
- * fetchWalletMetrics used to ask for these separately: a txlist call with
- * offset=1 purely to read the first transaction, alongside
- * fetchFirstIncomingTransfer's offset=100 walk whose page 1 re-fetches that
- * very same row. Same endpoint, same sort, same starting row — the small call
- * was pure duplication, and duplication is what costs here, because the
- * limiter counts requests (see the note on MAX_ATTEMPTS above). Folding them
- * together removes a third of the requests every score makes, and removes the
- * chance of the two halves disagreeing about which transaction came first.
+ * WHY THIS IS ONE FUNCTION (2026-08-13). It used to be two, and they ran
+ * concurrently: this ascending walk for age + funder, and
+ * estimateTransactionCount's DESCENDING walk for the tx count. Two walks over
+ * the same endpoint, for the same wallet, at the same instant — and the v1
+ * limiter answers three requests before it starts refusing (see the measured
+ * note at the top of this file). So the cheapest possible score already cost
+ * two thirds of the burst budget, and the weekly benchmark scan — 42 addresses
+ * back to back — tripped the limiter on its 5th address and then failed closed
+ * on all 37 that followed. Measured in production 2026-08-12: 15 of 17 known-
+ * good addresses came back ageDays:0 / txCount:0 / wallet_metrics_unavailable
+ * → sybil high → BLOCK, and /accuracy published that as an 88.2% false-
+ * positive rate against addresses whose only sin was being scanned late.
+ *
+ * The two walks read the SAME rows. A wallet with ≤100 transactions has its
+ * entire history on page 1, so the descending call could only ever re-fetch
+ * what the ascending call already held; a wallet with more than that saturates
+ * the count on page 1 either way. Merging them halves the request cost of every
+ * score without changing a single number either walk produced — the count is
+ * still the non-self count (self-transfers still excluded, so a wallet cannot
+ * inflate its activity by paying gas to itself), the age is still the oldest
+ * transaction, the funder is still the oldest incoming value transfer.
  *
  * Deliberately kept separate from fetchFirstIncomingTransfer, which the funder
  * indexer still uses on its own and which has no use for the first tx.
@@ -326,16 +460,14 @@ export async function fetchFirstIncomingTransfer(
 export async function fetchWalletHistoryHead(
   address: Address,
   chainId?: number,
-): Promise<{
-  firstTx: BlockscoutTx | null;
-  incoming: { funder: Address; blockNumber: bigint; timestamp: number } | null;
-}> {
+): Promise<WalletHistoryHead> {
   const pageSize = 100;
-  const maxPages = 10;
   const addressLower = address.toLowerCase();
   let firstTx: BlockscoutTx | null = null;
+  let incoming: WalletHistoryHead["incoming"] = null;
+  let nonSelfTxCount = 0;
 
-  for (let page = 1; page <= maxPages; page++) {
+  for (let page = 1; page <= MAX_HISTORY_PAGES; page++) {
     const txs = await fetchWalletTransactions(address, {
       sort: "asc",
       offset: pageSize,
@@ -346,66 +478,28 @@ export async function fetchWalletHistoryHead(
     if (txs.length === 0) break;
     if (page === 1) firstTx = txs[0] ?? null;
 
-    const incoming = txs.find(
-      (tx) => tx.to.toLowerCase() === addressLower && BigInt(tx.value) > BigInt(0),
-    );
-
-    if (incoming) {
-      return {
-        firstTx,
-        incoming: {
-          funder: incoming.from as Address,
-          blockNumber: BigInt(incoming.blockNumber),
-          timestamp: Number(incoming.timeStamp),
-        },
-      };
-    }
-
-    if (txs.length < pageSize) break;
-  }
-
-  return { firstTx, incoming: null };
-}
-
-/**
- * normalizeWalletScore (src/lib/scoring/helpers.ts) stops rewarding tx count
- * past this — 100+ and 100,000+ score identically. Paginating beyond it buys
- * nothing but request budget.
- */
-const TX_COUNT_SATURATION = 100;
-
-/**
- * 2026-08-13: このページ送りに早期終了が無かった。毎ページ満杯(100件)を返す
- * 限り、活動量に関わらず必ず20ページ＝2000件ぶんを走査していた——スコアリング
- * が txCount>=100 から先を区別しないのに。高活動ウォレット（取引所のホット
- * ウォレット等）は必ず20ページ全部を消費し、それだけで Blockscout の
- * 「~15リクエストで429」を単独で超える（このファイル冒頭の実測コメント参照）。
- * 信頼シグナルの向きが逆転する: 活動が多いほど wallet_metrics_unavailable に
- * 落ちやすくなり、fail-closed で BLOCK される。
- *
- * スコアリングが区別できる閾値に届いた時点で止める。区別できない情報を
- * 集め続けるのをやめるだけで、txCount>=100 という答え自体は変わらない。
- */
-export async function estimateTransactionCount(address: Address, chainId?: number): Promise<number> {
-  const pageSize = 100;
-  const addressLower = address.toLowerCase();
-  let nonSelf = 0;
-
-  for (let page = 1; page <= 20; page++) {
-    const txs = await fetchWalletTransactions(address, { sort: "desc", offset: pageSize, page, chainId });
-    if (txs.length === 0) break;
-
     for (const tx of txs) {
-      const involvesSelf =
-        tx.from.toLowerCase() === addressLower && tx.to.toLowerCase() === addressLower;
-      if (!involvesSelf) {
-        nonSelf++;
+      const from = tx.from.toLowerCase();
+      const to = tx.to.toLowerCase();
+      if (!(from === addressLower && to === addressLower)) {
+        nonSelfTxCount++;
+      }
+      if (!incoming && to === addressLower && BigInt(tx.value) > BigInt(0)) {
+        incoming = {
+          funder: tx.from as Address,
+          blockNumber: BigInt(tx.blockNumber),
+          timestamp: Number(tx.timeStamp),
+        };
       }
     }
 
-    if (nonSelf >= TX_COUNT_SATURATION) break;
+    // Both remaining questions are answered: the funder is known and the count
+    // has passed the last threshold scoring can distinguish. More pages cannot
+    // change any signal derived from this walk.
+    if (incoming && nonSelfTxCount >= TX_COUNT_SATURATION) break;
+    // A short page is the end of history — the count is now exact.
     if (txs.length < pageSize) break;
   }
 
-  return nonSelf;
+  return { firstTx, incoming, nonSelfTxCount };
 }

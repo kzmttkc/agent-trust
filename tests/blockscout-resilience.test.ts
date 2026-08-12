@@ -17,18 +17,35 @@
 //   2. an UNrecoverable read must STILL fail closed. Making failures rarer
 //      must never shade into making them pass.
 // ============================================================
-import { test, afterEach } from "node:test";
+import { test, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { Address } from "viem";
-import { estimateTransactionCount, fetchWalletTransactions, BlockscoutUnavailableError } from "@/lib/chain/blockscout";
+import {
+  fetchWalletHistoryHead,
+  fetchWalletTransactions,
+  resetBlockscoutRateGate,
+  BlockscoutUnavailableError,
+} from "@/lib/chain/blockscout";
 import { fetchWalletMetrics, invalidateWalletMetricsCache } from "@/lib/chain/wallet-metrics";
 
 const WALLET = "0x89e9e1ab11dd1b138b1dce6d6a4a0926aafd5029" as Address;
 const realFetch = globalThis.fetch;
 
+// Pacing is real time. Cases that are not ABOUT pacing opt out of it; the ones
+// that are set their own interval explicitly.
+beforeEach(() => {
+  process.env.BLOCKSCOUT_MIN_INTERVAL_MS = "0";
+  process.env.BLOCKSCOUT_COOLDOWN_MS = "0";
+  resetBlockscoutRateGate();
+});
+
 afterEach(() => {
   globalThis.fetch = realFetch;
   invalidateWalletMetricsCache(WALLET);
+  invalidateWalletMetricsCache(WALLET2);
+  delete process.env.BLOCKSCOUT_MIN_INTERVAL_MS;
+  delete process.env.BLOCKSCOUT_COOLDOWN_MS;
+  resetBlockscoutRateGate();
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -57,38 +74,27 @@ function rateLimited(): Response {
   );
 }
 
-test("a rate-limited request is retried instead of becoming a verdict", async () => {
+test("a network blip is retried instead of becoming a verdict", async () => {
+  // A dropped socket is not a rate limit: it carries no penalty for asking
+  // again, so it keeps the immediate retry.
   let calls = 0;
   globalThis.fetch = async () => {
     calls++;
-    // Trip once, then recover — the shape of a real blip.
-    return calls === 1 ? rateLimited() : jsonResponse({ status: "1", message: "OK", result: OK_TXS });
+    if (calls === 1) throw new TypeError("fetch failed");
+    return jsonResponse({ status: "1", message: "OK", result: OK_TXS });
   };
 
   const txs = await fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 });
-  assert.equal(calls, 2, "the 429 must be retried, not surfaced");
+  assert.equal(calls, 2, "a network error must be retried, not surfaced");
   assert.equal(txs.length, 1, "the retry's data is what the caller receives");
 });
 
-test("Blockscout's 200-with-status-0 rate-limit refusal is retried too", async () => {
-  // The same refusal is sometimes served as HTTP 200 with status:"0". Reading
-  // only the HTTP code would miss it and hand the caller a hard failure.
-  let calls = 0;
-  globalThis.fetch = async () => {
-    calls++;
-    return calls === 1
-      ? jsonResponse({ status: "0", message: "Max rate limit reached" })
-      : jsonResponse({ status: "1", message: "OK", result: OK_TXS });
-  };
-
-  const txs = await fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 });
-  assert.equal(calls, 2, "a rate-limit message must be read as transient whatever the HTTP code");
-  assert.equal(txs.length, 1);
-});
-
-test("FAIL-CLOSED: a rate limit that never clears still throws", async () => {
-  // The guard on the fix itself. Retrying must make failure rarer, never
-  // optional — an exhausted retry budget is still a failed read.
+test("a rate limit is NOT retried — retrying is what deepens the penalty box", async () => {
+  // Measured 2026-08-13: base.blockscout.com refuses the 4th rapid v1 request
+  // and then keeps refusing for 95+ seconds, with every request made while
+  // limited extending the lockout. The old policy fired three requests 250ms
+  // apart per address; across a 42-address scan that is ~126 requests spent
+  // making the outage worse. The refusal must cost exactly one request.
   let calls = 0;
   globalThis.fetch = async () => {
     calls++;
@@ -98,9 +104,61 @@ test("FAIL-CLOSED: a rate limit that never clears still throws", async () => {
   await assert.rejects(
     () => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }),
     (error: unknown) => error instanceof BlockscoutUnavailableError,
-    "a persistently rate-limited read must surface as an error, never as empty data",
+    "a rate-limited read must surface as an error, never as empty data",
   );
-  assert.ok(calls > 1 && calls <= 3, `retries must be bounded (saw ${calls} attempts)`);
+  assert.equal(calls, 1, `a 429 must not be retried (saw ${calls} upstream requests)`);
+});
+
+test("after a refusal, further requests are withheld instead of fired", async () => {
+  // The circuit breaker. Once refused, we stop spending requests we already
+  // know will be refused — but the caller still gets an error, so the verdict
+  // still fails closed. Cheaper failure, identical safety.
+  process.env.BLOCKSCOUT_COOLDOWN_MS = "60000";
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return rateLimited();
+  };
+
+  await assert.rejects(() => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }));
+  assert.equal(calls, 1);
+
+  await assert.rejects(
+    () => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }),
+    (error: unknown) =>
+      error instanceof BlockscoutUnavailableError &&
+      error.message === "blockscout_rate_limit_cooldown",
+    "a call inside the cooldown must still fail — withholding the request is not permission to pass",
+  );
+  assert.equal(calls, 1, "no second request may be fired into an open cooldown");
+});
+
+test("v1 request starts are paced so a scan cannot fire the burst that trips the limiter", async () => {
+  // The actual repair. Three back-to-back v1 requests draw a 429, and the
+  // previous code had no pacing at all: the weekly benchmark scanned 42
+  // addresses as fast as it could, tripped the limiter on the 5th, and failed
+  // closed on the remaining 37.
+  process.env.BLOCKSCOUT_MIN_INTERVAL_MS = "60";
+  resetBlockscoutRateGate();
+
+  const startedAt: number[] = [];
+  globalThis.fetch = async () => {
+    startedAt.push(Date.now());
+    return jsonResponse({ status: "1", message: "OK", result: OK_TXS });
+  };
+
+  await Promise.all([
+    fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }),
+    fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }),
+    fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }),
+    fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }),
+  ]);
+
+  assert.equal(startedAt.length, 4);
+  for (let i = 1; i < startedAt.length; i++) {
+    const gap = startedAt[i] - startedAt[i - 1];
+    assert.ok(gap >= 50, `request ${i + 1} started only ${gap}ms after the previous one`);
+  }
 });
 
 test("FAIL-CLOSED: a failed read never becomes an empty result", async () => {
@@ -146,10 +204,11 @@ test("concurrent scorers of the same wallet make ONE upstream fetch, not one eac
     fetchWalletMetrics(WALLET),
   ]);
 
-  // One metrics fetch is 2 upstream branches (history head + tx count), each of
-  // which may page. Four independent scorers would multiply that by four.
-  assert.ok(
-    upstreamCalls <= 4,
+  // One metrics fetch is now a single walk (history head + funder + tx count in
+  // one pass). Four independent scorers would multiply that by four.
+  assert.equal(
+    upstreamCalls,
+    1,
     `four concurrent scorers must share one fetch, saw ${upstreamCalls} upstream calls`,
   );
 
@@ -232,8 +291,8 @@ test("txCount の走査は、スコアリングが区別できる閾値(100)に�
     return jsonResponse({ status: "1", message: "OK", result: txPage(100) });
   };
 
-  const count = await estimateTransactionCount(WALLET2);
-  assert.ok(count >= 100, `100件到達を検出できていない (got ${count})`);
+  const head = await fetchWalletHistoryHead(WALLET2);
+  assert.ok(head.nonSelfTxCount >= 100, `100件到達を検出できていない (got ${head.nonSelfTxCount})`);
   assert.ok(
     calls <= 2,
     `100件は1ページ目で届くはずなのに ${calls} リクエスト——早期終了していない`,
@@ -250,7 +309,39 @@ test("活動が薄いウォレットは従来どおり全ページ数える(閾�
       : jsonResponse({ status: "1", message: "OK", result: [] });
   };
 
-  const count = await estimateTransactionCount(WALLET2);
-  assert.equal(count, 30);
+  const head = await fetchWalletHistoryHead(WALLET2);
+  assert.equal(head.nonSelfTxCount, 30);
   assert.equal(calls, 1, "1ページ目が満杯未満なら、そこで履歴の終わりが分かる");
+});
+
+test("自分宛の送金(self-transfer)は活動量に数えない——ガス代で活動を水増しできない", async () => {
+  // 統合前の estimateTransactionCount が持っていた性質。1つの走査にまとめても
+  // 落とさないことを固定する。
+  globalThis.fetch = async () =>
+    jsonResponse({ status: "1", message: "OK", result: [...txPage(10, true), ...txPage(3)] });
+
+  const head = await fetchWalletHistoryHead(WALLET2);
+  assert.equal(head.nonSelfTxCount, 3, "self-transfer 10件は数えてはいけない");
+});
+
+test("1回のスコアが Blockscout に投げる要求は1つ——年齢・資金元・取引数を1走査で得る", async () => {
+  // 統合前は、同じウォレットの同じ履歴に対して昇順の走査と降順の走査を
+  // 同時に投げていた。v1 は3要求で429を返すので、最安のスコア1回が
+  // バースト予算の2/3を使っていた。42件の週次スキャンが5件目で限界に触れ、
+  // 残る37件を全部 fail-closed で BLOCK にした震源がこれ。
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return jsonResponse({ status: "1", message: "OK", result: OK_TXS });
+  };
+
+  const metrics = await fetchWalletMetrics(WALLET);
+  assert.equal(calls, 1, `1スコアあたり1要求のはずが ${calls} 要求`);
+  assert.equal(metrics.ageDays, 189, "年齢は最古の取引から取れている");
+  assert.equal(metrics.txCount, 1, "取引数も同じ走査から取れている");
+  assert.equal(
+    metrics.funder?.toLowerCase(),
+    "0x1111111111111111111111111111111111111111",
+    "資金元も同じ走査から取れている",
+  );
 });

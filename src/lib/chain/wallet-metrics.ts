@@ -3,7 +3,7 @@ import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { LruCache } from "@/lib/util/lru-cache";
 import { getPublicClient } from "./client";
 import { WALLET_METRICS_CACHE_TTL_MS } from "./config";
-import { estimateTransactionCount, fetchWalletHistoryHead } from "./blockscout";
+import { fetchWalletHistoryHead } from "./blockscout";
 
 export type WalletMetrics = {
   address: Address;
@@ -88,10 +88,11 @@ async function fetchWalletMetricsUncoalesced(
   chainId?: number,
 ): Promise<WalletMetrics> {
   try {
-    const [head, txCount] = await Promise.all([
-      withTimeout(fetchWalletHistoryHead(address, chainId)),
-      withTimeout(fetchTransactionCount(address, chainId)),
-    ]);
+    // ONE walk, not two. These used to be concurrent calls over the same
+    // endpoint for the same wallet — which spent two thirds of Blockscout's
+    // burst budget on every single score. See fetchWalletHistoryHead.
+    const head = await withTimeout(fetchWalletHistoryHead(address, chainId));
+    const txCount = await resolveTransactionCount(head.nonSelfTxCount, address, chainId);
 
     const firstTxTimestamp = head.firstTx ? Number(head.firstTx.timeStamp) : null;
     const ageDays =
@@ -123,10 +124,20 @@ async function fetchWalletMetricsUncoalesced(
   }
 }
 
-async function fetchTransactionCount(address: Address, chainId?: number): Promise<number> {
-  const blockscoutCount = await estimateTransactionCount(address, chainId);
-  if (blockscoutCount > 0) {
-    return blockscoutCount;
+/**
+ * Blockscout's history walk is the primary count. Only when it reports a
+ * completely empty history do we ask the RPC for the nonce — an indexer that
+ * has not caught up looks identical to a wallet that has never transacted, and
+ * the nonce distinguishes them. Unchanged behaviour, just fed from the merged
+ * walk instead of a second round trip.
+ */
+async function resolveTransactionCount(
+  historyCount: number,
+  address: Address,
+  chainId?: number,
+): Promise<number> {
+  if (historyCount > 0) {
+    return historyCount;
   }
 
   try {
