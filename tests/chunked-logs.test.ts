@@ -275,6 +275,40 @@ test("range words echoed back inside our own request do not trigger bisection", 
   assert.equal(calls.length, 1, `expected 1 call, got ${calls.length} (echoed text caused bisection)`);
 });
 
+test("a request-shape rejection never bisects, even carrying range words", async () => {
+  // The production case (2026-08-12). A 680-block query — nowhere near any
+  // range limit — was rejected with "JSON is not a valid request object." and
+  // bisected all the way to 20-block chunks, logging `matched=text:block range`.
+  // A range keyword reached the matcher through a field the echo-stripper does
+  // not cover. Whatever that field is, the verdict is the same: if the request
+  // itself is invalid, halving the range cannot make it valid.
+  const shapeRejection = Object.assign(new Error("JSON is not a valid request object."), {
+    code: -32600,
+    shortMessage: "JSON is not a valid request object.",
+    details: "eth_getLogs block range rejected: JSON is not a valid request object.",
+  });
+
+  const { client, calls } = makeClient({ onRange: () => shapeRejection });
+  await assert.rejects(() =>
+    getLogsChunked(client, { fromBlock: 0n, toBlock: 679n }, 2_000n, 1),
+  );
+  assert.equal(calls.length, 1, `expected 1 call, got ${calls.length} (bisection amplified)`);
+});
+
+test("an auth rejection never bisects, even carrying range words", async () => {
+  const authRejection = Object.assign(new Error("HTTP request failed."), {
+    code: -32005,
+    details: "Unauthorized: block range limit applies to paid tiers only",
+  });
+
+  const { client, calls } = makeClient({ onRange: () => authRejection });
+  await assert.rejects(() =>
+    getLogsChunked(client, { fromBlock: 0n, toBlock: 9_999n }, 10_000n, 1),
+  );
+  // The -32005 code alone would have said "too wide" — the shape check wins.
+  assert.equal(calls.length, 1, `expected 1 call, got ${calls.length}`);
+});
+
 test("a provider that really does complain about the range still bisects", async () => {
   const providerComplaint = Object.assign(new Error("HTTP request failed."), {
     code: -32614,

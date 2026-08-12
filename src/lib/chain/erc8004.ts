@@ -2,7 +2,7 @@ import { type Address, isAddress, parseAbi, parseAbiItem, zeroAddress } from "vi
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { getIndexedFeedbackWindow } from "@/lib/db/feedback-index";
 import { getLogsChunked, getLogsChunkSize } from "./chunked-logs";
-import { getPublicClient } from "./client";
+import { getLogScanClient, getPublicClient } from "./client";
 import { ERC8004_ADDRESSES, IDENTITY_REGISTRY_FROM_BLOCK } from "./config";
 import { DEFAULT_CHAIN_ID, chainById } from "./chains";
 import {
@@ -238,14 +238,16 @@ function toEntries(logs: readonly FeedbackLog[]): FeedbackEntry[] {
 }
 
 async function scanFeedbackLogs(
-  client: ReturnType<typeof getPublicClient>,
+  chainId: number,
   agentId: bigint,
   fromBlock: bigint,
   toBlock: bigint | "latest",
   options?: { deadlineMs?: number },
 ): Promise<FeedbackEntry[]> {
+  // Deliberately NOT the client the rest of this file uses. The live endpoint
+  // does not answer eth_getLogs on this deployment — see getLogScanClient.
   const logs = (await getLogsChunked(
-    client,
+    getLogScanClient(chainId),
     {
       address: ERC8004_ADDRESSES.reputationRegistry,
       event: NEW_FEEDBACK_EVENT,
@@ -333,7 +335,7 @@ export async function fetchRecentFeedbackStats(
 
       const tail =
         gap > 0n
-          ? await scanFeedbackLogs(client, agentId, index.checkpoint + 1n, latestBlock, {
+          ? await scanFeedbackLogs(resolvedChainId, agentId, index.checkpoint + 1n, latestBlock, {
               deadlineMs: TAIL_SCAN_DEADLINE_MS,
             })
           : [];
@@ -347,7 +349,7 @@ export async function fetchRecentFeedbackStats(
       throw new Error("feedback_stats_unavailable");
     }
 
-    const full = await scanFeedbackLogs(client, agentId, fromBlock, "latest");
+    const full = await scanFeedbackLogs(resolvedChainId, agentId, fromBlock, "latest");
     return summarizeFeedback(full, fromBlock, windowDays);
   } catch (error) {
     throw error instanceof Error

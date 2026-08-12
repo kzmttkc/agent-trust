@@ -29,6 +29,35 @@ export function getPublicClient(chainId: number = DEFAULT_CHAIN_ID) {
   });
 }
 
+/**
+ * The endpoint that can actually serve eth_getLogs (2026-08-12).
+ *
+ * MEASURED, not assumed. On this deployment the live endpoint behind
+ * BASE_RPC_URL rejects eth_getLogs outright — it answers
+ * "JSON is not a valid request object." to a well-formed 680-block query,
+ * before range or rate limits enter into it. The indexer endpoint answered
+ * 173 consecutive chunks covering 345,600 blocks in 24.8s without a single
+ * failure. Same request shape, same chain, opposite outcome.
+ *
+ * That is the deeper half of the 2026-08-12 scoring outage: the 7-day feedback
+ * scan was not merely too many round-trips for a request budget, it was being
+ * asked of an endpoint that does not answer this method at all. Moving the
+ * scan to a nightly indexer fixed the volume; it would still have failed on
+ * the residual live read if that read kept using the live endpoint.
+ *
+ * So a log read goes where logs are served, regardless of which path is
+ * asking. This does not undo the separation below — that exists to keep BATCH
+ * volume off the live endpoint's budget, and the only live caller here is a
+ * bounded tail read (typically one chunk, hard-capped at two days of blocks
+ * with a 2.5s deadline), not a batch.
+ */
+export function getLogScanClient(chainId: number = DEFAULT_CHAIN_ID) {
+  // getIndexerPublicClient is Base-only by construction. Any other chain has
+  // no indexer endpoint configured, so its live client is all there is.
+  if (chainId === BASE_CHAIN_ID) return getIndexerPublicClient();
+  return getPublicClient(chainId);
+}
+
 /** Separate RPC endpoint for the batch indexers so they don't compete with live API traffic for the same app's CU/s budget. */
 export function getIndexerPublicClient() {
   const indexer = process.env.INDEXER_RPC_URL?.trim();

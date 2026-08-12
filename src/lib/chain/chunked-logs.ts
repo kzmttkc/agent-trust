@@ -127,6 +127,38 @@ function stripRequestEcho(message: string | undefined): string {
     .join("\n");
 }
 
+/**
+ * Failures a narrower range can NEVER fix, whatever else the error says.
+ *
+ * WHY THIS OVERRIDE EXISTS (2026-08-12, second incident). The echo-stripping
+ * below was supposed to stop our own request body from triggering bisection,
+ * and its tests pass. Production still bisected a 680-block query all the way
+ * down to 20 blocks, logging `matched=text:block range` on an error whose
+ * shortMessage was "JSON is not a valid request object." — a range keyword
+ * reached the matcher through some field the stripper does not cover.
+ *
+ * Chasing which field is the wrong fix. The invariant is simpler and does not
+ * depend on knowing: if the provider is telling us the REQUEST is malformed,
+ * or that we are not allowed to make it, then halving the block range cannot
+ * change the answer. Those verdicts are final, so they are checked first and
+ * they win — no matter what other words the message happens to contain.
+ */
+const NEVER_RANGE_PATTERNS = [
+  "not a valid request object", // provider rejects the request shape outright
+  "invalid request",
+  "parse error",
+  "method not found",
+  "method not supported",
+  "does not exist/is not available",
+  "unauthorized",
+  "invalid api key",
+  "forbidden",
+];
+
+function unfixableByBisectionReason(text: string): string | null {
+  return NEVER_RANGE_PATTERNS.find((candidate) => text.includes(candidate)) ?? null;
+}
+
 export function rangeTooWideReason(error: unknown): string | null {
   const err = error as {
     code?: number;
@@ -137,18 +169,10 @@ export function rangeTooWideReason(error: unknown): string | null {
     cause?: { code?: number; details?: string; shortMessage?: string; message?: string };
   };
 
-  if (err?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.code)) return `code:${err.code}`;
-  if (err?.cause?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.cause.code)) {
-    return `cause.code:${err.cause.code}`;
-  }
-
-  // Match the provider's complaint, not our own outgoing request. viem embeds
-  // the request URL and the FULL request body inside error.message, so a naive
-  // substring test there is really testing our own payload — and the payload
-  // of a wide scan naturally contains range-ish words. Strip those echo lines
-  // first, then match. err.message still has to be considered because plain
-  // (non-viem) errors carry their text nowhere else.
-  const text = [
+  // Checked before ANYTHING else, including the numeric codes: a provider that
+  // rejects the request shape may still attach a range-ish code or message,
+  // and bisecting on it multiplies one doomed call into ~2^depth doomed calls.
+  const shapeText = [
     err?.details,
     err?.shortMessage,
     stripRequestEcho(err?.message),
@@ -159,8 +183,21 @@ export function rangeTooWideReason(error: unknown): string | null {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+  if (unfixableByBisectionReason(shapeText)) return null;
 
-  const pattern = RANGE_TOO_WIDE_PATTERNS.find((candidate) => text.includes(candidate));
+  if (err?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.code)) return `code:${err.code}`;
+  if (err?.cause?.code !== undefined && RANGE_TOO_WIDE_CODES.has(err.cause.code)) {
+    return `cause.code:${err.cause.code}`;
+  }
+
+  // Match the provider's complaint, not our own outgoing request. viem embeds
+  // the request URL and the FULL request body inside error.message, so a naive
+  // substring test there is really testing our own payload — and the payload
+  // of a wide scan naturally contains range-ish words. Those echo lines are
+  // stripped in shapeText above, which is the same text matched here.
+  // err.message still has to be considered because plain (non-viem) errors
+  // carry their text nowhere else.
+  const pattern = RANGE_TOO_WIDE_PATTERNS.find((candidate) => shapeText.includes(candidate));
   return pattern ? `text:${pattern}` : null;
 }
 
