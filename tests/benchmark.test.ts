@@ -21,7 +21,12 @@ import {
   computeBenchmarkReport,
   type BenchmarkRow,
 } from "@/lib/scoring/benchmark-report";
-import { benchmarkScanFailed, cooldownWaitMs, entryBudgetMs } from "@/lib/benchmark/runner";
+import {
+  benchmarkScanFailed,
+  cooldownWaitMs,
+  entryBudgetMs,
+  orderByStaleness,
+} from "@/lib/benchmark/runner";
 
 // ---------- dataset integrity ----------
 
@@ -245,4 +250,44 @@ test("クールダウン中は次の1件を始めない（ただし総予算は�
     cooldownWaitMs({ cooldownRemainingMs: 10_000, elapsedMs: 250_000, totalBudgetMs: 240_000 }),
     0,
   );
+});
+
+// ============================================================
+// 2026-08-13: 走査は常に index 0 から始まっていた。上流が1走行で許す
+// 読み取りは実測9〜10件、対象は42件——先頭だけが繰り返し測られ、
+// 後半24件は永久に測られない（実測 skipped:24）。
+// ============================================================
+test("走査は古い順（未走査が最優先）に並ぶ——同じ先頭を測り直し続けない", () => {
+  const now = Date.now();
+  const last = new Map<string, number>();
+  // 先頭付近を「たった今測った」ことにする
+  for (const e of BENCHMARK_DATASET.slice(0, 20)) last.set(e.address, now);
+
+  const order = orderByStaleness(BENCHMARK_DATASET, last);
+
+  assert.equal(order.length, BENCHMARK_DATASET.length, "件数は変わらない");
+  assert.equal(
+    new Set(order.map((e) => e.address)).size,
+    BENCHMARK_DATASET.length,
+    "重複も欠落もない",
+  );
+
+  // 直近で測った20件は、後ろへ回る
+  const freshAddresses = new Set(BENCHMARK_DATASET.slice(0, 20).map((e) => e.address));
+  const firstTen = order.slice(0, 10);
+  const staleInFirstTen = firstTen.filter((e) => !freshAddresses.has(e.address)).length;
+  assert.ok(
+    staleInFirstTen >= 8,
+    `先頭10件のうち未走査は ${staleInFirstTen} 件しかない——古い順になっていない`,
+  );
+});
+
+test("古い順に並べ替えても bad/good は交互のまま（打ち切られても両クラスを標本する）", () => {
+  const order = orderByStaleness(BENCHMARK_DATASET, new Map());
+  const firstEight = order.slice(0, 8).map((e) => e.label);
+  assert.ok(firstEight.includes("bad"), "先頭8件に bad が居ない");
+  assert.ok(firstEight.includes("good"), "先頭8件に good が居ない");
+  for (let i = 1; i < firstEight.length; i++) {
+    assert.notEqual(firstEight[i], firstEight[i - 1], `${i} 番目で同じクラスが連続している`);
+  }
 });

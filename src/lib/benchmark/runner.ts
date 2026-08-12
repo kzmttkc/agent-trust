@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { blockscoutCooldownRemainingMs } from "@/lib/chain/blockscout";
 import { getDb } from "@/lib/db/client";
 import { trustEvents, verdictOutcomes } from "@/lib/db/schema";
@@ -140,6 +141,10 @@ export async function runBenchmarkScan(options?: {
     return result;
   }
 
+  // 古い順（未走査が最優先）。1回で全部測れない以上、毎回先頭から始めるのは
+  // 後半を永久に測らないのと同じ。
+  const order = orderByStaleness(BENCHMARK_DATASET, await readLastScannedAt());
+
   for (let i = 0; i < limit; i++) {
     // Blockscout の制限に触れている間は、次の1件を始めない（2026-08-13）。
     //
@@ -160,10 +165,10 @@ export async function runBenchmarkScan(options?: {
       result.skipped = limit - i;
       break;
     }
-    const entry = BENCHMARK_DATASET[i];
+    const entry = order[i];
     try {
       result.scanned += 1;
-      const recorded = await scoreAndRecord(entry, () => Date.now() - started, budget);
+      const recorded = await scoreAndRecord(entry, () => Date.now() - started, budget, Date.now());
       if (recorded) result.recorded += 1;
       else result.errors += 1;
     } catch (error) {
@@ -196,13 +201,83 @@ function isUnmeasured(score: { signals?: { sybil?: { flags?: string[] } } }): bo
 /** 1件を測り直してよい回数。上流の制限は指数的に伸びるので、数回で足りる。 */
 const MAX_ENTRY_ATTEMPTS = 4;
 
+/**
+ * 1件が測り直しに使ってよい総時間（2026-08-13 実測）。
+ *
+ * 上限が無かったとき、7.7M件の取引を持つ Coinbase のアドレス1件が
+ * 240秒の予算のうち110秒を測り直しに使い、それでも読めず、残り24件が
+ * 丸ごと skipped になった。1件の頑固さが走行全体を食う構造を閉じる——
+ * 読めなかったアドレスは、次の走行で最優先に回る（下の staleness 順）。
+ */
+const PER_ENTRY_TOTAL_MAX_MS = 45_000;
+
+/**
+ * 走査順を「最後に測ってからの古さ」で決める。
+ *
+ * WHY（2026-08-13）。この走査は常に index 0 から始まっていた。上流が1走行で
+ * 許す読み取りは実測で9〜10件しかないのに、対象は42件ある——つまり先頭の
+ * 9件だけが何度も測り直され、後半24件は**永久に測られない**。前回の走行で
+ * 実際にそうなった（skipped:24）。1回の呼び出しで全部測ろうとしたことが
+ * 間違いで、/accuracy は元々「各アドレスの最新の走査を1回だけ数える」と
+ * 定義されているのだから、走査は分割して積み上がってよい。
+ *
+ * 古い順に並べ替えつつ、bad と good を交互に出す——truncate された走行でも
+ * 両方のクラスを標本できるという、interleave が元々持っていた性質を壊さない。
+ */
+export function orderByStaleness(
+  dataset: readonly BenchmarkEntry[],
+  lastScannedAt: ReadonlyMap<string, number>,
+): BenchmarkEntry[] {
+  const staleness = (entry: BenchmarkEntry): number =>
+    lastScannedAt.get(entry.address.toLowerCase()) ?? 0; // 未走査は最優先
+  const byStaleness = (a: BenchmarkEntry, b: BenchmarkEntry): number =>
+    staleness(a) - staleness(b) || a.address.localeCompare(b.address);
+
+  const bad = dataset.filter((e) => e.label === "bad").sort(byStaleness);
+  const good = dataset.filter((e) => e.label === "good").sort(byStaleness);
+
+  const out: BenchmarkEntry[] = [];
+  for (let i = 0; i < Math.max(bad.length, good.length); i++) {
+    if (i < bad.length) out.push(bad[i]);
+    if (i < good.length) out.push(good[i]);
+  }
+  return out;
+}
+
 /** Score one entry and persist verdict + ground-truth outcome. Returns false
  *  (instead of throwing) when the write path degraded, so the caller can
  *  count it without double-logging. */
+/**
+ * 各ベンチマークアドレスを最後に走査した時刻（ms）。読めなければ空の地図を
+ * 返す——その場合は全件が「未走査」扱いになり、従来どおり先頭から走る。
+ */
+async function readLastScannedAt(): Promise<Map<string, number>> {
+  const db = getDb();
+  const out = new Map<string, number>();
+  if (!db) return out;
+  try {
+    const rows = await db.execute(sql`
+      SELECT lower(wallet) AS wallet, MAX(created_at) AS last_at
+      FROM trust_events
+      WHERE signals->>'kind' = ${BENCHMARK_SEED_KIND} AND wallet IS NOT NULL
+      GROUP BY lower(wallet)
+    `);
+    for (const row of rows as unknown as Array<{ wallet: string; last_at: string | Date }>) {
+      const at = new Date(row.last_at).getTime();
+      if (Number.isFinite(at)) out.set(row.wallet, at);
+    }
+  } catch (error) {
+    // 未マイグレーションのスキーマはログ1行に落とす（このモジュール群の作法）。
+    logServerError("benchmark_last_scanned", error);
+  }
+  return out;
+}
+
 async function scoreAndRecord(
   entry: BenchmarkEntry,
   elapsedMs: () => number,
   totalBudgetMs: number,
+  entryStartedAt: number,
 ): Promise<boolean> {
   const db = getDb();
   if (!db) return false;
@@ -230,6 +305,8 @@ async function scoreAndRecord(
     // 「読めない」なので、そのまま fail-closed の verdict として記録する。
     if (blockscoutCooldownRemainingMs() <= 0) break;
     if (attempt === MAX_ENTRY_ATTEMPTS) break;
+    // 1件が走行全体を食わない。諦めた1件は次の走行で最優先に回る。
+    if (Date.now() - entryStartedAt >= PER_ENTRY_TOTAL_MAX_MS) break;
     await waitOutBlockscoutCooldown(elapsedMs, totalBudgetMs);
     // スコアはキャッシュされていない（degraded な verdict はキャッシュしない）ので
     // 測り直しは本当に読み直しになる。
