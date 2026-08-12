@@ -83,8 +83,22 @@ const RETRY_BASE_MS = 250;
  *  tripped (measured 2026-08-13, 21:44:54-21:45:09Z), so the budget is a slow
  *  refill rather than a per-second rate. Spaced further out accordingly. */
 const DEFAULT_V1_MIN_INTERVAL_MS = 2_500;
-/** How long to stop issuing v1 requests after a refusal is observed. */
-const DEFAULT_V1_COOLDOWN_MS = 10_000;
+/**
+ * How long to stop issuing v1 requests after a refusal is observed.
+ *
+ * ESCALATING, because the limiter is a penalty box that COUNTS the requests
+ * made while it is shut. Measured 2026-08-13 in production: a flat 10s cooldown
+ * left the scan poking the box every 10 seconds, and it never reopened — the
+ * poke itself kept renewing the lockout, so 9 addresses read cleanly and the
+ * next 8 all recorded "unavailable" while the box stayed shut for the rest of
+ * the run. Locally the same box stayed shut for 95+ seconds under 5s polling.
+ *
+ * So each consecutive refusal doubles the wait, and the first success resets
+ * it. If the block was a blip we are back within seconds; if it is a real
+ * lockout we stop feeding it.
+ */
+const DEFAULT_V1_COOLDOWN_MS = 15_000;
+const MAX_V1_COOLDOWN_MS = 120_000;
 
 function envMs(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -116,6 +130,7 @@ function sleep(ms: number): Promise<void> {
 let gateTail: Promise<unknown> = Promise.resolve();
 let lastRequestStartedAt = 0;
 let rateLimitCooldownUntil = 0;
+let consecutiveRefusals = 0;
 
 /** Milliseconds remaining before v1 requests may resume. 0 = go. */
 function cooldownRemainingMs(): number {
@@ -138,8 +153,16 @@ export function blockscoutCooldownRemainingMs(): number {
 }
 
 function openRateLimitCooldown(): void {
-  const cooldown = envMs("BLOCKSCOUT_COOLDOWN_MS", DEFAULT_V1_COOLDOWN_MS);
-  rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + cooldown);
+  const base = envMs("BLOCKSCOUT_COOLDOWN_MS", DEFAULT_V1_COOLDOWN_MS);
+  const cap = envMs("BLOCKSCOUT_COOLDOWN_MAX_MS", MAX_V1_COOLDOWN_MS);
+  consecutiveRefusals++;
+  const backoff = Math.min(base * 2 ** (consecutiveRefusals - 1), cap);
+  rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + backoff);
+}
+
+/** A completed read means the box is open again — start the ladder over. */
+function noteRequestSucceeded(): void {
+  consecutiveRefusals = 0;
 }
 
 async function passRateGate(): Promise<void> {
@@ -161,6 +184,7 @@ export function resetBlockscoutRateGate(): void {
   gateTail = Promise.resolve();
   lastRequestStartedAt = 0;
   rateLimitCooldownUntil = 0;
+  consecutiveRefusals = 0;
 }
 
 function getBlockscoutBaseUrl(chainId?: number): string {
@@ -242,10 +266,12 @@ async function blockscoutGetOnce<T>(
   }
 
   if (data.status === "1" && data.result) {
+    noteRequestSucceeded();
     return data.result;
   }
 
   if (isEmptyResultMessage(data.message ?? "")) {
+    noteRequestSucceeded();
     return null;
   }
 

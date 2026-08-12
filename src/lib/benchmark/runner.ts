@@ -163,7 +163,7 @@ export async function runBenchmarkScan(options?: {
     const entry = BENCHMARK_DATASET[i];
     try {
       result.scanned += 1;
-      const recorded = await scoreAndRecord(entry, entryBudget);
+      const recorded = await scoreAndRecord(entry, () => Date.now() - started, budget);
       if (recorded) result.recorded += 1;
       else result.errors += 1;
     } catch (error) {
@@ -176,10 +176,34 @@ export async function runBenchmarkScan(options?: {
   return result;
 }
 
+/**
+ * この verdict は「このアドレスについての判定」なのか、それとも
+ * 「自分のスキャンが上流を食い潰した結果」なのか。
+ *
+ * 後者を記録してはいけない。ベンチマークが測るのはエンジンの識別力であって、
+ * 42件を連続で走らせた自分のスキャンが Blockscout の制限に触れたかどうかでは
+ * ない。実際の顧客は1件だけ引くのでこの状態を作れない——つまり自分だけが
+ * 作り出した負荷の結果を「エンジンの誤検知率」として /accuracy に載せていた。
+ * 計測できなかったものは、計測できるまで測り直す（予算の範囲で）。
+ *
+ * ライブのスコアはこの区別を持たない。読めなければ BLOCK——それが正しい。
+ */
+function isUnmeasured(score: { signals?: { sybil?: { flags?: string[] } } }): boolean {
+  const flags = score.signals?.sybil?.flags ?? [];
+  return flags.some((flag) => flag.endsWith("_unavailable"));
+}
+
+/** 1件を測り直してよい回数。上流の制限は指数的に伸びるので、数回で足りる。 */
+const MAX_ENTRY_ATTEMPTS = 4;
+
 /** Score one entry and persist verdict + ground-truth outcome. Returns false
  *  (instead of throwing) when the write path degraded, so the caller can
  *  count it without double-logging. */
-async function scoreAndRecord(entry: BenchmarkEntry, budgetMs: number): Promise<boolean> {
+async function scoreAndRecord(
+  entry: BenchmarkEntry,
+  elapsedMs: () => number,
+  totalBudgetMs: number,
+): Promise<boolean> {
   const db = getDb();
   if (!db) return false;
 
@@ -189,7 +213,28 @@ async function scoreAndRecord(entry: BenchmarkEntry, budgetMs: number): Promise<
   //
   // 遅さは失敗として扱う。deadline を超えた1件は errors に数えられ、次の1件へ
   // 進む——「1件が終わらないので run ごと殺される」を構造的に起こさせない。
-  const score = await withDeadline(scoreWallet(entry.address, {}), budgetMs, "benchmark_score");
+  let score: Awaited<ReturnType<typeof scoreWallet>> | null = null;
+  for (let attempt = 1; attempt <= MAX_ENTRY_ATTEMPTS; attempt++) {
+    const budgetMs = entryBudgetMs({
+      elapsedMs: elapsedMs(),
+      totalBudgetMs,
+      perEntryMaxMs: PER_ENTRY_MAX_MS,
+    });
+    if (budgetMs <= 0) break;
+
+    score = await withDeadline(scoreWallet(entry.address, {}), budgetMs, "benchmark_score");
+    if (!isUnmeasured(score)) break;
+
+    // 上流の制限で読めなかっただけなら、明けるのを待って測り直す。
+    // 制限が閉じていない（=別の理由で読めない）なら、それは本物の
+    // 「読めない」なので、そのまま fail-closed の verdict として記録する。
+    if (blockscoutCooldownRemainingMs() <= 0) break;
+    if (attempt === MAX_ENTRY_ATTEMPTS) break;
+    await waitOutBlockscoutCooldown(elapsedMs, totalBudgetMs);
+    // スコアはキャッシュされていない（degraded な verdict はキャッシュしない）ので
+    // 測り直しは本当に読み直しになる。
+  }
+  if (!score) return false;
 
   try {
     const inserted = await db

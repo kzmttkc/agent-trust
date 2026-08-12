@@ -1,8 +1,10 @@
 // ============================================================
 // Vouch — Blockscout is the single source of wallet age / tx-count / funder
-// data, and it rate-limits. Measured 2026-08-12 against base.blockscout.com:
-// a burst shaped like the one a score produces starts drawing HTTP 429
-// "Too many requests" after ~15 requests and keeps drawing it for a while.
+// data, and it rate-limits. Re-measured 2026-08-13 against base.blockscout.com,
+// and it is far harsher than the "~15 requests" this header used to claim:
+// the v1 endpoint refuses the 4th rapid request and then keeps refusing for
+// 95+ seconds, with every request made while limited RENEWING the lockout.
+// The v2 endpoints on the same host have a separate, permissive limiter.
 //
 // That is what took the showcase agent to 48/BLOCK with sybilRisk:"high" and
 // walletAgeDays 0, held across three independent recomputations: every
@@ -24,6 +26,7 @@ import {
   fetchWalletHistoryHead,
   fetchWalletTransactions,
   resetBlockscoutRateGate,
+  blockscoutCooldownRemainingMs,
   BlockscoutUnavailableError,
 } from "@/lib/chain/blockscout";
 import { fetchWalletMetrics, invalidateWalletMetricsCache } from "@/lib/chain/wallet-metrics";
@@ -401,4 +404,47 @@ test("FAIL-CLOSED: v2 が0以外を返しても、v1 が読めなければ通さ
     (error: unknown) => (error as Error)?.message === "wallet_metrics_unavailable",
     "v2 が数字を返したことを、ウォレットを読めた証拠に使ってはいけない",
   );
+});
+
+test("拒否が続くとクールダウンは伸びる（一定間隔で突きつづけない）", async () => {
+  // 実測(2026-08-13 本番): 一定10秒のクールダウンでは箱が開かなかった。
+  // 制限中の要求そのものがロックアウトを更新するので、同じ間隔で突き続ける
+  // かぎり永久に閉じたままになる。連続拒否ごとに倍にして、成功で戻す。
+  process.env.BLOCKSCOUT_COOLDOWN_MS = "1000";
+  process.env.BLOCKSCOUT_COOLDOWN_MAX_MS = "60000";
+  resetBlockscoutRateGate();
+  globalThis.fetch = async () => rateLimited();
+
+  await assert.rejects(() => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }));
+  const first = blockscoutCooldownRemainingMs();
+  assert.ok(first > 0 && first <= 1000, `初回のクールダウンが ${first}ms`);
+
+  // クールダウンを明かして、もう一度拒否させる
+  resetBlockscoutRateGate();
+  process.env.BLOCKSCOUT_COOLDOWN_MS = "1000";
+  await assert.rejects(() => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }));
+  await assert.rejects(
+    () => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }),
+    (e: unknown) => (e as Error).message === "blockscout_rate_limit_cooldown",
+  );
+});
+
+test("成功したらクールダウンの段は最初に戻る", async () => {
+  process.env.BLOCKSCOUT_COOLDOWN_MS = "1000";
+  resetBlockscoutRateGate();
+  let phase: "fail" | "ok" = "fail";
+  globalThis.fetch = async () =>
+    phase === "fail" ? rateLimited() : jsonResponse({ status: "1", message: "OK", result: OK_TXS });
+
+  await assert.rejects(() => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }));
+  phase = "ok";
+  resetBlockscoutRateGate();
+  process.env.BLOCKSCOUT_COOLDOWN_MS = "1000";
+  await fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 });
+
+  // 成功後の初回拒否は、また1段目からやり直しになる
+  phase = "fail";
+  await assert.rejects(() => fetchWalletTransactions(WALLET, { sort: "asc", offset: 1 }));
+  const after = blockscoutCooldownRemainingMs();
+  assert.ok(after > 0 && after <= 1000, `成功で段が戻っていない (${after}ms)`);
 });
