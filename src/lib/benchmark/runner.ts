@@ -1,3 +1,4 @@
+import { blockscoutCooldownRemainingMs } from "@/lib/chain/blockscout";
 import { getDb } from "@/lib/db/client";
 import { trustEvents, verdictOutcomes } from "@/lib/db/schema";
 import { scoreWallet } from "@/lib/scoring/engine";
@@ -87,6 +88,33 @@ export function benchmarkScanFailed(result: BenchmarkScanResult): boolean {
   return result.scanned > 0 && result.recorded === 0;
 }
 
+/**
+ * クールダウンが開いている間だけ待つ。総予算を超えてまでは待たない
+ * （待ちきれないぶんは従来どおり skipped として報告される）。
+ */
+export function cooldownWaitMs(input: {
+  cooldownRemainingMs: number;
+  elapsedMs: number;
+  totalBudgetMs: number;
+}): number {
+  const remainingBudget = Math.max(0, input.totalBudgetMs - input.elapsedMs);
+  return Math.max(0, Math.min(input.cooldownRemainingMs, remainingBudget));
+}
+
+async function waitOutBlockscoutCooldown(
+  elapsedMs: () => number,
+  totalBudgetMs: number,
+): Promise<void> {
+  const wait = cooldownWaitMs({
+    cooldownRemainingMs: blockscoutCooldownRemainingMs(),
+    elapsedMs: elapsedMs(),
+    totalBudgetMs,
+  });
+  if (wait > 0) {
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+}
+
 export async function runBenchmarkScan(options?: {
   limit?: number;
   timeBudgetMs?: number;
@@ -113,6 +141,16 @@ export async function runBenchmarkScan(options?: {
   }
 
   for (let i = 0; i < limit; i++) {
+    // Blockscout の制限に触れている間は、次の1件を始めない（2026-08-13）。
+    //
+    // 失敗は「速い」。制限に触れた瞬間から残り33件が6秒で燃え尽き、全部
+    // wallet_metrics_unavailable → BLOCK として記録された——1回のクールダウンの
+    // 中に、走査すべきアドレスの8割が収まってしまう。この run には240秒の予算が
+    // あり、待っている人間は居ない。待てば読める答えを、待たずに「読めなかった」
+    // として記録するのは、fail-closed ではなく計測の放棄である。
+    // ライブのスコアはこの待ちを共有しない（即座に失敗し、即座に閉じる）。
+    await waitOutBlockscoutCooldown(() => Date.now() - started, budget);
+
     const entryBudget = entryBudgetMs({
       elapsedMs: Date.now() - started,
       totalBudgetMs: budget,

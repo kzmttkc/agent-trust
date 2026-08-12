@@ -79,8 +79,10 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 250;
 
 /** Minimum spacing between v1 request STARTS. 3 rapid requests trip the
- *  limiter, so stay well under one per second. */
-const DEFAULT_V1_MIN_INTERVAL_MS = 1_500;
+ *  limiter; 1.5s spacing got 9 addresses through a production scan before it
+ *  tripped (measured 2026-08-13, 21:44:54-21:45:09Z), so the budget is a slow
+ *  refill rather than a per-second rate. Spaced further out accordingly. */
+const DEFAULT_V1_MIN_INTERVAL_MS = 2_500;
 /** How long to stop issuing v1 requests after a refusal is observed. */
 const DEFAULT_V1_COOLDOWN_MS = 10_000;
 
@@ -118,6 +120,21 @@ let rateLimitCooldownUntil = 0;
 /** Milliseconds remaining before v1 requests may resume. 0 = go. */
 function cooldownRemainingMs(): number {
   return Math.max(0, rateLimitCooldownUntil - Date.now());
+}
+
+/**
+ * How long until v1 reads are worth attempting again.
+ *
+ * Exported for callers that can afford to WAIT rather than fail — the weekly
+ * benchmark scan has a 240s budget and nobody on the other end of it, so
+ * pausing is strictly better than recording 33 fail-closed BLOCKs (measured
+ * 2026-08-13: the scan tripped the limiter on its 10th address and then burned
+ * every remaining entry inside a single cooldown, because failing fast is
+ * instant). Live scoring must keep failing fast instead — a caller waiting on
+ * an x402 verdict cannot be held for ten seconds.
+ */
+export function blockscoutCooldownRemainingMs(): number {
+  return cooldownRemainingMs();
 }
 
 function openRateLimitCooldown(): void {
@@ -418,6 +435,49 @@ const TX_COUNT_SATURATION = 100;
  *  pages are almost entirely self-transfers; everything else saturates or runs
  *  out of history on page 1. */
 const MAX_HISTORY_PAGES = 10;
+
+/**
+ * Total transaction count from Blockscout's v2 `/addresses/{a}/counters`.
+ * Returns null when the answer cannot be obtained — never a number it made up.
+ *
+ * WHY A SECOND ENDPOINT (2026-08-13). The v1 etherscan-compatible API and the
+ * v2 API on the same host are governed by SEPARATE limiters, and they are not
+ * close: v1 refuses the 4th rapid request and then sulks for 95+ seconds, while
+ * 17 consecutive v2 counter reads with no pacing whatsoever all returned 200 —
+ * measured while v1 was still refusing everything.
+ *
+ * This is used for exactly one decision: "does this address have any history on
+ * this chain at all?". 25 of the benchmark's 42 addresses are OFAC-listed
+ * mainnet addresses with zero Base activity, and asking v1 to page through an
+ * empty history spent 25 of the scarcest requests in the system to be told
+ * nothing. A zero here is a real answer from the same source of truth, and it
+ * is the answer the v1 walk would have produced (no first tx, no funder, no
+ * transactions) — so the walk is skipped, not guessed at.
+ *
+ * A WRONG zero would read as a brand-new wallet, which scores DOWN
+ * (new_burner_wallet) — the safe direction. A missing answer falls through to
+ * the v1 walk, and if that fails too the caller still fails closed.
+ */
+export async function fetchAddressTransactionCount(
+  address: Address,
+  chainId?: number,
+): Promise<number | null> {
+  const base = getBlockscoutBaseUrl(chainId).replace(/\/+$/, "");
+  try {
+    const response = await fetch(`${base}/v2/addresses/${address}/counters`, {
+      headers: { Accept: "application/json" },
+      next: { revalidate: 0 },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { transactions_count?: string | number };
+    const raw = data?.transactions_count;
+    if (raw === undefined || raw === null) return null;
+    const count = Number(raw);
+    return Number.isFinite(count) && count >= 0 ? count : null;
+  } catch {
+    return null;
+  }
+}
 
 export interface WalletHistoryHead {
   /** Oldest transaction on this chain — the wallet's age. */

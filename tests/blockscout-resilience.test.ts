@@ -190,12 +190,11 @@ test("concurrent scorers of the same wallet make ONE upstream fetch, not one eac
   // four simultaneous fetch storms into a rate limiter — and four independently
   // computed answers that can disagree, which is exactly how one agent showed
   // ALLOW on its own page and BLOCK on the passport it links to.
-  let upstreamCalls = 0;
-  globalThis.fetch = async () => {
-    upstreamCalls++;
-    await new Promise((r) => setTimeout(r, 20));
-    return jsonResponse({ status: "1", message: "OK", result: OK_TXS });
-  };
+  const seen = countingFetch((url) =>
+    url.includes("/v2/")
+      ? jsonResponse({ transactions_count: "1" })
+      : jsonResponse({ status: "1", message: "OK", result: OK_TXS }),
+  );
 
   const results = await Promise.all([
     fetchWalletMetrics(WALLET),
@@ -207,9 +206,9 @@ test("concurrent scorers of the same wallet make ONE upstream fetch, not one eac
   // One metrics fetch is now a single walk (history head + funder + tx count in
   // one pass). Four independent scorers would multiply that by four.
   assert.equal(
-    upstreamCalls,
+    seen.v1,
     1,
-    `four concurrent scorers must share one fetch, saw ${upstreamCalls} upstream calls`,
+    `four concurrent scorers must share one fetch, saw ${seen.v1} v1 calls`,
   );
 
   const first = JSON.stringify(results[0]);
@@ -324,24 +323,82 @@ test("自分宛の送金(self-transfer)は活動量に数えない——ガス�
   assert.equal(head.nonSelfTxCount, 3, "self-transfer 10件は数えてはいけない");
 });
 
-test("1回のスコアが Blockscout に投げる要求は1つ——年齢・資金元・取引数を1走査で得る", async () => {
+/** v1(/api?module=...) と v2(/api/v2/...) は別のレート制限に属する。
+ *  数えるべきは希少なほうの v1。JSON-RPC は Blockscout ではないので別勘定。 */
+function countingFetch(handler: (url: string) => Response) {
+  const seen = { v1: 0, v2: 0, other: 0 };
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/v2/")) seen.v2++;
+    else if (url.includes("module=")) seen.v1++;
+    else seen.other++;
+    return handler(url);
+  }) as typeof fetch;
+  return seen;
+}
+
+test("1回のスコアが v1 に投げる要求は1つ——年齢・資金元・取引数を1走査で得る", async () => {
   // 統合前は、同じウォレットの同じ履歴に対して昇順の走査と降順の走査を
   // 同時に投げていた。v1 は3要求で429を返すので、最安のスコア1回が
   // バースト予算の2/3を使っていた。42件の週次スキャンが5件目で限界に触れ、
   // 残る37件を全部 fail-closed で BLOCK にした震源がこれ。
-  let calls = 0;
-  globalThis.fetch = async () => {
-    calls++;
-    return jsonResponse({ status: "1", message: "OK", result: OK_TXS });
-  };
+  const seen = countingFetch((url) =>
+    url.includes("/v2/")
+      ? jsonResponse({ transactions_count: "1" })
+      : jsonResponse({ status: "1", message: "OK", result: OK_TXS }),
+  );
 
   const metrics = await fetchWalletMetrics(WALLET);
-  assert.equal(calls, 1, `1スコアあたり1要求のはずが ${calls} 要求`);
+  assert.equal(seen.v1, 1, `1スコアあたり v1 は1要求のはずが ${seen.v1} 要求`);
   assert.equal(metrics.ageDays, 189, "年齢は最古の取引から取れている");
   assert.equal(metrics.txCount, 1, "取引数も同じ走査から取れている");
   assert.equal(
     metrics.funder?.toLowerCase(),
     "0x1111111111111111111111111111111111111111",
     "資金元も同じ走査から取れている",
+  );
+});
+
+test("そのチェーンに履歴が無いアドレスは、希少な v1 を1要求も使わない", async () => {
+  // ベンチマーク42件のうち25件は Base に一切活動が無い OFAC アドレス。
+  // 空の履歴をページ送りさせるために、系内で最も希少な要求を25回使っていた。
+  const seen = countingFetch((url) =>
+    url.includes("/v2/")
+      ? jsonResponse({ transactions_count: "0" })
+      : jsonResponse({ status: "1", message: "OK", result: OK_TXS }),
+  );
+
+  const metrics = await fetchWalletMetrics(WALLET);
+  assert.equal(seen.v2, 1, "v2 のカウンタは1回だけ引く");
+  assert.equal(seen.v1, 0, `履歴が無いと分かっているのに v1 を ${seen.v1} 回使っている`);
+  assert.equal(metrics.txCount, 0);
+  assert.equal(metrics.ageDays, 0);
+  assert.equal(metrics.funder, null);
+});
+
+test("v2 が答えられないときは v1 の走査に落ちる（推測で0にしない）", async () => {
+  const seen = countingFetch((url) =>
+    url.includes("/v2/")
+      ? jsonResponse({ error: "nope" }, 503)
+      : jsonResponse({ status: "1", message: "OK", result: OK_TXS }),
+  );
+
+  const metrics = await fetchWalletMetrics(WALLET);
+  assert.equal(seen.v1, 1, "v2 が落ちたら v1 で読みにいく");
+  assert.equal(metrics.txCount, 1, "0 と誤認していない");
+  assert.equal(metrics.ageDays, 189);
+});
+
+test("FAIL-CLOSED: v2 が0以外を返しても、v1 が読めなければ通さない", async () => {
+  // v2 の総数は「履歴が空か」の判定にだけ使う。年齢も資金元もそこからは
+  // 分からないので、v1 が読めない限り verdict は成立しない。
+  countingFetch((url) =>
+    url.includes("/v2/") ? jsonResponse({ transactions_count: "5000" }) : rateLimited(),
+  );
+
+  await assert.rejects(
+    () => fetchWalletMetrics(WALLET),
+    (error: unknown) => (error as Error)?.message === "wallet_metrics_unavailable",
+    "v2 が数字を返したことを、ウォレットを読めた証拠に使ってはいけない",
   );
 });

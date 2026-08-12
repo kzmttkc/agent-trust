@@ -3,7 +3,7 @@ import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { LruCache } from "@/lib/util/lru-cache";
 import { getPublicClient } from "./client";
 import { WALLET_METRICS_CACHE_TTL_MS } from "./config";
-import { fetchWalletHistoryHead } from "./blockscout";
+import { fetchAddressTransactionCount, fetchWalletHistoryHead } from "./blockscout";
 
 export type WalletMetrics = {
   address: Address;
@@ -88,10 +88,19 @@ async function fetchWalletMetricsUncoalesced(
   chainId?: number,
 ): Promise<WalletMetrics> {
   try {
+    // Ask the cheap, separately-rate-limited v2 counter first: an address with
+    // no history on this chain needs no walk at all, and 25 of the benchmark's
+    // 42 addresses are exactly that. Only a definite zero short-circuits — a
+    // null (v2 unreachable) falls through to the walk, which still fails closed.
+    const totalTxCount = await withTimeout(fetchAddressTransactionCount(address, chainId));
+
     // ONE walk, not two. These used to be concurrent calls over the same
     // endpoint for the same wallet — which spent two thirds of Blockscout's
     // burst budget on every single score. See fetchWalletHistoryHead.
-    const head = await withTimeout(fetchWalletHistoryHead(address, chainId));
+    const head =
+      totalTxCount === 0
+        ? { firstTx: null, incoming: null, nonSelfTxCount: 0 }
+        : await withTimeout(fetchWalletHistoryHead(address, chainId));
     const txCount = await resolveTransactionCount(head.nonSelfTxCount, address, chainId);
 
     const firstTxTimestamp = head.firstTx ? Number(head.firstTx.timeStamp) : null;

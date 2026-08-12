@@ -21,7 +21,7 @@ import {
   computeBenchmarkReport,
   type BenchmarkRow,
 } from "@/lib/scoring/benchmark-report";
-import { benchmarkScanFailed, entryBudgetMs } from "@/lib/benchmark/runner";
+import { benchmarkScanFailed, cooldownWaitMs, entryBudgetMs } from "@/lib/benchmark/runner";
 
 // ---------- dataset integrity ----------
 
@@ -216,4 +216,33 @@ test("走査したのに1行も記録できなかった run は成功ではな�
 
 test("DB未設定で1件も走査しなかった run は失敗扱いにしない（既存の degrade-to-no-op を壊さない）", () => {
   assert.equal(benchmarkScanFailed({ scanned: 0, recorded: 0, errors: 0, skipped: 42, datasetVersion: 1 }), false);
+});
+
+// ============================================================
+// 2026-08-13: 制限に触れた瞬間、残り33件が6秒で燃え尽きた。
+// 失敗は速い——1回のクールダウン(10秒)の中に、走査すべきアドレスの8割が
+// 収まってしまい、全部「読めなかった」として BLOCK で記録された。
+// この run には240秒の予算があり、待っている人間は居ない。
+// ============================================================
+test("クールダウン中は次の1件を始めない（ただし総予算は超えない）", () => {
+  // 制限中: 残り予算があるだけ待つ
+  assert.equal(
+    cooldownWaitMs({ cooldownRemainingMs: 10_000, elapsedMs: 30_000, totalBudgetMs: 240_000 }),
+    10_000,
+  );
+  // 制限が明けている: 待たない
+  assert.equal(
+    cooldownWaitMs({ cooldownRemainingMs: 0, elapsedMs: 30_000, totalBudgetMs: 240_000 }),
+    0,
+  );
+  // 予算が尽きかけている: 待ちは残り予算で頭打ち（走行ごと殺されない）
+  assert.equal(
+    cooldownWaitMs({ cooldownRemainingMs: 10_000, elapsedMs: 236_000, totalBudgetMs: 240_000 }),
+    4_000,
+  );
+  // 予算超過: 1ミリ秒も待たない
+  assert.equal(
+    cooldownWaitMs({ cooldownRemainingMs: 10_000, elapsedMs: 250_000, totalBudgetMs: 240_000 }),
+    0,
+  );
 });
