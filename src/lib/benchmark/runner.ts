@@ -253,22 +253,44 @@ export function orderByStaleness(
  */
 async function readLastScannedAt(): Promise<Map<string, number>> {
   const db = getDb();
-  const out = new Map<string, number>();
-  if (!db) return out;
+  if (!db) return new Map();
   try {
-    const rows = await db.execute(sql`
+    const result = await db.execute(sql`
       SELECT lower(wallet) AS wallet, MAX(created_at) AS last_at
       FROM trust_events
       WHERE signals->>'kind' = ${BENCHMARK_SEED_KIND} AND wallet IS NOT NULL
       GROUP BY lower(wallet)
     `);
-    for (const row of rows as unknown as Array<{ wallet: string; last_at: string | Date }>) {
-      const at = new Date(row.last_at).getTime();
-      if (Number.isFinite(at)) out.set(row.wallet, at);
-    }
+    return toLastScannedMap(result);
   } catch (error) {
     // 未マイグレーションのスキーマはログ1行に落とす（このモジュール群の作法）。
     logServerError("benchmark_last_scanned", error);
+    return new Map();
+  }
+}
+
+/**
+ * db.execute の戻りは driver によって配列だったり {rows:[...]} だったりする。
+ *
+ * 2026-08-13: ここを配列だと決め打ちしたせいで、Neon の {rows:[...]} を
+ * 走査できず例外→空の地図→**全件が「未走査」扱い**になり、staleness 順が
+ * まるごとアルファベット順に化けていた。本番実測でそれが見えた: 古いはずの
+ * 3件（21:58/21:59）が2回続けて飛ばされ、代わりに9分前に測ったばかりの
+ * 先頭8件が測り直された。leaderboard.ts が既に両形を吸収していたのに、
+ * こちらだけ揃っていなかった。
+ */
+export function toLastScannedMap(result: unknown): Map<string, number> {
+  const rows =
+    (result as { rows?: Array<Record<string, unknown>> })?.rows ??
+    (result as Array<Record<string, unknown>>);
+  const out = new Map<string, number>();
+  if (!Array.isArray(rows)) return out;
+  for (const row of rows) {
+    const wallet = row?.wallet;
+    const lastAt = row?.last_at;
+    if (typeof wallet !== "string" || lastAt === null || lastAt === undefined) continue;
+    const at = new Date(lastAt as string | Date).getTime();
+    if (Number.isFinite(at)) out.set(wallet.toLowerCase(), at);
   }
   return out;
 }

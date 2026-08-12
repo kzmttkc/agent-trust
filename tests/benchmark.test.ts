@@ -26,6 +26,7 @@ import {
   cooldownWaitMs,
   entryBudgetMs,
   orderByStaleness,
+  toLastScannedMap,
 } from "@/lib/benchmark/runner";
 
 // ---------- dataset integrity ----------
@@ -289,5 +290,43 @@ test("古い順に並べ替えても bad/good は交互のまま（打ち切ら�
   assert.ok(firstEight.includes("good"), "先頭8件に good が居ない");
   for (let i = 1; i < firstEight.length; i++) {
     assert.notEqual(firstEight[i], firstEight[i - 1], `${i} 番目で同じクラスが連続している`);
+  }
+});
+
+test("db.execute の戻りが配列でも {rows:[...]} でも、走査時刻を読み落とさない", () => {
+  // 2026-08-13: ここを配列決め打ちにしていたため Neon の {rows:[...]} で例外→
+  // 空の地図→全件「未走査」→ staleness 順がアルファベット順に化けていた。
+  // 本番でそれが見えた（古い3件が2回続けて飛ばされた）。
+  const at = "2026-08-12T22:19:00.000Z";
+  const expected = new Date(at).getTime();
+
+  const fromArray = toLastScannedMap([{ wallet: "0xabc", last_at: at }]);
+  assert.equal(fromArray.get("0xabc"), expected, "配列形を読めていない");
+
+  const fromRows = toLastScannedMap({ rows: [{ wallet: "0xABC", last_at: new Date(at) }] });
+  assert.equal(fromRows.get("0xabc"), expected, "{rows:[...]} 形を読めていない（本番のこれで壊れた）");
+
+  // 壊れた行は無視するが、地図ごと空にはしない
+  const mixed = toLastScannedMap({
+    rows: [{ wallet: null, last_at: at }, { wallet: "0xdef", last_at: null }, { wallet: "0xfed", last_at: at }],
+  });
+  assert.equal(mixed.size, 1);
+  assert.equal(mixed.get("0xfed"), expected);
+
+  assert.equal(toLastScannedMap(undefined).size, 0, "読めない戻りは空の地図（例外にしない）");
+});
+
+test("走査時刻が読めていれば、古い3件が先頭に来る（本番で飛ばされた形）", () => {
+  const good = BENCHMARK_DATASET.filter((e) => e.label === "good");
+  const last = new Map<string, number>();
+  // アルファベット順では後ろだが、実際には最も古い3件
+  const stale = good.slice(-3);
+  for (const e of good) last.set(e.address, Date.parse("2026-08-12T22:19:00Z"));
+  for (const e of stale) last.set(e.address, Date.parse("2026-08-12T21:58:00Z"));
+
+  const order = orderByStaleness(BENCHMARK_DATASET, last).filter((e) => e.label === "good");
+  const headThree = new Set(order.slice(0, 3).map((e) => e.address));
+  for (const e of stale) {
+    assert.ok(headThree.has(e.address), `最も古い ${e.address} が先頭3件に居ない`);
   }
 });
