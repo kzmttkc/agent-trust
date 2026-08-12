@@ -3,11 +3,7 @@ import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { LruCache } from "@/lib/util/lru-cache";
 import { getPublicClient } from "./client";
 import { WALLET_METRICS_CACHE_TTL_MS } from "./config";
-import {
-  estimateTransactionCount,
-  fetchFirstIncomingTransfer,
-  fetchWalletTransactions,
-} from "./blockscout";
+import { estimateTransactionCount, fetchWalletHistoryHead } from "./blockscout";
 
 export type WalletMetrics = {
   address: Address;
@@ -21,6 +17,20 @@ const metricsCache = new LruCache<string, { metrics: WalletMetrics; expiresAt: n
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_NONCE_TX_COUNT = 50;
 
+/**
+ * Fetches currently in flight, keyed exactly like the cache.
+ *
+ * Every surface that shows a verdict — /agent/[id], the passport endpoint,
+ * /api/demo/score, the leaderboard — scores through here, and they all expire
+ * together. Without coalescing, the moment the cache lapses each one starts
+ * its own upstream fetch for the same wallet: several times the requests, at
+ * the one instant the rate limiter is most likely to bite, and several
+ * independently-computed answers that can disagree with each other. One
+ * in-flight fetch per wallet fixes both — the extra callers await the same
+ * promise and therefore observe the same metrics, success or failure.
+ */
+const inFlight = new Map<string, Promise<WalletMetrics>>();
+
 async function withTimeout<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([
     promise,
@@ -30,8 +40,21 @@ async function withTimeout<T>(promise: Promise<T>): Promise<T> {
   ]);
 }
 
+/**
+ * Drop every cached reading for this wallet, on every chain.
+ *
+ * 2026-08-12: this deleted `wallet.toLowerCase()` while entries are keyed
+ * `${chainId}:${wallet}` — so it deleted a key that never exists and quietly
+ * invalidated nothing. Callers (a manual list change, a forced rescore) went
+ * on reading the stale metrics for the rest of the TTL. Scan the keyspace by
+ * suffix instead of rebuilding the key, so this cannot drift out of step with
+ * the key format again.
+ */
 export function invalidateWalletMetricsCache(wallet: string): void {
-  metricsCache.delete(wallet.toLowerCase());
+  const suffix = `:${wallet.toLowerCase()}`;
+  for (const key of [...metricsCache.keys()]) {
+    if (key.endsWith(suffix)) metricsCache.delete(key);
+  }
 }
 
 export async function fetchWalletMetrics(address: Address, chainId?: number): Promise<WalletMetrics> {
@@ -47,15 +70,30 @@ export async function fetchWalletMetrics(address: Address, chainId?: number): Pr
     return emptyMetrics(address);
   }
 
+  const pending = inFlight.get(cacheKey);
+  if (pending) return pending;
+
+  const run = fetchWalletMetricsUncoalesced(address, cacheKey, chainId);
+  inFlight.set(cacheKey, run);
   try {
-    const [txs, txCount, incoming] = await Promise.all([
-      withTimeout(fetchWalletTransactions(address, { sort: "asc", offset: 1, chainId })),
+    return await run;
+  } finally {
+    inFlight.delete(cacheKey);
+  }
+}
+
+async function fetchWalletMetricsUncoalesced(
+  address: Address,
+  cacheKey: string,
+  chainId?: number,
+): Promise<WalletMetrics> {
+  try {
+    const [head, txCount] = await Promise.all([
+      withTimeout(fetchWalletHistoryHead(address, chainId)),
       withTimeout(fetchTransactionCount(address, chainId)),
-      withTimeout(fetchFirstIncomingTransfer(address, chainId)),
     ]);
 
-    const firstTx = txs[0];
-    const firstTxTimestamp = firstTx ? Number(firstTx.timeStamp) : null;
+    const firstTxTimestamp = head.firstTx ? Number(head.firstTx.timeStamp) : null;
     const ageDays =
       firstTxTimestamp !== null
         ? Math.max(0, Math.floor((Date.now() - firstTxTimestamp * 1000) / (24 * 60 * 60 * 1000)))
@@ -65,7 +103,7 @@ export async function fetchWalletMetrics(address: Address, chainId?: number): Pr
       address,
       ageDays,
       txCount,
-      funder: incoming?.funder ?? null,
+      funder: head.incoming?.funder ?? null,
       firstTxTimestamp,
     };
 
@@ -76,7 +114,11 @@ export async function fetchWalletMetrics(address: Address, chainId?: number): Pr
 
     return metrics;
   } catch (error) {
-    // Never cache soft-failures as empty metrics (that demotes funding_cluster detection).
+    // Never cache soft-failures as empty metrics (that demotes funding_cluster
+    // detection), and never substitute a stale or empty reading for a failed
+    // one: a read we could not complete is not a wallet we know nothing bad
+    // about. The caller flags wallet_metrics_unavailable and fails closed —
+    // the retry/coalescing above exists to make this rarer, never to soften it.
     throw new Error("wallet_metrics_unavailable", { cause: error });
   }
 }

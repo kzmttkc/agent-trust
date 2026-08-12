@@ -23,10 +23,51 @@ type BlockscoutResponse<T> = {
 };
 
 export class BlockscoutUnavailableError extends Error {
-  constructor(message = "blockscout_unavailable", cause?: unknown) {
+  /** True when the same request has a real chance of succeeding if repeated. */
+  readonly retryable: boolean;
+
+  constructor(message = "blockscout_unavailable", cause?: unknown, retryable = false) {
     super(message, cause !== undefined ? { cause } : undefined);
     this.name = "BlockscoutUnavailableError";
+    this.retryable = retryable;
   }
+}
+
+/**
+ * Blockscout's public API rate-limits aggressively, and it is the sole source
+ * of wallet age / tx-count / funder data. Measured 2026-08-12 against
+ * base.blockscout.com: a burst of the shape one score produces starts drawing
+ * `HTTP 429 "Too many requests"` after ~15 requests, and once tripped it keeps
+ * returning 429 for a while. That is exactly the failure that surfaced as the
+ * showcase agent scoring 48/BLOCK with sybilRisk:"high" and walletAgeDays 0 —
+ * a rate-limited fetch throws, the engine flags wallet_metrics_unavailable,
+ * and the verdict is (correctly, but needlessly) failed closed.
+ *
+ * Probing the API from outside with a few spaced-out requests reports it
+ * perfectly healthy, which is why upstream looked fine while Vouch was cut off:
+ * the load pattern, not the endpoint, is what fails.
+ *
+ * So transient answers get a bounded retry before they are allowed to become a
+ * verdict. This does NOT soften the verdict: when the data genuinely cannot be
+ * fetched the error still propagates and the caller still fails closed. It only
+ * stops a recoverable blip from being treated as an answer.
+ */
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_MS = 250;
+
+function isRateLimitMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("too many requests") || lower.includes("rate limit");
+}
+
+function retryDelayMs(attempt: number): number {
+  // Exponential with jitter, so concurrent callers that tripped the same limit
+  // do not march back in lockstep and trip it again.
+  return RETRY_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * RETRY_BASE_MS);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getBlockscoutBaseUrl(chainId?: number): string {
@@ -50,7 +91,10 @@ function isEmptyResultMessage(message: string): boolean {
   );
 }
 
-async function blockscoutGet<T>(params: Record<string, string>, chainId?: number): Promise<T | null> {
+async function blockscoutGetOnce<T>(
+  params: Record<string, string>,
+  chainId?: number,
+): Promise<T | null> {
   const url = new URL(getBlockscoutBaseUrl(chainId));
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
@@ -68,11 +112,15 @@ async function blockscoutGet<T>(params: Record<string, string>, chainId?: number
       next: { revalidate: 0 },
     });
   } catch (error) {
-    throw new BlockscoutUnavailableError("blockscout_network_error", error);
+    // Connection reset / DNS / socket hang-up: worth one more try.
+    throw new BlockscoutUnavailableError("blockscout_network_error", error, true);
   }
 
   if (!response.ok) {
-    throw new BlockscoutUnavailableError(`blockscout_http_${response.status}`);
+    // 429 = rate limited, 5xx = their side is unwell. Both pass with time.
+    // Any other 4xx is our request being wrong; repeating it changes nothing.
+    const retryable = response.status === 429 || response.status >= 500;
+    throw new BlockscoutUnavailableError(`blockscout_http_${response.status}`, undefined, retryable);
   }
 
   let data: BlockscoutResponse<T>;
@@ -91,9 +139,33 @@ async function blockscoutGet<T>(params: Record<string, string>, chainId?: number
   }
 
   // Ambiguous status=0 without an empty-result message → treat as outage/rate-limit.
+  // Blockscout also serves its rate-limit refusal this way (HTTP 200 with
+  // status:"0" and a "Too many requests" message), so read the message too.
+  const message = data.message ?? "";
   throw new BlockscoutUnavailableError(
-    `blockscout_api_error:${data.message || data.status || "unknown"}`,
+    `blockscout_api_error:${message || data.status || "unknown"}`,
+    undefined,
+    isRateLimitMessage(message),
   );
+}
+
+async function blockscoutGet<T>(params: Record<string, string>, chainId?: number): Promise<T | null> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await blockscoutGetOnce<T>(params, chainId);
+    } catch (error) {
+      lastError = error;
+      const retryable = error instanceof BlockscoutUnavailableError && error.retryable;
+      if (!retryable || attempt === MAX_ATTEMPTS) break;
+      await sleep(retryDelayMs(attempt));
+    }
+  }
+
+  // Retries exhausted, or the failure was never going to pass. Either way the
+  // caller must still fail closed — a failed read is never an empty result.
+  throw lastError;
 }
 
 export async function fetchWalletTransactions(
@@ -233,6 +305,66 @@ export async function fetchFirstIncomingTransfer(
   }
 
   return null;
+}
+
+/**
+ * The wallet's first transaction AND its first *incoming* transfer, in one
+ * pass over the ascending txlist.
+ *
+ * fetchWalletMetrics used to ask for these separately: a txlist call with
+ * offset=1 purely to read the first transaction, alongside
+ * fetchFirstIncomingTransfer's offset=100 walk whose page 1 re-fetches that
+ * very same row. Same endpoint, same sort, same starting row — the small call
+ * was pure duplication, and duplication is what costs here, because the
+ * limiter counts requests (see the note on MAX_ATTEMPTS above). Folding them
+ * together removes a third of the requests every score makes, and removes the
+ * chance of the two halves disagreeing about which transaction came first.
+ *
+ * Deliberately kept separate from fetchFirstIncomingTransfer, which the funder
+ * indexer still uses on its own and which has no use for the first tx.
+ */
+export async function fetchWalletHistoryHead(
+  address: Address,
+  chainId?: number,
+): Promise<{
+  firstTx: BlockscoutTx | null;
+  incoming: { funder: Address; blockNumber: bigint; timestamp: number } | null;
+}> {
+  const pageSize = 100;
+  const maxPages = 10;
+  const addressLower = address.toLowerCase();
+  let firstTx: BlockscoutTx | null = null;
+
+  for (let page = 1; page <= maxPages; page++) {
+    const txs = await fetchWalletTransactions(address, {
+      sort: "asc",
+      offset: pageSize,
+      page,
+      chainId,
+    });
+
+    if (txs.length === 0) break;
+    if (page === 1) firstTx = txs[0] ?? null;
+
+    const incoming = txs.find(
+      (tx) => tx.to.toLowerCase() === addressLower && BigInt(tx.value) > BigInt(0),
+    );
+
+    if (incoming) {
+      return {
+        firstTx,
+        incoming: {
+          funder: incoming.from as Address,
+          blockNumber: BigInt(incoming.blockNumber),
+          timestamp: Number(incoming.timeStamp),
+        },
+      };
+    }
+
+    if (txs.length < pageSize) break;
+  }
+
+  return { firstTx, incoming: null };
 }
 
 export async function estimateTransactionCount(address: Address, chainId?: number): Promise<number> {
