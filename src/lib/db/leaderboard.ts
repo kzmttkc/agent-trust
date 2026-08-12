@@ -28,6 +28,26 @@ export interface LeaderboardRow {
   benchmarkLabel: string | null;
 }
 
+/**
+ * How far back a verdict may be and still appear on the board.
+ *
+ * The query had NO time bound (2026-08-12): it took the latest row per subject
+ * whatever its age, so a subject nobody had looked up since July stayed on the
+ * board forever. Agent 1 sat there reading 66/WARN dated 2026-07-13 while
+ * every live surface scored it 83/ALLOW that same second.
+ *
+ * The page already promised this window — the heading says "Recently verified
+ * agents" and the empty state says "No verdicts are in the current window
+ * yet." Only the query never implemented it. An empty board is an intended,
+ * already-designed state here ("The board is warming up"), so bounding this is
+ * not a risk of showing nothing; showing a month-old verdict as current was
+ * the risk.
+ *
+ * 30 days, not 7: the operator benchmark cron runs weekly, so a tighter window
+ * would blank the board in the hours before a run for no gain.
+ */
+const LEADERBOARD_WINDOW_DAYS = 30;
+
 export async function fetchLeaderboard(limit = 25): Promise<LeaderboardRow[]> {
   const db = getDb();
   if (!db) return [];
@@ -44,6 +64,7 @@ export async function fetchLeaderboard(limit = 25): Promise<LeaderboardRow[]> {
       FROM trust_events
       WHERE trust_score IS NOT NULL
         AND COALESCE(agent_id::text, wallet) IS NOT NULL
+        AND created_at > now() - (${LEADERBOARD_WINDOW_DAYS} || ' days')::interval
       ORDER BY COALESCE(agent_id::text, wallet), created_at DESC
     `);
     const latest =

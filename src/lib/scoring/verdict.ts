@@ -29,6 +29,21 @@ export function toRecommendation(score: number, isBlacklisted: boolean): Recomme
   return "ALLOW";
 }
 
+/**
+ * Was this verdict computed with at least one input we could not read?
+ *
+ * The single definition of "degraded", used both to decide risk (below) and to
+ * decide how long a verdict may be cached. Those two had drifted apart:
+ * the engine refuses to cache a degraded score, while /api/demo/score froze
+ * one for 5 minutes and told the CDN it could serve it for 15 — so a
+ * momentary upstream failure became a quarter-hour of BLOCK on the showcase,
+ * long after the underlying reads had recovered. A verdict we are not
+ * confident enough to cache is a verdict nobody downstream should pin either.
+ */
+export function hasUnavailableInput(flags: readonly string[]): boolean {
+  return flags.some((flag) => flag.endsWith("_unavailable"));
+}
+
 export function assessSybilRisk(flags: string[]): SybilRisk {
   if (flags.includes("wallet_mismatch")) return "high";
   if (flags.includes("wallet_verification_failed")) return "high";
@@ -38,7 +53,7 @@ export function assessSybilRisk(flags: string[]): SybilRisk {
   // through as a single flag ("medium") and could still clear an ALLOW gate.
   // Matching the whole class closes that hole for present and future flags.
   // The named checks below stay for readability and as executable documentation.
-  if (flags.some((flag) => flag.endsWith("_unavailable"))) return "high";
+  if (hasUnavailableInput(flags)) return "high";
   if (flags.includes("owner_count_unavailable")) return "high";
   if (flags.includes("feedback_stats_unavailable")) return "high";
   if (flags.includes("reputation_summary_unavailable")) return "high";

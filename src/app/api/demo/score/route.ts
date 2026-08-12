@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/api/client-ip";
 import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { scoreAgentById } from "@/lib/scoring/engine";
+import { hasUnavailableInput } from "@/lib/scoring/verdict";
 import { logServerError } from "@/lib/util/log";
 
 /**
@@ -103,9 +104,26 @@ export async function GET(request: NextRequest) {
       registered: result.signals.identity.registered,
       scoredAt: result.scoredAt,
     };
-    cached = { payload, expiresAt: now + DEMO_TTL_MS };
+    // A degraded verdict (some input could not be read) is deliberately NOT
+    // pinned. The engine already refuses to cache one; this route used to pin
+    // it anyway for 5 minutes and hand the CDN another 15, which is how a
+    // momentary Blockscout rate-limit became a quarter-hour of the showcase
+    // agent reading 48/BLOCK — and how this endpoint came to disagree with
+    // /agent/{id} and the passport at the same instant. One freshness policy,
+    // one definition of degraded, shared with the engine.
+    //
+    // Still cached briefly rather than not at all: while upstream is unwell,
+    // recomputing on every request is what deepens the outage.
+    const degraded = hasUnavailableInput(result.signals.sybil.flags);
+    if (!degraded) {
+      cached = { payload, expiresAt: now + DEMO_TTL_MS };
+    }
     return NextResponse.json(payload, {
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+      headers: {
+        "Cache-Control": degraded
+          ? "public, s-maxage=30"
+          : "public, s-maxage=300, stale-while-revalidate=600",
+      },
     });
   } catch (error) {
     logServerError("demo_score", error);

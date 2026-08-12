@@ -25,7 +25,12 @@ import {
   walletsMatch,
 } from "./helpers";
 import { detectReputationSybilFlags, detectSybilFlags } from "./sybil";
-import { assessSybilRisk, reasonCodes, resolveRecommendation } from "./verdict";
+import {
+  assessSybilRisk,
+  hasUnavailableInput,
+  reasonCodes,
+  resolveRecommendation,
+} from "./verdict";
 import type { AgentIdentity } from "@/lib/chain/erc8004";
 import { getX402PaymentStats } from "@/lib/db/x402-payments";
 import { getDataCoverage } from "@/lib/health/data-coverage";
@@ -341,8 +346,7 @@ export async function scoreAgentById(
     expiresAt: now + CACHE_TTL_MS,
   };
 
-  const availabilityFlags = sybilFlags.some((flag) => flag.endsWith("_unavailable"));
-  if (!availabilityFlags) {
+  if (!hasUnavailableInput(sybilFlags)) {
     memoryCache.set(cacheKey, payload);
   }
   return applyPolicyLayer(payload, ctx);

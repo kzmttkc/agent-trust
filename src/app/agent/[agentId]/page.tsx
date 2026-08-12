@@ -13,7 +13,19 @@ import TrackView from "@/components/site/TrackView";
 // profile (/payee/[address]). Where a payee proves control of a receiving
 // wallet, an agent proves control of its ERC-8004 identity. The agent presents
 // this proactively to win better terms; a counterparty reads it to decide.
-export const revalidate = 300;
+// Rendered per request, NOT ISR-cached (2026-08-12). This page shows a verdict
+// and links the reader to /api/v1/agents/{id}/passport for the same agent —
+// and the passport is force-dynamic. With `revalidate = 300` the page served a
+// separately-aged generation of the same verdict, so at 10:30:22Z agent 1 read
+// 83/ALLOW here and 48/BLOCK on the passport this page points at. A trust
+// layer that contradicts itself between two of its own surfaces is worse than
+// one that is slow.
+//
+// The cost is bounded: scoreAgentById is memoised for CACHE_TTL_MS, so a
+// request usually resolves against the same cached verdict the passport reads
+// rather than recomputing — the page stops holding its own private generation,
+// it does not start recomputing per view.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
