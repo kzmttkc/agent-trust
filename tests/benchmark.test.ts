@@ -21,6 +21,7 @@ import {
   computeBenchmarkReport,
   type BenchmarkRow,
 } from "@/lib/scoring/benchmark-report";
+import { benchmarkScanFailed, entryBudgetMs } from "@/lib/benchmark/runner";
 
 // ---------- dataset integrity ----------
 
@@ -189,4 +190,30 @@ test("null or unknown recommendations are excluded from totals", () => {
   ];
   const r = computeBenchmarkReport(rows);
   assert.equal(r.knownBad.total, 0);
+});
+
+// ---------- 走行の予算と、沈黙の禁止（2026-08-13） ----------
+//
+// WHY. 週次 cron は「1件目のスコアリングが終わらない」だけで殺され、
+// trust_events に1行も書けないまま ok:true を返し続けていた。時間の切り方に
+// per-entry の上限が無かったこと（budget は entry と entry の間でしか見ない）と、
+// recorded=0 がどこにも異常として現れないことの2つが、7日ごとの沈黙を作っていた。
+
+test("entryBudget: 1件が使える時間は、残り時間と1件あたり上限の小さい方", () => {
+  assert.equal(entryBudgetMs({ elapsedMs: 0, totalBudgetMs: 240_000, perEntryMaxMs: 20_000 }), 20_000);
+  assert.equal(entryBudgetMs({ elapsedMs: 230_000, totalBudgetMs: 240_000, perEntryMaxMs: 20_000 }), 10_000);
+});
+
+test("entryBudget: 総予算を使い切ったら 0（＝新しい1件を始めない）", () => {
+  assert.equal(entryBudgetMs({ elapsedMs: 240_000, totalBudgetMs: 240_000, perEntryMaxMs: 20_000 }), 0);
+  assert.equal(entryBudgetMs({ elapsedMs: 999_000, totalBudgetMs: 240_000, perEntryMaxMs: 20_000 }), 0);
+});
+
+test("走査したのに1行も記録できなかった run は成功ではない", () => {
+  assert.equal(benchmarkScanFailed({ scanned: 42, recorded: 0, errors: 42, skipped: 0, datasetVersion: 1 }), true);
+  assert.equal(benchmarkScanFailed({ scanned: 42, recorded: 1, errors: 41, skipped: 0, datasetVersion: 1 }), false);
+});
+
+test("DB未設定で1件も走査しなかった run は失敗扱いにしない（既存の degrade-to-no-op を壊さない）", () => {
+  assert.equal(benchmarkScanFailed({ scanned: 0, recorded: 0, errors: 0, skipped: 42, datasetVersion: 1 }), false);
 });

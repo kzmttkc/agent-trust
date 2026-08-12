@@ -1,10 +1,13 @@
 import { sql } from "drizzle-orm";
+import { agentResolveTailMaxBlocks } from "@/lib/chain/agent-resolve-window";
 import { chainById, DEFAULT_CHAIN_ID } from "@/lib/chain/chains";
 import { tailMaxBlocks } from "@/lib/chain/feedback-window";
 import { getProductionEnvErrors } from "@/lib/config/env";
 import { getDb } from "@/lib/db/client";
 import { getFeedbackIndexerStatus } from "@/lib/db/feedback-index";
 import {
+  AGENT_WALLET_INDEX_CHECKPOINT,
+  getIndexerCheckpoint,
   getOwnerIndexerLagThreshold,
   getOwnerIndexerStatus,
 } from "@/lib/db/owner-index";
@@ -138,6 +141,24 @@ export async function runDeepHealthChecks(): Promise<DeepHealthResult> {
     }
   } catch {
     checks.feedback_indexer = "error";
+  }
+
+  // WalletSet 索引（2026-08-13）。wallet→agent の逆引きはここが本体で、遅れが
+  // tail の上限を超えた瞬間に resolveAgentIdByWallet は unavailable を返す
+  // ——つまり素のウォレット採点が全部落ちる。デプロイ直後は FROM_BLOCK からの
+  // backfill 中なので "lagging" が正常であり、その進み具合をここで見る。
+  try {
+    const walletCheckpoint = await getIndexerCheckpoint(AGENT_WALLET_INDEX_CHECKPOINT);
+    if (walletCheckpoint === null) {
+      checks.agent_wallet_index = "unconfigured";
+    } else {
+      const behind = liveTip !== undefined ? liveTip - walletCheckpoint : null;
+      checks.agent_wallet_index_blocks_behind = behind?.toString() ?? "unknown";
+      const maxTail = agentResolveTailMaxBlocks(chainById(DEFAULT_CHAIN_ID)?.blocksPerDay ?? 43_200);
+      checks.agent_wallet_index = behind !== null && behind > maxTail ? "lagging" : "ok";
+    }
+  } catch {
+    checks.agent_wallet_index = "error";
   }
 
   return {

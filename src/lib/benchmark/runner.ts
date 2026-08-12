@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db/client";
 import { trustEvents, verdictOutcomes } from "@/lib/db/schema";
 import { scoreWallet } from "@/lib/scoring/engine";
+import { withDeadline } from "@/lib/util/deadline";
 import { logServerError } from "@/lib/util/log";
 import {
   BENCHMARK_DATASET,
@@ -51,6 +52,41 @@ export interface BenchmarkScanResult {
  */
 const DEFAULT_TIME_BUDGET_MS = 240_000;
 
+/**
+ * 1件が使ってよい上限（2026-08-13）。
+ *
+ * 上の総予算は entry と entry の「間」でしか見ないので、1件が終わらない限り
+ * 何回チェックしても走行は止まらない。実際にそうなった: resolveAgentIdByWallet
+ * が全履歴 eth_getLogs 走査に落ち、1件目の中で 300秒の関数ごと殺されて、
+ * trust_events に1行も残らないまま毎週沈黙していた。索引化で往復は消えたが、
+ * 「1件の遅さが run 全体を食う」構造そのものをここで閉じる。
+ */
+const PER_ENTRY_MAX_MS = 20_000;
+
+/**
+ * この1件に与えてよい時間。総予算の残りと1件あたり上限の小さい方で、
+ * 0 は「新しい1件を始めない」を意味する。
+ */
+export function entryBudgetMs(input: {
+  elapsedMs: number;
+  totalBudgetMs: number;
+  perEntryMaxMs: number;
+}): number {
+  const remaining = Math.max(0, input.totalBudgetMs - input.elapsedMs);
+  return Math.min(input.perEntryMaxMs, remaining);
+}
+
+/**
+ * 走査したのに1行も記録できなかった run は成功ではない。
+ *
+ * cron ルートはこれを HTTP 500 に写す。ok:true を返し続けたことが、
+ * 「本番の benchmark_seed が史上0行」を7日ごとに見えなくしていた当のもの。
+ * DB 未設定で1件も走査しなかった場合（既存の degrade-to-no-op）は対象外。
+ */
+export function benchmarkScanFailed(result: BenchmarkScanResult): boolean {
+  return result.scanned > 0 && result.recorded === 0;
+}
+
 export async function runBenchmarkScan(options?: {
   limit?: number;
   timeBudgetMs?: number;
@@ -77,14 +113,19 @@ export async function runBenchmarkScan(options?: {
   }
 
   for (let i = 0; i < limit; i++) {
-    if (Date.now() - started > budget) {
+    const entryBudget = entryBudgetMs({
+      elapsedMs: Date.now() - started,
+      totalBudgetMs: budget,
+      perEntryMaxMs: PER_ENTRY_MAX_MS,
+    });
+    if (entryBudget <= 0) {
       result.skipped = limit - i;
       break;
     }
     const entry = BENCHMARK_DATASET[i];
     try {
       result.scanned += 1;
-      const recorded = await scoreAndRecord(entry);
+      const recorded = await scoreAndRecord(entry, entryBudget);
       if (recorded) result.recorded += 1;
       else result.errors += 1;
     } catch (error) {
@@ -100,14 +141,17 @@ export async function runBenchmarkScan(options?: {
 /** Score one entry and persist verdict + ground-truth outcome. Returns false
  *  (instead of throwing) when the write path degraded, so the caller can
  *  count it without double-logging. */
-async function scoreAndRecord(entry: BenchmarkEntry): Promise<boolean> {
+async function scoreAndRecord(entry: BenchmarkEntry, budgetMs: number): Promise<boolean> {
   const db = getDb();
   if (!db) return false;
 
   // Empty context on purpose: no apiKeyId means no customer whitelist /
   // blacklist can touch the verdict — only the global engine behaviour that
   // every anonymous caller gets. That is the thing worth benchmarking.
-  const score = await scoreWallet(entry.address, {});
+  //
+  // 遅さは失敗として扱う。deadline を超えた1件は errors に数えられ、次の1件へ
+  // 進む——「1件が終わらないので run ごと殺される」を構造的に起こさせない。
+  const score = await withDeadline(scoreWallet(entry.address, {}), budgetMs, "benchmark_score");
 
   try {
     const inserted = await db

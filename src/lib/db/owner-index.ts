@@ -5,6 +5,13 @@ import { indexerCheckpoints, ownerAgents } from "./schema";
 
 export const OWNER_INDEX_CHECKPOINT = "identity_registry";
 
+/**
+ * WalletSet 索引の到達点（2026-08-13）。owner 側とは別 scope である必要がある——
+ * owner の scope はすでに tip なので、相乗りすると WalletSet の履歴が永久に
+ * 埋まらない。
+ */
+export const AGENT_WALLET_INDEX_CHECKPOINT = "identity_registry_wallets";
+
 /** Blocks behind live tip treated as fully caught up for trusting the DB index alone. */
 export const INDEX_CATCHUP_MARGIN_BLOCKS = 0n;
 

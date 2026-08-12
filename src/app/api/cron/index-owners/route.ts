@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron/auth";
 import { isProduction } from "@/lib/config/env";
+import { indexAgentWallets } from "@/lib/indexer/agent-wallet-indexer";
 import { indexOwnerAgents } from "@/lib/indexer/owner-indexer";
 
 export const maxDuration = 300;
@@ -27,5 +28,21 @@ export async function GET(request: NextRequest) {
     maxBlocks: BigInt(maxBlocks),
   });
 
-  return NextResponse.json({ ok: true, ...result });
+  // WalletSet 索引（2026-08-13）。別 scope で FROM_BLOCK から前進する——所有者側の
+  // scope はすでに tip なので、相乗りさせると運用ウォレットの履歴が永久に埋まらない。
+  // これが埋まるまで wallet 解決は fail-closed で unavailable を返す（ハングよりは
+  // 正直な失敗）。追いつかせ方は scripts/catch-up-owner-index.sh のループ。
+  const walletIndex = await indexAgentWallets({
+    maxBlocks: BigInt(maxBlocks),
+  });
+
+  return NextResponse.json({
+    ok: true,
+    ...result,
+    // 追いついたと言えるのは両方が tip に届いたときだけ。catch-up スクリプトは
+    // この 1 フラグでループを止める。
+    caughtUp: result.caughtUp && walletIndex.caughtUp,
+    ownerCaughtUp: result.caughtUp,
+    walletIndex,
+  });
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron/auth";
-import { runBenchmarkScan } from "@/lib/benchmark/runner";
+import { benchmarkScanFailed, runBenchmarkScan } from "@/lib/benchmark/runner";
 
 /**
  * Operator benchmark heartbeat (2026-08-06). WEEKLY on purpose — see
@@ -20,5 +20,10 @@ export async function GET(request: NextRequest) {
   const limitParam = Number(request.nextUrl.searchParams.get("limit") ?? 100);
   const limit = Math.min(100, Math.max(1, Number.isFinite(limitParam) ? limitParam : 100));
   const result = await runBenchmarkScan({ limit });
-  return NextResponse.json({ ok: true, ...result });
+
+  // 走査したのに1行も記録できなかった run を 200/ok で返していたことが、
+  // 「本番の benchmark_seed は史上0行」を7日ごとに見えなくしていた（2026-08-13）。
+  // 監視は HTTP ステータスしか見ないので、沈黙を止めるにはここを 500 にするしかない。
+  const failed = benchmarkScanFailed(result);
+  return NextResponse.json({ ok: !failed, ...result }, { status: failed ? 500 : 200 });
 }
