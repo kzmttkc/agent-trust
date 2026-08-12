@@ -335,11 +335,18 @@ paths:
 
         This feeds Vouch's score-accuracy measurement; it does not affect the
         reported agent's live trust score.
+
+        You may only report outcomes on **your own** verdicts. A `trustEventId`
+        belonging to another API key is refused as `404` — the same answer as an
+        id that does not exist, so this endpoint cannot be used to discover
+        whether a guessed id names a real verdict.
       parameters:
         - name: trustEventId
           in: path
           required: true
-          description: The `id` from a prior `/score` response's persisted trust event
+          description: >-
+            The `id` from a prior `/score` response's persisted trust event.
+            Must belong to the calling API key.
           schema:
             type: string
             format: uuid
@@ -357,7 +364,11 @@ paths:
                 relatedWallet:
                   type: string
                   pattern: "^0x[a-fA-F0-9]{40}$"
-                  description: Defaults to the wallet on the original trust event if omitted
+                  description: >-
+                    The wallet the outcome is about. Optional, and it can only
+                    be the wallet the original trust event was about — supplying
+                    any other address is rejected with `related_wallet_mismatch`
+                    (400). Omit it and that same wallet is used automatically.
                 notes:
                   type: string
                   maxLength: 1000
@@ -375,7 +386,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          description: trustEventId not found
+          description: trustEventId not found, or not owned by the calling key
         "429":
           $ref: "#/components/responses/RateLimited"
 

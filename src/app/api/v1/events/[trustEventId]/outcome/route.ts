@@ -37,6 +37,32 @@ type RouteContext = { params: Promise<{ trustEventId: string }> };
  * confirmation, chargeback, etc). Idempotent per (trustEventId, outcomeType,
  * source) — reporting the same outcomeType again from the same key returns
  * the existing row rather than erroring.
+ *
+ * AUTHORIZATION (2026-08-12 — this was missing entirely). Authenticating the
+ * caller is not enough here: both the event id and the wallet arrive from the
+ * request, and what gets written is not private to the caller. A partner
+ * outcome lands in verdict_outcomes.related_wallet, and getOutcomesForWallet()
+ * feeds those rows straight into the payee scoring engine — so an unchecked
+ * write let any key with one quota unit spare pin `confirmed_fraud` on a
+ * stranger's wallet, or launder its own. Two things are therefore verified
+ * before anything is recorded:
+ *
+ *   1. OWNERSHIP — the trust event must belong to the calling key. Enforced
+ *      twice on purpose: getTrustEventById scopes the SELECT by api_key_id
+ *      (so a foreign row never reaches this code), and the explicit
+ *      comparison below re-asserts it, so relaxing the query alone cannot
+ *      silently reopen the hole.
+ *   2. SUBJECT — relatedWallet, if given, must be the wallet that verdict was
+ *      actually about. It is only ever an assertion the caller agrees with the
+ *      event; the value written is the event's own wallet, never the body's.
+ *
+ * Both refusals fail closed, and "not yours" is reported as 404
+ * trust_event_not_found — identical to a genuinely unknown id. A 403 would
+ * confirm that a guessed UUID names a real verdict, turning this endpoint into
+ * an existence oracle over other customers' events. Same choice, same reason,
+ * as watchlist/[id] and webhooks/[id] (see tests/authz-per-id.test.ts), and it
+ * matches the published contract in docs/openapi.yaml, which documents 404 and
+ * no 403 for this path.
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   const auth = await authorizeApiRequest(request, 1);
@@ -70,17 +96,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   let trustEvent: Awaited<ReturnType<typeof getTrustEventById>>;
   try {
-    trustEvent = await getTrustEventById(trustEventId);
+    trustEvent = await getTrustEventById(trustEventId, auth.ctx.apiKeyId);
   } catch (error) {
     logServerError("outcome_report_lookup", error);
     return NextResponse.json({ error: "outcome_ingest_unavailable" }, { status: 503 });
   }
 
-  if (!trustEvent) {
+  // Not found, or found but not the caller's — one indistinguishable answer.
+  // The second clause is redundant while the lookup stays owner-scoped; that
+  // is the point. It is the check that survives someone widening the query.
+  if (!trustEvent || trustEvent.apiKeyId !== auth.ctx.apiKeyId) {
     return NextResponse.json({ error: "trust_event_not_found" }, { status: 404 });
   }
 
-  const resolvedWallet = relatedWallet ?? trustEvent.wallet ?? null;
+  // The label's subject is the verdict's own wallet — never a wallet named by
+  // the request. A supplied relatedWallet is accepted only as agreement with
+  // the event (case-insensitively: on-chain addresses arrive checksummed).
+  // An event with no wallet (agent-only score) has no subject to assert, so
+  // naming one is a mismatch rather than a free pass.
+  if (
+    relatedWallet &&
+    relatedWallet.toLowerCase() !== (trustEvent.wallet ?? "").toLowerCase()
+  ) {
+    return NextResponse.json({ error: "related_wallet_mismatch" }, { status: 400 });
+  }
+
+  const resolvedWallet = trustEvent.wallet ?? null;
   const now = new Date();
   const windowMinutes = Math.max(
     0,

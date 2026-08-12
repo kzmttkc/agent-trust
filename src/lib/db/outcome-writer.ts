@@ -41,6 +41,7 @@ export const TERMINAL_ACTIVITY_OUTCOME_TYPES: AutoOutcomeType[] = [
 
 export type TrustEventRow = {
   id: string;
+  apiKeyId: string | null;
   agentId: bigint | null;
   wallet: string | null;
   createdAt: Date;
@@ -94,6 +95,7 @@ export async function collectWatchedTrustEvents(
     const rows = await db
       .select({
         id: trustEvents.id,
+        apiKeyId: trustEvents.apiKeyId,
         agentId: trustEvents.agentId,
         wallet: trustEvents.wallet,
         createdAt: trustEvents.createdAt,
@@ -122,6 +124,7 @@ export async function collectWatchedTrustEvents(
       .filter((row): row is typeof row & { createdAt: Date } => row.createdAt !== null)
       .map((row) => ({
         id: row.id,
+        apiKeyId: row.apiKeyId,
         agentId: row.agentId,
         wallet: row.wallet,
         createdAt: row.createdAt,
@@ -209,21 +212,34 @@ async function notifyOutcomeRecorded(
  * verdict_outcomes one — so unlike the functions above this intentionally
  * lets a real DB failure propagate instead of degrading to null. Callers
  * must not conflate "genuinely not found" with "lookup failed".
+ *
+ * OWNER-SCOPED, and `apiKeyId` is deliberately REQUIRED rather than an
+ * optional filter (2026-08-12). A trust event id is the handle to another
+ * customer's verdict; the only caller of this function goes on to write a
+ * partner outcome against whatever it returns. An optional scope would be one
+ * forgotten argument away from re-opening that, so the scope is part of the
+ * signature: `WHERE id = ? AND api_key_id = ?`, exactly like removeWatch /
+ * deleteWebhook. Events with a NULL api_key_id (dashboard/manual verdicts)
+ * belong to no key and therefore match nobody — fail-closed by construction.
  */
-export async function getTrustEventById(trustEventId: string): Promise<TrustEventRow | null> {
+export async function getTrustEventById(
+  trustEventId: string,
+  apiKeyId: string,
+): Promise<TrustEventRow | null> {
   const db = getDb();
   if (!db) throw new Error("database_unavailable");
 
   const rows = await db
     .select({
       id: trustEvents.id,
+      apiKeyId: trustEvents.apiKeyId,
       agentId: trustEvents.agentId,
       wallet: trustEvents.wallet,
       createdAt: trustEvents.createdAt,
       signals: trustEvents.signals,
     })
     .from(trustEvents)
-    .where(eq(trustEvents.id, trustEventId))
+    .where(and(eq(trustEvents.id, trustEventId), eq(trustEvents.apiKeyId, apiKeyId)))
     .limit(1);
 
   const row = rows[0];
@@ -231,6 +247,7 @@ export async function getTrustEventById(trustEventId: string): Promise<TrustEven
 
   return {
     id: row.id,
+    apiKeyId: row.apiKeyId,
     agentId: row.agentId,
     wallet: row.wallet,
     createdAt: row.createdAt,
