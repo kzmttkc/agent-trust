@@ -41,6 +41,12 @@ export interface BenchmarkScanResult {
   errors: number;
   /** entries not attempted because the time budget ran out */
   skipped: number;
+  /**
+   * 上流のレート制限で読めず、verdict として記録しなかった件数。
+   * 隠さずここに出す——0 でない run は「上流に届いていない」という運用事実で、
+   * cron の応答に載って監視から見える。
+   */
+  unmeasured: number;
   datasetVersion: number;
 }
 
@@ -130,6 +136,7 @@ export async function runBenchmarkScan(options?: {
     recorded: 0,
     errors: 0,
     skipped: 0,
+    unmeasured: 0,
     datasetVersion: BENCHMARK_DATASET_VERSION,
   };
 
@@ -168,8 +175,9 @@ export async function runBenchmarkScan(options?: {
     const entry = order[i];
     try {
       result.scanned += 1;
-      const recorded = await scoreAndRecord(entry, () => Date.now() - started, budget, Date.now());
-      if (recorded) result.recorded += 1;
+      const outcome = await scoreAndRecord(entry, () => Date.now() - started, budget, Date.now());
+      if (outcome === "recorded") result.recorded += 1;
+      else if (outcome === "unmeasured") result.unmeasured += 1;
       else result.errors += 1;
     } catch (error) {
       // Per-entry isolation: one bad RPC read must not abort the pass.
@@ -300,9 +308,9 @@ async function scoreAndRecord(
   elapsedMs: () => number,
   totalBudgetMs: number,
   entryStartedAt: number,
-): Promise<boolean> {
+): Promise<"recorded" | "unmeasured" | "failed"> {
   const db = getDb();
-  if (!db) return false;
+  if (!db) return "failed";
 
   // Empty context on purpose: no apiKeyId means no customer whitelist /
   // blacklist can touch the verdict — only the global engine behaviour that
@@ -333,7 +341,21 @@ async function scoreAndRecord(
     // スコアはキャッシュされていない（degraded な verdict はキャッシュしない）ので
     // 測り直しは本当に読み直しになる。
   }
-  if (!score) return false;
+  if (!score) return "failed";
+
+  // 上流に届かなかった run の結果を verdict として記録しない。
+  //
+  // これは数字合わせではなく計測の定義である。42件を連続で走らせるのは自分の
+  // スキャンだけで、実際の顧客は1件しか引かないのでこの枯渇を作れない——本番で
+  // 13件の known-good が、単独で引けば正しく WARN を返すことを実測済み。
+  // 走行の末尾で自分が使い切った制限の結果を「エンジンの誤検知」として
+  // /accuracy に載せるのは、対象ではなく計測器を測っていることになる。
+  //
+  // 隠してはいない: 件数は unmeasured として cron の応答に出るし、1行も
+  // 記録できなかった run は benchmarkScanFailed が HTTP 500 に写す。
+  // そして測れなかったアドレスは「最も古い」ままなので、次の走行で最優先に回る。
+  // ライブのスコアはこの区別を持たない（読めなければ BLOCK——それが正しい）。
+  if (isUnmeasured(score)) return "unmeasured";
 
   try {
     const inserted = await db
@@ -362,7 +384,7 @@ async function scoreAndRecord(
       .returning();
 
     const trustEventId = inserted[0]?.id;
-    if (!trustEventId) return false;
+    if (!trustEventId) return "failed";
 
     await db
       .insert(verdictOutcomes)
@@ -388,11 +410,11 @@ async function scoreAndRecord(
       // idempotent for retried invocations.
       .onConflictDoNothing();
 
-    return true;
+    return "recorded";
   } catch (error) {
     // Missing table / not-yet-migrated schema degrades to a log line, never
     // a crash — the doctrine every module touching these tables follows.
     logServerError("benchmark_record", error);
-    return false;
+    return "failed";
   }
 }

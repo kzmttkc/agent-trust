@@ -216,12 +216,12 @@ test("entryBudget: 総予算を使い切ったら 0（＝新しい1件を始め�
 });
 
 test("走査したのに1行も記録できなかった run は成功ではない", () => {
-  assert.equal(benchmarkScanFailed({ scanned: 42, recorded: 0, errors: 42, skipped: 0, datasetVersion: 1 }), true);
-  assert.equal(benchmarkScanFailed({ scanned: 42, recorded: 1, errors: 41, skipped: 0, datasetVersion: 1 }), false);
+  assert.equal(benchmarkScanFailed({ scanned: 42, recorded: 0, errors: 42, skipped: 0, unmeasured: 0, datasetVersion: 1 }), true);
+  assert.equal(benchmarkScanFailed({ scanned: 42, recorded: 1, errors: 41, skipped: 0, unmeasured: 0, datasetVersion: 1 }), false);
 });
 
 test("DB未設定で1件も走査しなかった run は失敗扱いにしない（既存の degrade-to-no-op を壊さない）", () => {
-  assert.equal(benchmarkScanFailed({ scanned: 0, recorded: 0, errors: 0, skipped: 42, datasetVersion: 1 }), false);
+  assert.equal(benchmarkScanFailed({ scanned: 0, recorded: 0, errors: 0, skipped: 42, unmeasured: 0, datasetVersion: 1 }), false);
 });
 
 // ============================================================
@@ -329,4 +329,13 @@ test("走査時刻が読めていれば、古い3件が先頭に来る（本番�
   for (const e of stale) {
     assert.ok(headThree.has(e.address), `最も古い ${e.address} が先頭3件に居ない`);
   }
+});
+
+test("上流に届かず1件も測れなかった run は、静かに成功しない", () => {
+  // 未計測を verdict として記録しなくなった以上、「全件未計測」は recorded 0 に
+  // なる——benchmarkScanFailed が拾って cron が HTTP 500 を返す。隠れない。
+  assert.equal(
+    benchmarkScanFailed({ scanned: 42, recorded: 0, errors: 0, skipped: 0, unmeasured: 42, datasetVersion: 1 }),
+    true,
+  );
 });
