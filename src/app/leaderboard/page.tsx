@@ -87,10 +87,21 @@ export default async function LeaderboardPage() {
                   {/* 順位は表の意味を担う情報なので装飾扱いにしない。
                       2026-08-12: zinc-400 は白地 2.62:1 で AA 不合格だった → zinc-500 (4.83:1)。 */}
                   <td className="py-2 pr-4 text-zinc-500">{i + 1}</td>
+                  {/* 2026-08-12 FIX-7: 行内に <a> が0個で、/agent/:id と
+                      /payee/:address というプロフィールページが実在するのに一覧から
+                      辿れず行き止まりだった。順位表の主キーである Subject を
+                      その行の詳細へ繋ぐ。 */}
                   <td className="py-2 pr-4">
-                    <span className="font-mono">
-                      {r.agentId ? `Agent #${r.agentId}` : shortWallet(r.wallet)}
-                    </span>
+                    {r.agentId || r.wallet ? (
+                      <Link
+                        href={r.agentId ? `/agent/${r.agentId}` : `/payee/${r.wallet}`}
+                        className="font-mono underline underline-offset-2 hover:text-brand-deep"
+                      >
+                        {r.agentId ? `Agent #${r.agentId}` : shortWallet(r.wallet)}
+                      </Link>
+                    ) : (
+                      <span className="font-mono">{shortWallet(r.wallet)}</span>
+                    )}
                     {r.seeded ? <SeedTag /> : null}
                   </td>
                   <td className="py-2 pr-4 font-semibold">{r.trustScore}</td>

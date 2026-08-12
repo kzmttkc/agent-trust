@@ -7,6 +7,7 @@ import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 import { buttonClass } from "@/components/ui/Button";
+import CodeBlock from "@/components/docs/CodeBlock";
 
 const SITE_URL = "https://agent-trust-tawny.vercel.app";
 
@@ -287,29 +288,37 @@ export default async function Home() {
         <div className="mt-8 grid gap-6 lg:grid-cols-2">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-zinc-900">1. Add the MCP server</p>
-            <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-xs leading-relaxed text-zinc-100">
-              <code>{`{
+            {/* 2026-08-12 FIX-4: 接頭辞が `vk_...` だった。実際に発行されるキーは
+                `vouch_live_<48hex>`（src/lib/db/api-keys.ts）で、ダッシュボードの
+                placeholder も `vouch_live_...`。このページ唯一のコピペ資産に
+                実在しない形が入っていた。 */}
+            <CodeBlock
+              className="mt-2"
+              label="Claude Desktop MCP server configuration"
+              code={`{
   "mcpServers": {
     "vouch": {
       "command": "npx",
       "args": ["-y", "@vouchscore/mcp-server"],
-      "env": { "VOUCH_API_KEY": "vk_..." }
+      "env": { "VOUCH_API_KEY": "vouch_live_..." }
     }
   }
-}`}</code>
-            </pre>
+}`}
+            />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-zinc-900">2. Or call it straight from code</p>
-            <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-xs leading-relaxed text-zinc-100">
-              <code>{`import { createVouchClient } from "@vouchscore/sdk";
+            <CodeBlock
+              className="mt-2"
+              label="Node.js SDK usage example"
+              code={`import { createVouchClient } from "@vouchscore/sdk";
 
 const vouch = createVouchClient({ apiKey: process.env.VOUCH_API_KEY });
 const score = await vouch.getWalletScore("0xPayer...");
 if (score.recommendation !== "ALLOW") {
   // don't settle the x402 payment
-}`}</code>
-            </pre>
+}`}
+            />
           </div>
         </div>
         <p className="mt-6 text-sm text-zinc-500">

@@ -7,6 +7,7 @@
 
 import TrackedLink from "@/components/site/TrackedLink";
 import { BILLING_PLANS } from "@/lib/billing/plans";
+import { buttonClass } from "@/components/ui/Button";
 
 const PLAN_ORDER = ["free", "pro", "scale"] as const;
 
@@ -87,15 +88,20 @@ export function PricingSection() {
                   people click is the only pre-signup price-sensitivity signal
                   we have (all three CTAs land on the same /signup URL, so the
                   pageview alone can't tell them apart). */}
+              {/* 2026-08-12 FIX-9: font-size / weight は 08-11 に2段へ揃ったが、
+                  高さだけ ヒーロー48 / ここ44 / ナビ36 の3値が残っていた。
+                  ここは唯一 buttonClass() を通していない主CTAで、値が独自に
+                  書かれていたのが原因。size:"md" でヒーローと同格の48pxになり、
+                  44px の当たり判定（2026-08-06 の 320px 監査 A-7）も維持される。 */}
               <TrackedLink
                 href="/signup"
                 event="pricing_cta_click"
                 props={{ plan: id }}
-                className={`mt-6 flex min-h-11 items-center justify-center rounded-md px-4 text-center text-sm font-medium transition-[background-color] ${
-                  highlighted
-                    ? "bg-brand-deep text-white hover:bg-brand"
-                    : "border border-brand-mist text-brand-deep hover:bg-zinc-50"
-                }`}
+                className={buttonClass({
+                  variant: highlighted ? "primary" : "secondary",
+                  size: "md",
+                  className: "mt-6 w-full text-center",
+                })}
               >
                 {id === "free" ? "Get API key" : `Start with ${plan.name}`}
               </TrackedLink>

@@ -53,7 +53,14 @@ const VARIANTS: Record<ButtonVariant, string> = {
   // 白文字 on #233456 = 12.37:1。hover は同じ紺階調の1段明るい #3e537c(7.68:1)。
   primary: "bg-brand-deep text-white hover:bg-brand",
   // 罫線は brand-mist（文字を載せない階調）、文字は brand-deep。
-  secondary: "border border-brand-mist bg-white text-brand-deep hover:bg-zinc-50",
+  //
+  // 2026-08-12: 罫線を border から ring（内側）へ移した。高さを固定していない
+  // ボタンでは border が外側に 1px ずつ積まれるため、同じ size でも
+  // primary 48px / secondary 50px と2pxずれる（実測。Pricing の3枚が
+  // Pro=48・Free/Scale=50 で並んでいた）。ring は box-shadow なのでレイアウトに
+  // 影響せず、見た目は 1px の内枠のまま変わらない。BASE の disabled 側で
+  // ring を使っているのも同じ理由（そちらは 2026-08-12 の別件）。
+  secondary: "ring-1 ring-inset ring-brand-mist bg-white text-brand-deep hover:bg-zinc-50",
 };
 
 export function buttonClass({

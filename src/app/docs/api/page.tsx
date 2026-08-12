@@ -1,16 +1,8 @@
 import Link from "next/link";
 import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
-
-// 2026-08-11: sticky 簡易目次の項目。リンク先の id は各 <section> に付けてある。
-const TOC = [
-  { href: "#rate-limits", label: "Rate limits" },
-  { href: "#endpoints", label: "Endpoints" },
-  { href: "#score-breakdown", label: "Score breakdown" },
-  { href: "#webhooks", label: "Webhooks" },
-  { href: "#availability", label: "Availability" },
-  { href: "#error-codes", label: "Error codes" },
-];
+import CodeBlock from "@/components/docs/CodeBlock";
+import DocsToc, { type TocItem } from "@/components/docs/DocsToc";
 
 type Endpoint = {
   method: "GET" | "POST";
@@ -173,6 +165,34 @@ const endpoints: Endpoint[] = [
   },
 ];
 
+// 2026-08-12 FIX-6: 各エンドポイントを目次から直接指せるようにする。
+// これまで id は6つの <section> にしか無く、13エンドポイントは「Endpoints」1項目に
+// 畳まれていた（モバイルで目的の仕様まで 3,059px = 3.8画面）。
+function endpointId(ep: Endpoint): string {
+  return `${ep.method}-${ep.path}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// 2026-08-11: sticky 簡易目次の項目。リンク先の id は各 <section> と
+// 各エンドポイントカードに付けてある。
+const TOC: TocItem[] = [
+  { href: "#rate-limits", label: "Rate limits" },
+  {
+    href: "#endpoints",
+    label: "Endpoints",
+    children: endpoints.map((ep) => ({
+      href: `#${endpointId(ep)}`,
+      label: `${ep.method} ${ep.path.split("?")[0]}`,
+    })),
+  },
+  { href: "#score-breakdown", label: "Score breakdown" },
+  { href: "#webhooks", label: "Webhooks" },
+  { href: "#availability", label: "Availability" },
+  { href: "#error-codes", label: "Error codes" },
+];
+
 const errorCodes = [
   { status: "400", meaning: "Bad request", detail: "Malformed body/params (e.g. invalid wallet format, empty batch)." },
   { status: "401", meaning: "Unauthorized", detail: "Missing or invalid API key on the Authorization: Bearer header." },
@@ -200,23 +220,7 @@ export default function ApiDocsPage() {
           （見出しジャンプはスクリーンリーダー利用者にしか無い）。JSを足さずに
           済ませたいのでネイティブのアンカーだけで組む。header が sticky top-0 /
           h-16 なので、この帯は top-16、飛び先は scroll-mt-32（帯2本ぶん）。 */}
-      <nav
-        aria-label="On this page"
-        className="sticky top-16 z-30 -mx-4 border-b border-zinc-200 bg-white/95 px-4 py-2 backdrop-blur md:-mx-8 md:px-8"
-      >
-        <ul className="-mb-1 flex gap-4 overflow-x-auto pb-1 text-xs whitespace-nowrap">
-          {TOC.map((item) => (
-            <li key={item.href}>
-              <a
-                href={item.href}
-                className="text-brand hover:text-brand-deep hover:underline underline-offset-4"
-              >
-                {item.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      <DocsToc items={TOC} />
 
       <div className="space-y-3">
         <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
@@ -225,6 +229,19 @@ export default function ApiDocsPage() {
           Authenticate with <code className="rounded bg-zinc-100 px-1 text-zinc-700">Authorization: Bearer</code>{" "}
           API key. Base URL: <code className="rounded bg-zinc-100 px-1 text-zinc-700">https://agent-trust-tawny.vercel.app/api/v1</code>
           {" "}(custom domain not yet registered).
+        </p>
+        {/* 2026-08-12 FIX-4: 発行されるキーの形が docs のどこにも書いておらず、
+            LP の MCP 例だけが `vk_...` という実在しない接頭辞を載せていた
+            （実物は src/lib/db/api-keys.ts の `vouch_live_<48hex>`）。
+            例を直すだけでなく、正しい形をここに1行置いて典拠にする。 */}
+        <p className="text-sm text-zinc-600">
+          Keys look like{" "}
+          <code className="rounded bg-zinc-100 px-1 text-zinc-700">vouch_live_…</code> — send them
+          as{" "}
+          <code className="rounded bg-zinc-100 px-1 text-zinc-700">
+            Authorization: Bearer vouch_live_…
+          </code>
+          .
         </p>
         <p className="text-sm text-zinc-500">
           Full machine-readable schema:{" "}
@@ -300,7 +317,8 @@ export default function ApiDocsPage() {
         {endpoints.map((ep) => (
           <div
             key={ep.path}
-            className="space-y-3 rounded-lg border border-zinc-200 bg-white px-4 py-4 text-sm"
+            id={endpointId(ep)}
+            className="scroll-mt-32 space-y-3 rounded-lg border border-zinc-200 bg-white px-4 py-4 text-sm"
           >
             <div>
               {/* 2026-08-06 a11y (screen-reader persona audit): these endpoint
@@ -321,14 +339,10 @@ export default function ApiDocsPage() {
                 <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
                   Request body
                 </p>
-                <pre
-                  tabIndex={0}
-                  role="region"
-                  aria-label={`Request body for ${ep.method} ${ep.path}`}
-                  className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
-                >
-                  <code>{ep.request}</code>
-                </pre>
+                <CodeBlock
+                  code={ep.request}
+                  label={`Request body for ${ep.method} ${ep.path}`}
+                />
               </div>
             )}
 
@@ -336,14 +350,7 @@ export default function ApiDocsPage() {
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
                 Response
               </p>
-              <pre
-                tabIndex={0}
-                role="region"
-                aria-label={`Response for ${ep.method} ${ep.path}`}
-                className="overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
-              >
-                <code>{ep.response}</code>
-              </pre>
+              <CodeBlock code={ep.response} label={`Response for ${ep.method} ${ep.path}`} />
             </div>
           </div>
         ))}
@@ -458,13 +465,10 @@ export default function ApiDocsPage() {
             Every delivery is a JSON POST with this envelope. <code>id</code> is
             unique per event — dedupe on it (see idempotency below).
           </p>
-          <pre
-            tabIndex={0}
-            role="region"
-            aria-label="Webhook delivery payload envelope"
-            className="mt-2 overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
-          >
-            <code>{`POST https://your-host.example/vouch-hook
+          <CodeBlock
+            className="mt-2"
+            label="Webhook delivery payload envelope"
+            code={`POST https://your-host.example/vouch-hook
 Content-Type: application/json
 Vouch-Signature: t=1723000000,v1=5f2b…   (hex HMAC-SHA256)
 User-Agent: vouch-webhooks/1
@@ -481,8 +485,8 @@ User-Agent: vouch-webhooks/1
     "previous": { "score": 74, "recommendation": "ALLOW" },
     "current":  { "score": 31, "recommendation": "BLOCK" }
   }
-}`}</code>
-          </pre>
+}`}
+          />
         </div>
 
         <div>
@@ -497,13 +501,10 @@ User-Agent: vouch-webhooks/1
             now (replay guard). The reference implementation is below — copy it
             as-is.
           </p>
-          <pre
-            tabIndex={0}
-            role="region"
-            aria-label="Node.js webhook signature verification example"
-            className="mt-2 overflow-x-auto rounded bg-zinc-900 p-3 text-xs text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
-          >
-            <code>{`import { createHmac, timingSafeEqual } from "node:crypto";
+          <CodeBlock
+            className="mt-2"
+            label="Node.js webhook signature verification example"
+            code={`import { createHmac, timingSafeEqual } from "node:crypto";
 
 function verify(secret, rawBody, header, toleranceSec = 300) {
   const parts = new Map(header.split(",").map(p => {
@@ -516,8 +517,8 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
   const expected = createHmac("sha256", secret).update(\`\${t}.\${rawBody}\`).digest("hex");
   const a = Buffer.from(expected), b = Buffer.from(v1);
   return a.length === b.length && timingSafeEqual(a, b);
-}`}</code>
-          </pre>
+}`}
+          />
         </div>
 
         <div>
