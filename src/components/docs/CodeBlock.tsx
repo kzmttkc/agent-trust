@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import styles from "./CodeBlock.module.css";
 
 /**
  * CodeBlock — the single source of truth for every code sample on the site.
@@ -18,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *     aria-live で読み上げにも出す。clipboard API が無い環境（http や古い
  *     Safari）では execCommand へ落とし、それも失敗したら「Select all」と
  *     して全選択するところまでやる（黙って何も起きないのが最悪）。
- *   - 横スクロールの手掛かりは globals.css の .code-scroll。mask-image の
+ *   - 横スクロールの手掛かりは CodeBlock.module.css の .scroll。mask-image の
  *     静的フェードは端まで送った時に最後の文字を消すので採らず、
  *     background-attachment: local のスクロール連動シャドウにしている。
  *
@@ -77,7 +78,7 @@ export default function CodeBlock({
         // min-h-12: 1行だけのサンプル（<pre> は 40px）だと 44px のコピーボタンが
         // 下へはみ出す。当たり判定 44px（WCAG 2.5.8）を削らずに収めるため、
         // 枠の高さを top-1 + 44 = 48px 以上にしておく。
-        className="code-scroll min-h-12 overflow-x-auto rounded-lg bg-zinc-900 py-3 pl-3 pr-14 text-xs leading-relaxed text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus"
+        className={`${styles.scroll} min-h-12 overflow-x-auto rounded-lg bg-zinc-900 py-3 pl-3 pr-14 text-xs leading-relaxed text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus`}
       >
         <code>{code}</code>
       </pre>

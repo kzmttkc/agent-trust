@@ -115,27 +115,6 @@ body {
   border-radius: 2px;
 }
 
-/* ---- 2026-08-12 ペルソナ監査 FIX-10: 横スクロールするコードブロックの手掛かり ----
-   実測（mobile 375px）: 最長の <pre> は scrollWidth 910 / clientWidth 309（約3倍幅）。
-   mask-image も ::after も無く、スクロールバーも出ないため、JSON が
-   `{ "message": "Vouch verified payee registi` で断ち切られ、**続きがあること自体が
-   見えない**状態だった。
-   静的な mask-image のフェードは採らない。右端まで送った時に最後の文字を薄く
-   消してしまう（Soroi で同じ判断をしている）。background-attachment: local の
-   カバー2枚＋scroll の影2枚なら、JS 無しでスクロール位置に連動し、端に達すると
-   影が消える。地色（zinc-900 #18181b）と一致させないと帯が見えるので直値で書く。 */
-.code-scroll {
-  background-image:
-    linear-gradient(to right, #18181b, rgba(24, 24, 27, 0)),
-    linear-gradient(to left, #18181b, rgba(24, 24, 27, 0)),
-    radial-gradient(farthest-side at 0 50%, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0)),
-    radial-gradient(farthest-side at 100% 50%, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0));
-  background-position: 0 0, 100% 0, 0 0, 100% 0;
-  background-repeat: no-repeat;
-  background-size: 28px 100%, 28px 100%, 14px 100%, 14px 100%;
-  background-attachment: local, local, scroll, scroll;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
