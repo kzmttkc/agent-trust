@@ -12,7 +12,7 @@ import { createVouchClient } from "@vouchscore/sdk";
 // apiUrl below is the current production deployment. A custom domain
 // (e.g. api.vouch.dev) is not registered yet — swap this in once it is.
 const vouch = createVouchClient({
-  apiUrl: "https://agent-trust-tawny.vercel.app/api/v1",
+  apiUrl: "https://vet402.com/api/v1",
   apiKey: process.env.VOUCH_API_KEY!,
 });
 

@@ -1,8 +1,49 @@
-# Vouch (agent-trust)
+# vet402
 
-**Trust layer for agent commerce** — ERC-8004 agent trust scores on Base.
+**Independent Verification of the x402 Agent-Payment Economy**
 
-Scores agents 0–100 with `ALLOW` / `WARN` / `BLOCK` recommendations. Built for x402 API providers who need to verify agents before accepting payment.
+*We buy. We settle. We publish the measurements.*
+
+vet402 buys what x402 endpoints actually sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence.
+
+> **Formerly Vouch.** The repository name (`agent-trust`), npm scope (`@vouchscore/*`) and API key prefix (`vouch_`) retain the old name for backward compatibility.
+
+**Site:** <https://vet402.com> · **API reference:** <https://vet402.com/docs/api> · **Accuracy ledger:** <https://vet402.com/accuracy>
+
+This repository is the source of the vet402 service and of the three npm packages published from `packages/`.
+
+## Install
+
+```bash
+npm i @vouchscore/sdk          # TypeScript API client
+npm i @vouchscore/middleware   # x402 transaction gate (Express / Next.js / Hono)
+npm i @vouchscore/mcp-server   # MCP tools for Cursor / Claude Desktop
+```
+
+> **Use the scoped names exactly as written above.** The unscoped npm package `vouch-sdk` is an unrelated project published by a different vendor and has nothing to do with vet402. Only `@vouchscore/*` packages are ours.
+
+- [@vouchscore/sdk](https://www.npmjs.com/package/@vouchscore/sdk)
+- [@vouchscore/middleware](https://www.npmjs.com/package/@vouchscore/middleware)
+- [@vouchscore/mcp-server](https://www.npmjs.com/package/@vouchscore/mcp-server)
+
+```typescript
+import { createVouchClient } from "@vouchscore/sdk";
+```
+
+Get a free API key at <https://vet402.com/signup> (1,000 lookups/month, no card required).
+
+## Verification levels
+
+A result never moves up a level: an L0 probe cannot report settlement, and an L3 opinion is never folded into an L0–L2 fact.
+
+| Level | Question | How | Output |
+|---|---|---|---|
+| L0 | Liveness — does the endpoint answer correctly? | Probe, no purchase | pass / fail / unverified |
+| L1 | Settle-through — does payment settle and a response arrive? | Real purchase | n of m settled, latency |
+| L2 | Conformance — does the response match the seller's own declaration? | Purchase + machine diff | conform / mismatch / undeclared |
+| L3 | Quality — is the content any good? | Published rubric | opinion — never mixed with L0–L2 |
+
+The 0–100 trust score this API returns today (banded `ALLOW` / `WARN` / `BLOCK`) predates these levels. It stays available to API and SDK callers during the transition, and is never reported as an L0–L2 result. Methodology: <https://vet402.com/#methodology>.
 
 ## Docs
 
@@ -13,8 +54,13 @@ Scores agents 0–100 with `ALLOW` / `WARN` / `BLOCK` recommendations. Built for
 - [MCP setup](./docs/mcp-setup.md)
 - [x402 integration](./docs/x402-integration.md)
 - [x402 Foundation (optional)](./docs/ecosystem-x402-foundation.md)
-- [Brand / naming](./docs/brand.md)
 - [Marketing kit (Dev.to / Zenn)](./docs/marketing/README.md)
+
+---
+
+# Self-hosting and development
+
+The rest of this file covers running the service yourself. Using vet402 as a customer needs none of it — see [Install](#install) above.
 
 ## Stack
 
@@ -205,8 +251,9 @@ docs/
   openapi.yaml
   brand.md
 packages/
-  mcp-server/          # MCP tools for Cursor / Claude
-  sdk/                 # Thin TypeScript API client
+  mcp-server/          # @vouchscore/mcp-server — MCP tools for Cursor / Claude
+  sdk/                 # @vouchscore/sdk — thin TypeScript API client
+  middleware/          # @vouchscore/middleware — x402 gate (Express / Next.js / Hono)
 examples/
   x402-trust-gate/     # Express middleware sample
 ```
@@ -226,4 +273,4 @@ examples/
 
 ## License
 
-Proprietary (private during development).
+[MIT](./LICENSE) © KIZUNA Creation. The published `@vouchscore/*` packages carry the same license.

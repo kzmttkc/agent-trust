@@ -74,7 +74,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "node",
       "args": ["/absolute/path/to/vouch/packages/mcp-server/dist/index.js"],
       "env": {
-        "VOUCH_API_URL": "https://agent-trust-tawny.vercel.app/api/v1",
+        "VOUCH_API_URL": "https://vet402.com/api/v1",
         "VOUCH_API_KEY": "vouch_live_your_key_here"
       }
     }

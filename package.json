@@ -2,6 +2,27 @@
   "name": "agent-trust",
   "version": "0.1.0",
   "private": true,
+  "description": "vet402 buys what x402 endpoints actually sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence.",
+  "license": "MIT",
+  "author": "KIZUNA Creation",
+  "homepage": "https://vet402.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzmttkc/agent-trust.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kzmttkc/agent-trust/issues"
+  },
+  "keywords": [
+    "x402",
+    "erc-8004",
+    "erc8004",
+    "ai-agents",
+    "agent-payments",
+    "verification",
+    "base",
+    "onchain"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",

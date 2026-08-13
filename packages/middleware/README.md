@@ -111,4 +111,4 @@ createExpressGate({
 The gate reads a score and returns a verdict. It never touches keys, funds,
 signing, or transaction submission — settlement stays with your x402 stack.
 
-MIT · [Vouch](https://agent-trust-tawny.vercel.app)
+MIT · [vet402](https://vet402.com)

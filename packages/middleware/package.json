@@ -33,7 +33,7 @@
   "description": "Drop-in x402 transaction gate: score a payment counterparty and ALLOW/WARN/BLOCK before it settles. Express, Next.js, and Hono adapters. Fail-closed by default.",
   "license": "MIT",
   "author": "KIZUNA Creation",
-  "homepage": "https://agent-trust-tawny.vercel.app",
+  "homepage": "https://vet402.com",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kzmttkc/agent-trust.git",
