@@ -433,10 +433,22 @@ test("a failed outcome-history read is never served as 'no history'", () => {
 
 test("the payee engine flags a failed outcome-history read", () => {
   const src = readSrc("lib/scoring/payee-engine.ts");
+  // 2026-08-13: the four upstream reads moved from four sequential awaits to a
+  // single Promise.allSettled, so a busy wallet's request costs the SLOWEST
+  // read rather than the sum of four budgets. The rule being pinned here has
+  // not changed — getOutcomesForWallet's throw must become a flag and never a
+  // 500 — only the shape that implements it.
   assert.match(
     src,
-    /catch \(error\) \{[\s\S]{0,200}?flags\.push\("outcome_history_unavailable"\)/,
-    "getOutcomesForWallet's throw must become a flag, not a 500",
+    /outcomesResult\.status === "fulfilled"[\s\S]{0,400}?flags\.push\("outcome_history_unavailable"\)/,
+    "getOutcomesForWallet's rejection must become a flag, not a 500",
+  );
+  // The rejection must be SETTLED rather than awaited: an await here would
+  // escape scorePayeeWallet as a 500 before the flag could ever be pushed.
+  assert.match(
+    src,
+    /Promise\.allSettled\(\[[\s\S]{0,400}?getOutcomesForWallet\(addrLower\)/,
+    "the outcome-history read must be settled, not awaited",
   );
 });
 

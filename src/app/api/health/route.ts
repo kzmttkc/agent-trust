@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { secureCompare } from "@/lib/util/secure-compare";
 import { runDeepHealthChecks } from "@/lib/health/deep-checks";
 import { runScoringProbe } from "@/lib/health/scoring-probe";
+import { runPayeeProbe, worstStatus } from "@/lib/scoring/payee-probe";
 
 function authorizeAdmin(request: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET;
@@ -32,12 +33,27 @@ export async function GET(request: NextRequest) {
   //
   // Still exactly one bit of information to an anonymous caller — up or not —
   // so nothing new is leaked. Which upstream is unhappy stays admin-only.
+  //
+  // 2026-08-13: that probe covered the SELLER side only — scoreAgentById, the
+  // "should I accept payment from this agent?" engine. Measured the same day,
+  // nine seconds apart on the same deploy:
+  //
+  //   09:50:08Z  GET /api/health         → 200 {"status":"ok"}
+  //   09:50:17Z  GET /payee/0xd8dA…6045  → "Not verifiable right now"
+  //
+  // The buyer-side engine — the one the SDK's SpendGuard consults before
+  // releasing funds — was failing, and nothing here looked at it. Same class
+  // of mistake as the hard-coded "ok" and as the block-number deep check
+  // before it: measuring the thing NEXT TO the thing that broke. Both sides
+  // are probed now, concurrently (so the endpoint costs the slower probe, not
+  // the sum), and the endpoint reports the worse of the two.
   if (!deep) {
-    const scoring = await runScoringProbe();
-    if (scoring.status === "error") {
+    const [scoring, payee] = await Promise.all([runScoringProbe(), runPayeeProbe()]);
+    const status = worstStatus([scoring.status, payee.status]);
+    if (status === "error") {
       return NextResponse.json({ status: "error" }, { status: 503 });
     }
-    return NextResponse.json({ status: scoring.status === "degraded" ? "degraded" : "ok" });
+    return NextResponse.json({ status });
   }
 
   // Always require admin for deep health — never gate on APP_ENV alone.
@@ -55,12 +71,18 @@ export async function GET(request: NextRequest) {
     erc8004: true,
   };
 
-  const deepResult = await runDeepHealthChecks();
+  const [deepResult, payee] = await Promise.all([runDeepHealthChecks(), runPayeeProbe()]);
   payload.status = deepResult.status;
   payload.checks = deepResult.checks;
   if (deepResult.env) payload.env = deepResult.env;
   if (deepResult.indexer) payload.indexer = deepResult.indexer;
+  // Admin-only, so this is the one place the failing input may be NAMED. The
+  // public body above still says only up/degraded/down.
+  payload.payee = payee;
+  if (payee.status !== "ok") {
+    payload.status = worstStatus([deepResult.status, payee.status]);
+  }
 
-  const statusCode = deepResult.criticalFailure ? 503 : 200;
+  const statusCode = deepResult.criticalFailure || payee.status === "error" ? 503 : 200;
   return NextResponse.json(payload, { status: statusCode });
 }

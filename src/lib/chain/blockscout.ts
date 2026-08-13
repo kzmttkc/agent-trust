@@ -1,4 +1,5 @@
 import { DEFAULT_CHAIN_ID, chainById } from "./chains";
+import { createDeadline } from "@/lib/util/deadline";
 import type { Address } from "viem";
 
 type BlockscoutTx = {
@@ -78,6 +79,42 @@ export class BlockscoutUnavailableError extends Error {
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 250;
 
+/**
+ * Every request to Blockscout names itself.
+ *
+ * Node's fetch sends no User-Agent at all, and an unnamed client is the first
+ * thing a public API throttles or blocks. HONEST NOTE (2026-08-13): this was
+ * NOT measured to change any outcome — a paired A/B of 4 requests each, with
+ * and without the header, returned identical statuses once the v1 limiter's
+ * state was controlled for. It is here because a verification service reading
+ * someone else's public API should be identifiable by them, not because it
+ * fixed anything.
+ */
+const USER_AGENT = "vet402-verifier/0.1 (+https://vet402.com)";
+const REQUEST_HEADERS: Record<string, string> = {
+  Accept: "application/json",
+  "User-Agent": USER_AGENT,
+};
+
+/**
+ * Turn a time budget into an abort, so a slow read stops COSTING something
+ * when the caller stops waiting for it.
+ *
+ * Callers used to bound these reads with Promise.race against a timer
+ * (payee-engine's withTimeout, wallet-metrics' withTimeout). That rejects the
+ * caller's promise but leaves the socket open and the upstream query running:
+ * measured 2026-08-13, one `/token-transfers` page for a busy wallet ran
+ * 31,201ms while the engine had given up on it at 8,000ms. On a serverless
+ * invocation that is 23 seconds of work nobody will read, still holding the
+ * function open and still spending the upstream's budget — which makes the
+ * NEXT request likelier to be refused. Bounding the fetch itself is the only
+ * version of "give up" that upstream can observe.
+ */
+function budgetSignal(budgetMs?: number): AbortSignal | undefined {
+  if (budgetMs === undefined || !Number.isFinite(budgetMs)) return undefined;
+  return AbortSignal.timeout(Math.max(1, budgetMs));
+}
+
 /** Minimum spacing between v1 request STARTS. 3 rapid requests trip the
  *  limiter; 1.5s spacing got 9 addresses through a production scan before it
  *  tripped (measured 2026-08-13, 21:44:54-21:45:09Z), so the budget is a slow
@@ -120,6 +157,14 @@ function retryDelayMs(attempt: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** An AbortSignal.timeout() firing surfaces as TimeoutError; an explicit
+ *  abort as AbortError. Both mean "we stopped waiting", not "upstream broke". */
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")
+  );
 }
 
 // ---- v1 request pacing + cooldown ------------------------------------------
@@ -211,6 +256,7 @@ function isEmptyResultMessage(message: string): boolean {
 async function blockscoutGetOnce<T>(
   params: Record<string, string>,
   chainId?: number,
+  budgetMs?: number,
 ): Promise<T | null> {
   const url = new URL(getBlockscoutBaseUrl(chainId));
   for (const [key, value] of Object.entries(params)) {
@@ -233,12 +279,20 @@ async function blockscoutGetOnce<T>(
   let response: Response;
   try {
     response = await fetch(url.toString(), {
-      headers: { Accept: "application/json" },
+      headers: REQUEST_HEADERS,
+      signal: budgetSignal(budgetMs),
       next: { revalidate: 0 },
     });
   } catch (error) {
     // Connection reset / DNS / socket hang-up: worth one more try. A network
     // blip is not a rate limit, so it does not open the cooldown.
+    //
+    // An abort is NOT worth another try: the budget that fired is the caller's
+    // whole allowance, so a retry would have nothing left to run in and would
+    // only add a request to an upstream that is already too slow to answer.
+    if (isAbortError(error)) {
+      throw new BlockscoutUnavailableError("blockscout_timeout", error, false);
+    }
     throw new BlockscoutUnavailableError("blockscout_network_error", error, true);
   }
 
@@ -292,17 +346,29 @@ async function blockscoutGetOnce<T>(
   );
 }
 
-async function blockscoutGet<T>(params: Record<string, string>, chainId?: number): Promise<T | null> {
+async function blockscoutGet<T>(
+  params: Record<string, string>,
+  chainId?: number,
+  budgetMs?: number,
+): Promise<T | null> {
   let lastError: unknown;
+  // Same rule as the v2 walk: the budget bounds the retries, not just each try.
+  const deadline = createDeadline(budgetMs);
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await blockscoutGetOnce<T>(params, chainId);
+      return await blockscoutGetOnce<T>(
+        params,
+        chainId,
+        budgetMs === undefined ? undefined : deadline.remaining(),
+      );
     } catch (error) {
       lastError = error;
       const retryable = error instanceof BlockscoutUnavailableError && error.retryable;
       if (!retryable || attempt === MAX_ATTEMPTS) break;
-      await sleep(retryDelayMs(attempt));
+      const delay = retryDelayMs(attempt);
+      if (deadline.remaining() <= delay) break;
+      await sleep(delay);
     }
   }
 
@@ -313,18 +379,28 @@ async function blockscoutGet<T>(params: Record<string, string>, chainId?: number
 
 export async function fetchWalletTransactions(
   address: Address,
-  options: { sort?: "asc" | "desc"; offset?: number; page?: number; chainId?: number } = {},
+  options: {
+    sort?: "asc" | "desc";
+    offset?: number;
+    page?: number;
+    chainId?: number;
+    budgetMs?: number;
+  } = {},
 ): Promise<BlockscoutTx[]> {
-  const result = await blockscoutGet<BlockscoutTx[] | string>({
-    module: "account",
-    action: "txlist",
-    address,
-    startblock: "0",
-    endblock: "99999999",
-    page: String(options.page ?? 1),
-    offset: String(options.offset ?? 100),
-    sort: options.sort ?? "asc",
-  }, options.chainId);
+  const result = await blockscoutGet<BlockscoutTx[] | string>(
+    {
+      module: "account",
+      action: "txlist",
+      address,
+      startblock: "0",
+      endblock: "99999999",
+      page: String(options.page ?? 1),
+      offset: String(options.offset ?? 100),
+      sort: options.sort ?? "asc",
+    },
+    options.chainId,
+    options.budgetMs,
+  );
 
   if (!result || typeof result === "string") return [];
   return result;
@@ -345,6 +421,8 @@ export async function fetchTokenTransfers(
     sort?: "asc" | "desc";
     offset?: number;
     page?: number;
+    chainId?: number;
+    budgetMs?: number;
   } = {},
 ): Promise<BlockscoutTokenTx[]> {
   const params: Record<string, string> = {
@@ -361,7 +439,11 @@ export async function fetchTokenTransfers(
     params.contractaddress = options.contractAddress;
   }
 
-  const result = await blockscoutGet<BlockscoutTokenTx[] | string>(params);
+  const result = await blockscoutGet<BlockscoutTokenTx[] | string>(
+    params,
+    options.chainId,
+    options.budgetMs,
+  );
 
   if (!result || typeof result === "string") return [];
   if (!options.contractAddress) return result;
@@ -487,11 +569,13 @@ const MAX_HISTORY_PAGES = 10;
 export async function fetchAddressTransactionCount(
   address: Address,
   chainId?: number,
+  budgetMs?: number,
 ): Promise<number | null> {
   const base = getBlockscoutBaseUrl(chainId).replace(/\/+$/, "");
   try {
     const response = await fetch(`${base}/v2/addresses/${address}/counters`, {
-      headers: { Accept: "application/json" },
+      headers: REQUEST_HEADERS,
+      signal: budgetSignal(budgetMs),
       next: { revalidate: 0 },
     });
     if (!response.ok) return null;
@@ -535,6 +619,7 @@ async function blockscoutV2GetOnce<T extends BlockscoutV2Page>(
   path: string,
   params: Record<string, string>,
   chainId?: number,
+  budgetMs?: number,
 ): Promise<T> {
   const base = getBlockscoutBaseUrl(chainId).replace(/\/+$/, "");
   const url = new URL(`${base}/v2${path}`);
@@ -543,10 +628,14 @@ async function blockscoutV2GetOnce<T extends BlockscoutV2Page>(
   let response: Response;
   try {
     response = await fetch(url.toString(), {
-      headers: { Accept: "application/json" },
+      headers: REQUEST_HEADERS,
+      signal: budgetSignal(budgetMs),
       next: { revalidate: 0 },
     });
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new BlockscoutUnavailableError("blockscout_v2_timeout", error, false);
+    }
     throw new BlockscoutUnavailableError("blockscout_v2_network_error", error, true);
   }
 
@@ -589,16 +678,30 @@ async function blockscoutV2Get<T extends BlockscoutV2Page>(
   path: string,
   params: Record<string, string>,
   chainId?: number,
+  budgetMs?: number,
 ): Promise<T> {
   let lastError: unknown;
+  // The budget covers the RETRIES too, not just each attempt. A 500 answers
+  // instantly, so the abort signal never fires on it and the back-off sleeps
+  // were free to spend a multiple of the caller's allowance — which is how a
+  // leg could blow its budget without any single request being slow.
+  const deadline = createDeadline(budgetMs);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await blockscoutV2GetOnce<T>(path, params, chainId);
+      return await blockscoutV2GetOnce<T>(
+        path,
+        params,
+        chainId,
+        budgetMs === undefined ? undefined : deadline.remaining(),
+      );
     } catch (error) {
       lastError = error;
       const retryable = error instanceof BlockscoutUnavailableError && error.retryable;
       if (!retryable || attempt === MAX_ATTEMPTS) break;
-      await sleep(retryDelayMs(attempt));
+      const delay = retryDelayMs(attempt);
+      // No point sleeping into a budget that cannot hold the retry as well.
+      if (deadline.remaining() <= delay) break;
+      await sleep(delay);
     }
   }
   throw lastError;
@@ -616,12 +719,25 @@ async function fetchV2Transfers<T>(
   limit: number,
   toTx: (item: T) => BlockscoutTx | null,
   chainId?: number,
+  budgetMs?: number,
 ): Promise<BlockscoutTx[]> {
   const out: BlockscoutTx[] = [];
   let params: Record<string, string> = { ...baseParams };
+  // ONE budget for the whole window, not one per page. The 100-transfer window
+  // is always two serial round trips here (v2 pages 50 at a time), so a
+  // per-page budget silently permits double the wall clock the caller asked
+  // for — measured 2026-08-13 on a busy wallet: 18,411ms + 31,201ms = 51,979ms
+  // against an 8,000ms allowance.
+  const deadline = createDeadline(budgetMs);
 
   for (let page = 1; page <= V2_MAX_PAGES; page++) {
-    const data = await blockscoutV2Get<BlockscoutV2Page>(path, params, chainId);
+    deadline.throwIfExpired("blockscout_v2_window");
+    const data = await blockscoutV2Get<BlockscoutV2Page>(
+      path,
+      params,
+      chainId,
+      budgetMs === undefined ? undefined : deadline.remaining(),
+    );
     const items = data.items as T[];
     for (const item of items) {
       const tx = toTx(item);
@@ -669,7 +785,7 @@ function toEpochSeconds(iso: string | undefined): string {
  *  fetchWalletTransactions({ sort: "desc" }). */
 export async function fetchWalletTransfersV2(
   address: Address,
-  options: { limit?: number; chainId?: number } = {},
+  options: { limit?: number; chainId?: number; budgetMs?: number } = {},
 ): Promise<BlockscoutTx[]> {
   return fetchV2Transfers<V2NativeTx>(
     `/addresses/${address}/transactions`,
@@ -692,6 +808,7 @@ export async function fetchWalletTransfersV2(
       };
     },
     options.chainId,
+    options.budgetMs,
   );
 }
 
@@ -712,7 +829,7 @@ export async function fetchWalletTransfersV2(
 export async function fetchTokenTransfersV2(
   address: Address,
   contractAddress: Address,
-  options: { limit?: number; chainId?: number } = {},
+  options: { limit?: number; chainId?: number; budgetMs?: number } = {},
 ): Promise<BlockscoutTx[]> {
   const wanted = contractAddress.toLowerCase();
   return fetchV2Transfers<V2TokenTransfer>(
@@ -736,6 +853,128 @@ export async function fetchTokenTransfersV2(
       };
     },
     options.chainId,
+    options.budgetMs,
+  );
+}
+
+// ---- transfer window: v2 first, v1 as the fallback --------------------------
+/**
+ * The 100-transfer window the drain check reads, from whichever source can
+ * actually deliver it.
+ *
+ * WHY THIS EXISTS (2026-08-13, second pass). Moving the drain check to v2
+ * earlier that day fixed a rate-limit problem and introduced a latency one, and
+ * the second only shows up on wallets with a lot of history. Measured against
+ * base.blockscout.com for 0xd8dA…6045 (vitalik.eth, 37,157 transactions on
+ * Base), the same 100-transfer window:
+ *
+ *   v1  ?action=txlist&offset=100&sort=desc      1 request    1,518ms
+ *   v2  /addresses/{a}/transactions              2 requests  18,036ms
+ *   v2  /addresses/{a}/token-transfers           2 requests  51,979ms
+ *
+ * v2 pages 50 at a time, so the window is ALWAYS two serial round trips, and
+ * each one costs more the more history the address has. Against the payee
+ * engine's per-leg budget both legs simply expired, the drain check reported
+ * "unavailable", and the engine fail-closed the whole verdict — so
+ * /payee/0xd8dA…6045 answered "Not verifiable right now" 3 times out of 3
+ * while /payee/0x0330070F… (0 transactions) scored 41/WARN from the same
+ * deploy in the same minute. The first address a visitor tries is the one the
+ * product could not answer.
+ *
+ * So v2 stays the DEFAULT — it costs nothing from the v1 burst budget, which
+ * is the scarcest resource in this file — and v1 is the fallback for exactly
+ * the case v2 cannot serve. A healthy wallet still spends zero v1 requests on
+ * its drain check (tests/payee-high-activity.test.ts pins this); a busy one
+ * spends two, which is why the caller must pace them.
+ *
+ * THE WINDOW IS THE SAME SIZE ON BOTH PATHS. A fallback that returned fewer
+ * transfers would count less outflow, and outflow is the NUMERATOR of the drain
+ * ratio — a smaller window is the fail-OPEN direction. `offset` on the v1 call
+ * is the caller's `limit`, not a smaller convenience value.
+ *
+ * Failure semantics are unchanged: if neither source completes, this throws and
+ * the caller still fails closed. The fallback removes an outage it was
+ * manufacturing; it never softens one that is real.
+ */
+export type TransferWindow = {
+  transfers: BlockscoutTx[];
+  /** Which upstream answered. Reported so an operator can see the fallback
+   *  carrying traffic instead of having to infer it from latency. */
+  source: "v2" | "v1";
+};
+
+type WindowOptions = {
+  limit?: number;
+  chainId?: number;
+  /** How long v2 gets before the fallback is tried. */
+  v2BudgetMs?: number;
+  /** How long the v1 fallback gets. */
+  v1BudgetMs?: number;
+};
+
+async function withV1Fallback(
+  v2: () => Promise<BlockscoutTx[]>,
+  v1: () => Promise<BlockscoutTx[]>,
+): Promise<TransferWindow> {
+  try {
+    return { transfers: await v2(), source: "v2" };
+  } catch (v2Error) {
+    try {
+      return { transfers: await v1(), source: "v1" };
+    } catch (v1Error) {
+      // Report the FALLBACK's failure, carrying v2's underneath: an operator
+      // reading this needs to know both refused, and which one refused last.
+      throw new BlockscoutUnavailableError(
+        "blockscout_window_unavailable",
+        { v2: v2Error, v1: v1Error },
+        false,
+      );
+    }
+  }
+}
+
+/** Native-token transfers, newest first. */
+export async function fetchWalletTransferWindow(
+  address: Address,
+  options: WindowOptions = {},
+): Promise<TransferWindow> {
+  const limit = options.limit ?? 100;
+  return withV1Fallback(
+    () => fetchWalletTransfersV2(address, { limit, chainId: options.chainId, budgetMs: options.v2BudgetMs }),
+    () =>
+      fetchWalletTransactions(address, {
+        sort: "desc",
+        offset: limit,
+        page: 1,
+        chainId: options.chainId,
+        budgetMs: options.v1BudgetMs,
+      }),
+  );
+}
+
+/** ERC-20 transfers for one token, newest first. */
+export async function fetchTokenTransferWindow(
+  address: Address,
+  contractAddress: Address,
+  options: WindowOptions = {},
+): Promise<TransferWindow> {
+  const limit = options.limit ?? 100;
+  return withV1Fallback(
+    () =>
+      fetchTokenTransfersV2(address, contractAddress, {
+        limit,
+        chainId: options.chainId,
+        budgetMs: options.v2BudgetMs,
+      }),
+    () =>
+      fetchTokenTransfers(address, {
+        contractAddress,
+        sort: "desc",
+        offset: limit,
+        page: 1,
+        chainId: options.chainId,
+        budgetMs: options.v1BudgetMs,
+      }),
   );
 }
 

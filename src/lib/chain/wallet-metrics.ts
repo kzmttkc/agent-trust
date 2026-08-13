@@ -16,6 +16,25 @@ export type WalletMetrics = {
 const metricsCache = new LruCache<string, { metrics: WalletMetrics; expiresAt: number }>(5000);
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_NONCE_TX_COUNT = 50;
+/**
+ * Budget for the OPTIONAL /counters short-circuit.
+ *
+ * Deliberately much smaller than FETCH_TIMEOUT_MS, because this read is not
+ * load-bearing: its only job is to skip the history walk for an address with
+ * no history at all. Measured 2026-08-13 on base.blockscout.com, that endpoint
+ * took 70,972ms cold and 974-6,041ms warm for a busy wallet — so on a cold
+ * cache the optimisation that exists to SAVE work was consuming the entire
+ * metrics budget and taking the walk down with it. Nothing that optional gets
+ * to spend more than a couple of seconds of a user's request.
+ */
+const COUNTER_BUDGET_MS = 3_000;
+
+function counterBudgetMs(): number {
+  const raw = process.env.WALLET_METRICS_COUNTER_BUDGET_MS;
+  if (raw === undefined || raw === "") return COUNTER_BUDGET_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : COUNTER_BUDGET_MS;
+}
 
 /**
  * Fetches currently in flight, keyed exactly like the cache.
@@ -92,7 +111,20 @@ async function fetchWalletMetricsUncoalesced(
     // no history on this chain needs no walk at all, and 25 of the benchmark's
     // 42 addresses are exactly that. Only a definite zero short-circuits — a
     // null (v2 unreachable) falls through to the walk, which still fails closed.
-    const totalTxCount = await withTimeout(fetchAddressTransactionCount(address, chainId));
+    //
+    // 2026-08-13: "falls through to the walk" is what this always claimed and
+    // what it did NOT do. fetchAddressTransactionCount swallows its own errors
+    // into a null, but the withTimeout wrapped around it here did not — a
+    // counter that was merely SLOW rejected inside the try below and became
+    // wallet_metrics_unavailable, i.e. a fail-closed BLOCK produced by an
+    // optional optimisation. Measured the same day: 70,972ms on a cold counter
+    // for 0xd8dA…6045 against an 8,000ms wrapper. A budget this read cannot
+    // meet must return null, exactly like a 500 from it does.
+    const totalTxCount = await fetchAddressTransactionCount(
+      address,
+      chainId,
+      counterBudgetMs(),
+    ).catch(() => null);
 
     // ONE walk, not two. These used to be concurrent calls over the same
     // endpoint for the same wallet — which spent two thirds of Blockscout's

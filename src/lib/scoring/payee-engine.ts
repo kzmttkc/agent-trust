@@ -1,6 +1,6 @@
 import { erc20Abi, type Address } from "viem";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
-import { fetchTokenTransfersV2, fetchWalletTransfersV2 } from "@/lib/chain/blockscout";
+import { fetchTokenTransferWindow, fetchWalletTransferWindow } from "@/lib/chain/blockscout";
 import { getPublicClient, isValidAddress } from "@/lib/chain/client";
 import { BASE_USDC_ADDRESS, SCORE_THRESHOLDS } from "@/lib/chain/config";
 import { fetchWalletMetrics } from "@/lib/chain/wallet-metrics";
@@ -15,6 +15,43 @@ import type { Recommendation } from "./types";
 const FETCH_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 5_000;
+
+/**
+ * Per-leg time budgets, all three env-tunable so production can be re-sized
+ * from production's own numbers without a deploy.
+ *
+ * Sized from measurements taken 2026-08-13 against base.blockscout.com for
+ * 0xd8dA…6045 (37,157 transactions on Base), the hardest wallet this engine
+ * claims to handle:
+ *
+ *   v2 /transactions      (2 pages)   18,036ms
+ *   v2 /token-transfers   (2 pages)   51,979ms
+ *   v1 txlist  offset=100 (1 request)  1,518-4,654ms
+ *   v1 tokentx offset=100 (1 request) 10,297ms
+ *
+ * V2_BUDGET only has to clear the HEALTHY case — a quiet wallet's window comes
+ * back in well under a second, and the busy figures above are an order of
+ * magnitude away, so there is no population in between to get wrong. Waiting
+ * longer on v2 buys nothing and spends the budget the fallback needs.
+ *
+ * V1_BUDGET has to clear 10,297ms or the fallback is started and then killed
+ * before it can answer — which is worse than having no fallback at all: the
+ * scarce v1 request is spent AND the verdict is refused anyway.
+ *
+ * LEG_BUDGET is the outer ceiling over both attempts plus one turn of the v1
+ * pacing gate (2,500ms, src/lib/chain/blockscout.ts). It exists so a leg can
+ * never run longer than the sum it was budgeted for.
+ */
+const V2_BUDGET_MS = 3_500;
+const V1_BUDGET_MS = 11_000;
+const LEG_BUDGET_MS = 16_000;
+
+function envBudget(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /**
  * Same dust guard as the outcome-detector's rug_pull_outflow check (commit
@@ -145,11 +182,11 @@ export function invalidatePayeeScoreCache(payee?: string): void {
   cache.delete(payee.toLowerCase());
 }
 
-async function withTimeout<T>(promise: Promise<T>): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, budgetMs = FETCH_TIMEOUT_MS): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error("payee_engine_timeout")), FETCH_TIMEOUT_MS);
+      setTimeout(() => reject(new Error("payee_engine_timeout")), budgetMs);
     }),
   ]);
 }
@@ -275,26 +312,36 @@ async function fetchErc20Balance(address: Address, token: Address): Promise<bigi
  * looks, and the missing leg is named in `unmeasured` so it can be disclosed
  * rather than quietly averaged away.
  */
+function windowOptions() {
+  return {
+    limit: 100,
+    v2BudgetMs: envBudget("PAYEE_V2_BUDGET_MS", V2_BUDGET_MS),
+    v1BudgetMs: envBudget("PAYEE_V1_BUDGET_MS", V1_BUDGET_MS),
+  };
+}
+
 async function assessNativeLeg(
   address: Address,
   addressLower: string,
 ): Promise<AssetDrainAssessment> {
-  const [txs, balance] = await Promise.all([
-    withTimeout(fetchWalletTransfersV2(address, { limit: 100 })),
+  const legBudget = envBudget("PAYEE_LEG_BUDGET_MS", LEG_BUDGET_MS);
+  const [window, balance] = await Promise.all([
+    withTimeout(fetchWalletTransferWindow(address, windowOptions()), legBudget),
     withTimeout(fetchNativeBalance(address)),
   ]);
-  return assessAssetDrain(txs, balance, addressLower, DRAIN_MIN_VALUE_WEI);
+  return assessAssetDrain(window.transfers, balance, addressLower, DRAIN_MIN_VALUE_WEI);
 }
 
 async function assessUsdcLeg(
   address: Address,
   addressLower: string,
 ): Promise<AssetDrainAssessment> {
-  const [txs, balance] = await Promise.all([
-    withTimeout(fetchTokenTransfersV2(address, BASE_USDC_ADDRESS, { limit: 100 })),
+  const legBudget = envBudget("PAYEE_LEG_BUDGET_MS", LEG_BUDGET_MS);
+  const [window, balance] = await Promise.all([
+    withTimeout(fetchTokenTransferWindow(address, BASE_USDC_ADDRESS, windowOptions()), legBudget),
     withTimeout(fetchErc20Balance(address, BASE_USDC_ADDRESS)),
   ]);
-  return assessAssetDrain(txs, balance, addressLower, DRAIN_MIN_VALUE_USDC);
+  return assessAssetDrain(window.transfers, balance, addressLower, DRAIN_MIN_VALUE_USDC);
 }
 
 async function detectDrainPattern(address: Address): Promise<DrainSignal> {
@@ -456,17 +503,51 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
 
   const flags: string[] = [];
 
-  const stats = await getPayeeStats(addrLower);
+  // CONCURRENT, NOT SEQUENTIAL (2026-08-13). These four reads share no data —
+  // each one's failure is handled on its own below — but they used to run one
+  // after another, so the request's wall clock was the SUM of four independent
+  // budgets. On a busy wallet that is what pushed the page past the point where
+  // any single read could still finish: the drain check did not start until
+  // wallet-metrics had spent up to 11s, and then had to fit its own fallback
+  // into whatever was left. Running them together makes the request cost the
+  // SLOWEST read rather than all of them, which is what gives the v1 fallback
+  // room to exist at all. Nothing about which failure means what changes here.
+  const [statsResult, metricsResult, drainResult, outcomesResult] = await Promise.allSettled([
+    getPayeeStats(addrLower),
+    fetchWalletMetrics(addr),
+    detectDrainPattern(addr),
+    getOutcomesForWallet(addrLower),
+  ]);
+
+  // The payment-stats read has no fallback and never had one: it is the local
+  // database, and a caller asking for a score cannot be answered without it.
+  // Rethrown rather than flagged, exactly as when it was awaited directly.
+  if (statsResult.status === "rejected") throw statsResult.reason;
+  const stats = statsResult.value;
 
   let walletMetrics: Awaited<ReturnType<typeof fetchWalletMetrics>> | null = null;
-  try {
-    walletMetrics = await fetchWalletMetrics(addr);
-  } catch (error) {
-    logServerError("payee_wallet_metrics", error);
+  if (metricsResult.status === "fulfilled") {
+    walletMetrics = metricsResult.value;
+  } else {
+    logServerError("payee_wallet_metrics", metricsResult.reason);
     flags.push("wallet_metrics_unavailable");
   }
 
-  const drainSignal = await detectDrainPattern(addr);
+  // detectDrainPattern reports its own failures in the signal (it never
+  // rejects), so a rejection here is a defect, not an outage — treat it as the
+  // most cautious thing it could have returned rather than letting it escape.
+  const drainSignal: DrainSignal =
+    drainResult.status === "fulfilled"
+      ? drainResult.value
+      : ((logServerError("payee_drain_check", drainResult.reason),
+        {
+          detected: false,
+          drainRatio: null,
+          outgoingCount: 0,
+          incomingCount: 0,
+          unmeasured: [NATIVE_LEG, USDC_LEG],
+          unavailable: true,
+        }) as DrainSignal);
   if (drainSignal.unavailable) {
     flags.push("drain_check_unavailable");
   }
@@ -476,10 +557,10 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
   // "this wallet has no history" — see getOutcomesForWallet's own note.
   let outcomes: WalletOutcomeRow[] = [];
   let outcomeHistoryRead = true;
-  try {
-    outcomes = await getOutcomesForWallet(addrLower);
-  } catch (error) {
-    logServerError("payee_outcome_history", error);
+  if (outcomesResult.status === "fulfilled") {
+    outcomes = outcomesResult.value;
+  } else {
+    logServerError("payee_outcome_history", outcomesResult.reason);
     outcomeHistoryRead = false;
     flags.push("outcome_history_unavailable");
   }

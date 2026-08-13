@@ -1,0 +1,131 @@
+import { scorePayeeWallet } from "./payee-engine";
+import { withDeadline } from "@/lib/util/deadline";
+import type { Address } from "viem";
+
+/**
+ * Does the BUYER side work right now — can an agent get a payee verdict?
+ *
+ * WHY THIS EXISTS (2026-08-13). /api/health already probes the seller-side
+ * engine (lib/health/scoring-probe.ts), which was itself added because the
+ * endpoint used to return a hard-coded "ok". It was still measuring something
+ * adjacent to the thing that broke. Measured that day:
+ *
+ *   09:50:08Z  GET /api/health          → 200 {"status":"ok"}
+ *   09:50:17Z  GET /payee/0xd8dA…6045   → "Not verifiable right now"
+ *
+ * Nine seconds apart, same deploy. The seller-side probe was green because the
+ * seller side WAS green; the payee engine — the one the SDK's SpendGuard calls
+ * before releasing funds — was failing and nothing looked at it. The docs tell
+ * customers to point their uptime monitor at /api/health, so their monitor
+ * would have stayed green through it. A monitor that is green during an outage
+ * converts that outage into a silent one.
+ *
+ * WHY THE PROBE ADDRESS IS A BUSY WALLET, DELIBERATELY. The 2026-08-13 failure
+ * was activity-dependent: /payee/0x0330070F… (0 transactions on Base) scored
+ * 41/WARN in ~7s from the very same deploy that could not answer for
+ * 0xd8dA…6045 (37,157 transactions). A probe pointed at a quiet address would
+ * have been green throughout — the same "measuring the thing next to the
+ * broken thing" mistake this file exists to stop making, for the third time.
+ * So the probe reads the hardest wallet the product claims to handle. If a
+ * cheap address is ever wanted instead, that is an explicit operator decision
+ * via HEALTH_PAYEE_ADDRESS, not a default that quietly weakens the alarm.
+ *
+ * Cost control: memoised, and the payee engine's own 5-minute cache absorbs
+ * the recompute. A healthy probe is a cache hit almost every time.
+ */
+
+/** vitalik.eth — the address a visitor tries first, and the one the outage hit. */
+const DEFAULT_PROBE_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+
+const PROBE_TTL_MS = 60_000;
+/** Failures re-checked sooner, so one blip cannot pin a false outage for a
+ *  full minute. Same reasoning as the seller-side probe. */
+const PROBE_FAILURE_TTL_MS = 15_000;
+/**
+ * Above the engine's own per-leg budget (PAYEE_LEG_BUDGET_MS, 12s), not under
+ * it. A probe whose deadline is tighter than the thing it probes reports an
+ * outage every time the product is merely doing its slowest legitimate work —
+ * and a monitor that cries wolf gets muted, which costs exactly as much as one
+ * that stays silent.
+ */
+const PROBE_DEADLINE_MS = 14_000;
+
+export type PayeeProbe = {
+  /**
+   * ok       — a payee verdict was computed from complete inputs.
+   * degraded — a verdict came back but the engine could not read everything:
+   *            either a fail-closed refusal (`degraded`, which is what
+   *            /payee/[address] renders as "Not verifiable right now") or a
+   *            partial measurement. Both mean a caller is not getting the
+   *            answer the product promises.
+   * error    — no verdict at all. This is an outage of the buyer side.
+   */
+  status: "ok" | "degraded" | "error";
+  /** Which inputs were missing — server-side detail, never in the public body. */
+  unavailable: string[];
+  latencyMs: number;
+};
+
+let cached: { probe: PayeeProbe; expiresAt: number } | null = null;
+
+export function resetPayeeProbeCache(): void {
+  cached = null;
+}
+
+function probeAddress(): Address {
+  const configured = process.env.HEALTH_PAYEE_ADDRESS?.trim();
+  return ((configured && /^0x[0-9a-fA-F]{40}$/.test(configured)
+    ? configured
+    : DEFAULT_PROBE_ADDRESS) as Address);
+}
+
+export async function runPayeeProbe(): Promise<PayeeProbe> {
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.probe;
+
+  const startedAt = Date.now();
+  let probe: PayeeProbe;
+
+  try {
+    const result = await withDeadline(
+      scorePayeeWallet(probeAddress()),
+      PROBE_DEADLINE_MS,
+      "payee_probe",
+    );
+    // `degraded` and a non-empty `signalsUnavailable` are different failures
+    // (a refusal versus an incomplete reading) but the same news to an
+    // operator: an upstream this product depends on is not answering.
+    const unavailable = result.degraded
+      ? ["payee_verdict_degraded", ...result.signalsUnavailable]
+      : result.signalsUnavailable;
+    probe = {
+      status: unavailable.length > 0 ? "degraded" : "ok",
+      unavailable,
+      latencyMs: Date.now() - startedAt,
+    };
+    if (unavailable.length > 0) {
+      console.warn(`[vouch] payee_probe degraded: ${unavailable.join(",")}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const cause = error instanceof Error ? error.cause : undefined;
+    const causeText = cause instanceof Error ? ` | cause: ${cause.message}` : "";
+    console.error(`[vouch] payee_probe failed: ${message.slice(0, 200)}${causeText.slice(0, 300)}`);
+    probe = { status: "error", unavailable: [], latencyMs: Date.now() - startedAt };
+  }
+
+  cached = {
+    probe,
+    expiresAt: Date.now() + (probe.status === "error" ? PROBE_FAILURE_TTL_MS : PROBE_TTL_MS),
+  };
+  return probe;
+}
+
+/** Worst of several probe statuses — an outage anywhere is an outage. */
+export function worstStatus(
+  statuses: ("ok" | "degraded" | "error")[],
+): "ok" | "degraded" | "error" {
+  if (statuses.includes("error")) return "error";
+  if (statuses.includes("degraded")) return "degraded";
+  return "ok";
+}
