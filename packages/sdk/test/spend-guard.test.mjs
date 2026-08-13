@@ -376,3 +376,102 @@ test("release clamps at zero and never goes negative", async () => {
   guard.release(100);
   assert.equal(guard.state().spentTodayUsd, 0);
 });
+
+// ============================================================
+// H-2 (2026-08-13 R4) — score freshness. SpendGuard never checked scoredAt /
+// cacheExpiresAt, so an integrator whose injected fetcher returned a cached
+// (stale) score could keep clearing large payments against a verdict the
+// world had already moved past. Fail-closed on staleness, default on.
+// ============================================================
+
+const FIXED_NOW = new Date("2026-08-13T12:00:00Z");
+// A fetcher that stamps the score's scoredAt/cacheExpiresAt at a chosen age.
+const agedFetcher = (ageMs, ttlMs = 300000, overrides = {}) => async () =>
+  payeeScore({
+    scoredAt: new Date(FIXED_NOW.getTime() - ageMs).toISOString(),
+    cacheExpiresAt: new Date(FIXED_NOW.getTime() - ageMs + ttlMs).toISOString(),
+    ...overrides,
+  });
+
+test("H-2: a fresh score within the default max age is allowed", async () => {
+  const guard = new SpendGuard({ maxPerTxUsd: 10 }, agedFetcher(60_000), () => FIXED_NOW);
+  const d = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(d.allow, true);
+  assert.deepEqual(d.reasons, []);
+});
+
+test("H-2: a score older than the default max age is denied as stale", async () => {
+  // 10 minutes old, default bound is 5 minutes.
+  const guard = new SpendGuard({ maxPerTxUsd: 10 }, agedFetcher(600_000), () => FIXED_NOW);
+  const d = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(d.allow, false);
+  assert.deepEqual(d.reasons, ["payee_score_stale"]);
+  assert.equal(guard.state().spentTodayUsd, 0); // optimistic reservation returned
+});
+
+test("H-2: an explicit stricter maxScoreAgeMs denies a score the default would pass", async () => {
+  const guard = new SpendGuard(
+    { maxPerTxUsd: 10, maxScoreAgeMs: 30_000 },
+    agedFetcher(60_000),
+    () => FIXED_NOW,
+  );
+  const d = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(d.allow, false);
+  assert.deepEqual(d.reasons, ["payee_score_stale"]);
+});
+
+test("H-2: a score past its own cacheExpiresAt is stale even under a lax maxScoreAgeMs", async () => {
+  // Age 6min, TTL 5min → already expired by its own contract; maxScoreAgeMs
+  // set generously to 1h must not override the score's declared expiry.
+  const guard = new SpendGuard(
+    { maxPerTxUsd: 10, maxScoreAgeMs: 3_600_000 },
+    agedFetcher(360_000, 300_000),
+    () => FIXED_NOW,
+  );
+  const d = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(d.allow, false);
+  assert.deepEqual(d.reasons, ["payee_score_stale"]);
+});
+
+test("H-2: block-only also denies a stale score", async () => {
+  const guard = new SpendGuard(
+    { maxPerTxUsd: 10, trustPolicy: "block-only" },
+    agedFetcher(600_000),
+    () => FIXED_NOW,
+  );
+  const d = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(d.allow, false);
+  assert.deepEqual(d.reasons, ["payee_score_stale"]);
+});
+
+test("H-2: custom policy keeps pre-0.2.0 behaviour — freshness not enforced", async () => {
+  // custom + a stale score, but the explicit rule (minPayeeScore) still passes.
+  const guard = new SpendGuard(
+    { maxPerTxUsd: 10, trustPolicy: "custom", minPayeeScore: 40 },
+    agedFetcher(3_600_000),
+    () => FIXED_NOW,
+  );
+  const d = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(d.allow, true);
+  assert.deepEqual(d.reasons, []);
+});
+
+test("H-2: an unparseable scoredAt is treated as stale (fail-closed)", async () => {
+  const guard = new SpendGuard(
+    { maxPerTxUsd: 10 },
+    async () => payeeScore({ scoredAt: "not-a-date" }),
+    () => FIXED_NOW,
+  );
+  const d = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(d.allow, false);
+  assert.deepEqual(d.reasons, ["payee_score_stale"]);
+});
+
+test("H-2: maxScoreAgeMs must be a positive number", () => {
+  assert.throws(() => new SpendGuard({ maxScoreAgeMs: 0 }, mustNotFetch), {
+    message: "invalid_policy_maxScoreAgeMs",
+  });
+  assert.throws(() => new SpendGuard({ maxScoreAgeMs: -1 }, mustNotFetch), {
+    message: "invalid_policy_maxScoreAgeMs",
+  });
+});

@@ -81,6 +81,16 @@ export type VouchGateConfig = {
   fetch?: typeof fetch;
   /** Score-lookup timeout in ms. Default 5000. */
   timeoutMs?: number;
+  /**
+   * Maximum age of the score body, in ms, before it is treated as stale and
+   * blocked fail-closed (H-2/H-4). Measured from the body's `scoredAt`, with
+   * its `cacheExpiresAt` honoured as a hard ceiling. Default
+   * {@link DEFAULT_MAX_SCORE_AGE_MS} (5 min). Enforced under allow-only /
+   * block-only; "custom" keeps pre-0.2.0 banding. A body that carries no
+   * freshness fields at all (e.g. the /wallets beacon) is NOT treated as
+   * stale — absence is not expiry.
+   */
+  maxScoreAgeMs?: number;
 };
 
 export type GateDecision = {
@@ -123,7 +133,45 @@ type ScoreResponse = {
   trustScore?: number;
   score?: number;
   recommendation?: Recommendation;
+  // Data-quality fields the /payees body carries. H-4 (2026-08-13): the gate
+  // must honour these to stay symmetric with SpendGuard — a degraded/partial/
+  // stale read is fail-closed regardless of the recommendation it carries.
+  degraded?: boolean;
+  signalsUnavailable?: string[];
+  scoredAt?: string;
+  cacheExpiresAt?: string;
 };
+
+/**
+ * Default staleness bound (5 min), matching the score API's cache TTL. See
+ * VouchGateConfig.maxScoreAgeMs.
+ */
+export const DEFAULT_MAX_SCORE_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * Is the score body too old to act on? Fail-closed only when the body actually
+ * carries freshness fields: a body with no `scoredAt` AND no `cacheExpiresAt`
+ * (the /wallets beacon) is treated as fresh, since absence is not expiry. When
+ * `scoredAt` is present it is honoured (an unparseable one is stale); when
+ * `cacheExpiresAt` is present it caps regardless of maxScoreAgeMs.
+ */
+function isScoreStale(body: ScoreResponse, nowMs: number, maxScoreAgeMs: number): boolean {
+  const hasScoredAt = typeof body.scoredAt === "string";
+  const hasExpiry = typeof body.cacheExpiresAt === "string";
+  if (!hasScoredAt && !hasExpiry) return false;
+
+  if (hasScoredAt) {
+    const scoredAtMs = Date.parse(body.scoredAt as string);
+    if (Number.isNaN(scoredAtMs)) return true;
+    if (nowMs - scoredAtMs > maxScoreAgeMs) return true;
+  }
+  if (hasExpiry) {
+    const expiresMs = Date.parse(body.cacheExpiresAt as string);
+    if (Number.isNaN(expiresMs)) return true;
+    if (nowMs >= expiresMs) return true;
+  }
+  return false;
+}
 
 export type TrustGate = {
   /**
@@ -152,6 +200,7 @@ export type ResolvedGateConfig = {
   minScore: number | null;
   failMode: FailMode;
   timeoutMs: number;
+  maxScoreAgeMs: number;
 };
 
 export function createTrustGate(config: VouchGateConfig): TrustGate {
@@ -182,6 +231,11 @@ export function createTrustGate(config: VouchGateConfig): TrustGate {
     policy === "allow-only" ? [] : policy === "block-only" ? ["WARN"] : (config.warnOn ?? ["WARN"]);
   const failMode: FailMode = config.failMode ?? "closed";
   const timeoutMs = config.timeoutMs ?? 5000;
+  const maxScoreAgeMs = config.maxScoreAgeMs ?? DEFAULT_MAX_SCORE_AGE_MS;
+  if (Number.isNaN(maxScoreAgeMs) || maxScoreAgeMs <= 0) {
+    // Allows +Infinity to disable the age bound (cacheExpiresAt still caps).
+    throw new VouchGateError("maxScoreAgeMs must be a positive number", "invalid_max_score_age");
+  }
   const minScore = config.minScore;
   if (minScore !== undefined && (!Number.isFinite(minScore) || minScore < 0 || minScore > 100)) {
     throw new VouchGateError("minScore must be between 0 and 100", "invalid_min_score");
@@ -216,6 +270,26 @@ export function createTrustGate(config: VouchGateConfig): TrustGate {
       // A 200 with no verdict is as untrustworthy as no response at all —
       // treat it as a lookup failure, not a silent allow.
       return degraded(address, "vouch_no_recommendation");
+    }
+
+    // Data-quality gate (H-4), symmetric with SpendGuard and enforced under the
+    // fail-closed policies (allow-only / block-only), not under "custom". A
+    // degraded read is a fail-closed refusal by the server — block it as a hard
+    // block (not via failMode: it is a successful response that says "do not
+    // trust this", not an outage). A stale read is likewise not current.
+    if (policy !== "custom") {
+      if (body.degraded === true) {
+        return { action: "block", recommendation, score, address, reason: "score_degraded", degraded: true };
+      }
+      if (isScoreStale(body, Date.now(), maxScoreAgeMs)) {
+        return { action: "block", recommendation, score, address, reason: "score_stale", degraded: true };
+      }
+      // A partial measurement (some inputs unmeasured) is a real but incomplete
+      // read: allow-only blocks it, block-only tolerates it — mirroring
+      // SpendGuard's payee_partial_measurement handling exactly.
+      if (policy === "allow-only" && (body.signalsUnavailable?.length ?? 0) > 0) {
+        return { action: "block", recommendation, score, address, reason: "partial_measurement", degraded: false };
+      }
     }
 
     if (minScore !== undefined && score !== null && score < minScore) {
@@ -275,6 +349,6 @@ export function createTrustGate(config: VouchGateConfig): TrustGate {
   return {
     evaluate,
     attest,
-    config: { apiUrl, scoreSource, policy, blockOn, warnOn, minScore: minScore ?? null, failMode, timeoutMs },
+    config: { apiUrl, scoreSource, policy, blockOn, warnOn, minScore: minScore ?? null, failMode, timeoutMs, maxScoreAgeMs },
   };
 }

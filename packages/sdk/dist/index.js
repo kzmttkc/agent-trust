@@ -1,5 +1,5 @@
 import { SpendGuard } from "./spend-guard.js";
-export { SpendGuard, } from "./spend-guard.js";
+export { SpendGuard, DEFAULT_MAX_SCORE_AGE_MS, } from "./spend-guard.js";
 /**
  * Hosted production API. Used when `apiUrl` is omitted.
  *

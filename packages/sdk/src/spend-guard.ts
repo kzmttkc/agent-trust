@@ -36,6 +36,21 @@ export type SpendGuardPolicy = {
   /** Deny when the Vouch payee score is below this value (0-100). */
   minPayeeScore?: number;
   /**
+   * Maximum age of the payee score, in milliseconds, before it is treated as
+   * stale and denied fail-closed (`payee_score_stale`). Measured from the
+   * score's own `scoredAt`. Defaults to {@link DEFAULT_MAX_SCORE_AGE_MS}
+   * (5 min), matching the API's own cache TTL. The score's `cacheExpiresAt`
+   * is ALSO honoured as a hard ceiling: a score past its declared expiry is
+   * stale no matter how lax this value is — so this can only make the guard
+   * STRICTER than the score's self-declared freshness window, never laxer.
+   *
+   * H-2 (2026-08-13): without this, an integrator whose fetcher returned a
+   * cached score could keep clearing large payments against a verdict the
+   * world had already moved past. Enforced under "allow-only"/"block-only";
+   * "custom" keeps pre-0.2.0 behaviour and does not enforce it.
+   */
+  maxScoreAgeMs?: number;
+  /**
    * Deny when the Vouch payee recommendation is BLOCK. Kept for backward
    * compatibility: under the default "allow-only" policy this is already
    * implied (anything that is not ALLOW denies). It remains meaningful with
@@ -62,6 +77,12 @@ export type SpendDenyReason =
   | "payee_score_degraded"
   /** Some inputs could not be measured (signalsUnavailable non-empty). */
   | "payee_partial_measurement"
+  /**
+   * The score was too old to trust: its `scoredAt` is older than
+   * `maxScoreAgeMs`, or it is past its own `cacheExpiresAt`, or its timestamps
+   * could not be parsed. A stale score is not a current measurement.
+   */
+  | "payee_score_stale"
   /**
    * The lookup was refused for a credential reason the CALLER owns: the API
    * key is missing, invalid, or not entitled to this endpoint (401/403).
@@ -96,6 +117,32 @@ export type SpendDecision = {
 };
 
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
+
+/**
+ * Default staleness bound (5 min), matching the score API's own cache TTL: a
+ * score is trusted for exactly as long as the server itself would have served
+ * it from cache. See SpendGuardPolicy.maxScoreAgeMs.
+ */
+export const DEFAULT_MAX_SCORE_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * Is this score too old to act on? Fail-closed: an unparseable `scoredAt`
+ * counts as stale (we cannot prove freshness), and the score's own
+ * `cacheExpiresAt` is honoured as a hard ceiling in addition to `maxScoreAgeMs`
+ * so a lax bound can never resurrect a score past its declared expiry.
+ */
+function isScoreStale(
+  score: PayeeScoreResult,
+  nowMs: number,
+  maxScoreAgeMs: number,
+): boolean {
+  const scoredAtMs = Date.parse(score.scoredAt);
+  if (Number.isNaN(scoredAtMs)) return true;
+  if (nowMs - scoredAtMs > maxScoreAgeMs) return true;
+  const expiresMs = Date.parse(score.cacheExpiresAt);
+  if (!Number.isNaN(expiresMs) && nowMs >= expiresMs) return true;
+  return false;
+}
 
 /**
  * API error codes that mean "the caller's credentials are the problem".
@@ -143,6 +190,13 @@ function assertPolicy(policy: SpendGuardPolicy): void {
   }
   if (policy.minPayeeScore !== undefined && policy.minPayeeScore > 100) {
     throw new Error("invalid_policy_minPayeeScore");
+  }
+  if (
+    policy.maxScoreAgeMs !== undefined &&
+    (Number.isNaN(policy.maxScoreAgeMs) || policy.maxScoreAgeMs <= 0)
+  ) {
+    // Allows +Infinity (disable the age bound; cacheExpiresAt still caps).
+    throw new Error("invalid_policy_maxScoreAgeMs");
   }
   if (
     policy.trustPolicy !== undefined &&
@@ -247,12 +301,23 @@ export class SpendGuard {
         reasons.push(classifyLookupFailure(error));
       }
       if (payeeScore) {
+        // Freshness gate (H-2): a stale score is not a current measurement, so
+        // it ranks with the fundamental defects below — enforced under the
+        // fail-closed policies, not under the pre-0.2.0 "custom" opt-out.
+        const maxScoreAgeMs = this.policy.maxScoreAgeMs ?? DEFAULT_MAX_SCORE_AGE_MS;
+        const stale =
+          trustPolicy !== "custom" &&
+          isScoreStale(payeeScore, this.now().getTime(), maxScoreAgeMs);
+
         // Policy verdicts, most fundamental defect first: a degraded read is
-        // not a measurement at all, a partial measurement is not a clean one,
-        // and only then does the recommendation itself get a say.
+        // not a measurement at all, a stale one is no longer current, a
+        // partial measurement is not a clean one, and only then does the
+        // recommendation itself get a say.
         if (trustPolicy === "allow-only") {
           if (payeeScore.degraded === true) {
             reasons.push("payee_score_degraded");
+          } else if (stale) {
+            reasons.push("payee_score_stale");
           } else if ((payeeScore.signalsUnavailable?.length ?? 0) > 0) {
             reasons.push("payee_partial_measurement");
           } else if (payeeScore.recommendation !== "ALLOW") {
@@ -261,6 +326,8 @@ export class SpendGuard {
         } else if (trustPolicy === "block-only") {
           if (payeeScore.degraded === true) {
             reasons.push("payee_score_degraded");
+          } else if (stale) {
+            reasons.push("payee_score_stale");
           } else if (payeeScore.recommendation === "BLOCK") {
             reasons.push("payee_recommendation_block");
           }

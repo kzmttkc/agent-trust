@@ -6,4 +6,4 @@
 //   import { createExpressGate } from "@vouchscore/middleware/express";
 //   import { withVouchGate }     from "@vouchscore/middleware/next";
 //   import { createHonoGate }    from "@vouchscore/middleware/hono";
-export { createTrustGate, VouchGateError, } from "./core.js";
+export { createTrustGate, VouchGateError, DEFAULT_MAX_SCORE_AGE_MS, } from "./core.js";

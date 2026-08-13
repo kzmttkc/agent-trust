@@ -2,6 +2,7 @@ import { SpendGuard, type SpendGuardPolicy } from "./spend-guard.js";
 
 export {
   SpendGuard,
+  DEFAULT_MAX_SCORE_AGE_MS,
   type SpendGuardPolicy,
   type SpendGuardTrustPolicy,
   type SpendEvaluateInput,

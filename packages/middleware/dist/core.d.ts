@@ -53,6 +53,16 @@ export type VouchGateConfig = {
     fetch?: typeof fetch;
     /** Score-lookup timeout in ms. Default 5000. */
     timeoutMs?: number;
+    /**
+     * Maximum age of the score body, in ms, before it is treated as stale and
+     * blocked fail-closed (H-2/H-4). Measured from the body's `scoredAt`, with
+     * its `cacheExpiresAt` honoured as a hard ceiling. Default
+     * {@link DEFAULT_MAX_SCORE_AGE_MS} (5 min). Enforced under allow-only /
+     * block-only; "custom" keeps pre-0.2.0 banding. A body that carries no
+     * freshness fields at all (e.g. the /wallets beacon) is NOT treated as
+     * stale — absence is not expiry.
+     */
+    maxScoreAgeMs?: number;
 };
 export type GateDecision = {
     action: GateAction;
@@ -78,6 +88,11 @@ export declare class VouchGateError extends Error {
     readonly code: string;
     constructor(message: string, code: string);
 }
+/**
+ * Default staleness bound (5 min), matching the score API's cache TTL. See
+ * VouchGateConfig.maxScoreAgeMs.
+ */
+export declare const DEFAULT_MAX_SCORE_AGE_MS: number;
 export type TrustGate = {
     /**
      * Score a counterparty address and decide ALLOW / WARN / BLOCK. Never
@@ -104,5 +119,6 @@ export type ResolvedGateConfig = {
     minScore: number | null;
     failMode: FailMode;
     timeoutMs: number;
+    maxScoreAgeMs: number;
 };
 export declare function createTrustGate(config: VouchGateConfig): TrustGate;

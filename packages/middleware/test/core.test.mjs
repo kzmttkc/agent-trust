@@ -172,3 +172,150 @@ test("attest with a malformed tx hash returns false without a network call", asy
   assert.equal(ok, false);
   assert.equal(f.calls.length, 0);
 });
+
+// ============================================================
+// H-4 (2026-08-13 R4) — middleware ↔ SpendGuard symmetry. The gate read only
+// trustScore/score/recommendation and ignored the same body's `degraded`,
+// `signalsUnavailable`, `scoredAt`/`cacheExpiresAt` fields that SpendGuard
+// denies on. A 200 response that carried a recommendation while ALSO saying
+// `degraded:true` was therefore banded on the recommendation and could ALLOW.
+// The gate must treat a degraded/partial/stale server read fail-closed too.
+// ============================================================
+
+const fresh = () => ({
+  scoredAt: new Date().toISOString(),
+  cacheExpiresAt: new Date(Date.now() + 300000).toISOString(),
+});
+
+test("H-4: a degraded read blocks even with an ALLOW recommendation", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    fetch: scoreFetch({ score: 80, recommendation: "ALLOW", degraded: true, ...fresh() }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "block");
+  assert.equal(d.reason, "score_degraded");
+  assert.equal(d.degraded, true);
+});
+
+test("H-4: a degraded read blocks even under fail-open (a real refusal, not an outage)", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    failMode: "open",
+    fetch: scoreFetch({ score: 80, recommendation: "ALLOW", degraded: true, ...fresh() }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "block");
+  assert.equal(d.reason, "score_degraded");
+});
+
+test("H-4: a degraded read blocks even under block-only", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    policy: "block-only",
+    fetch: scoreFetch({ score: 80, recommendation: "ALLOW", degraded: true, ...fresh() }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "block");
+  assert.equal(d.reason, "score_degraded");
+});
+
+test("H-4: allow-only blocks a partial measurement (signalsUnavailable non-empty)", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    fetch: scoreFetch({
+      score: 80,
+      recommendation: "ALLOW",
+      signalsUnavailable: ["drain_check"],
+      ...fresh(),
+    }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "block");
+  assert.equal(d.reason, "partial_measurement");
+  assert.equal(d.degraded, false); // a real, if partial, measurement
+});
+
+test("H-4: block-only tolerates a partial measurement (mirrors SpendGuard)", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    policy: "block-only",
+    fetch: scoreFetch({
+      score: 80,
+      recommendation: "ALLOW",
+      signalsUnavailable: ["drain_check"],
+      ...fresh(),
+    }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "allow");
+});
+
+test("H-4/H-2: a stale score (past its cacheExpiresAt) blocks fail-closed", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    fetch: scoreFetch({
+      score: 80,
+      recommendation: "ALLOW",
+      scoredAt: new Date(Date.now() - 600000).toISOString(),
+      cacheExpiresAt: new Date(Date.now() - 300000).toISOString(),
+    }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "block");
+  assert.equal(d.reason, "score_stale");
+});
+
+test("H-4/H-2: a score older than maxScoreAgeMs blocks", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    maxScoreAgeMs: 30_000,
+    fetch: scoreFetch({
+      score: 80,
+      recommendation: "ALLOW",
+      scoredAt: new Date(Date.now() - 60000).toISOString(),
+      cacheExpiresAt: new Date(Date.now() + 300000).toISOString(),
+    }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "block");
+  assert.equal(d.reason, "score_stale");
+});
+
+test("H-4: a fresh, clean ALLOW still passes (no false positives)", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    fetch: scoreFetch({ score: 80, recommendation: "ALLOW", signalsUnavailable: [], ...fresh() }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "allow");
+  assert.equal(d.degraded, false);
+});
+
+test("H-4: a body with no freshness fields is not spuriously stale (back-compat)", async () => {
+  // The /wallets beacon may not carry scoredAt/cacheExpiresAt; absence must
+  // not be read as staleness or the gate would block every such response.
+  const gate = createTrustGate({
+    ...CFG,
+    fetch: scoreFetch({ trustScore: 80, recommendation: "ALLOW" }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "allow");
+});
+
+test("H-4: custom policy keeps pre-0.2.0 banding (no degraded/stale enforcement)", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    policy: "custom",
+    blockOn: ["BLOCK"],
+    warnOn: ["WARN"],
+    fetch: scoreFetch({ score: 80, recommendation: "ALLOW", degraded: true, ...fresh() }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "allow");
+});
+
+test("H-4: maxScoreAgeMs out of range is rejected at construction", () => {
+  assert.throws(() => createTrustGate({ ...CFG, maxScoreAgeMs: 0 }), VouchGateError);
+  assert.throws(() => createTrustGate({ ...CFG, maxScoreAgeMs: -5 }), VouchGateError);
+});

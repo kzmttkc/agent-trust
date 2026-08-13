@@ -9,6 +9,7 @@
 export {
   createTrustGate,
   VouchGateError,
+  DEFAULT_MAX_SCORE_AGE_MS,
   type TrustGate,
   type VouchGateConfig,
   type ResolvedGateConfig,

@@ -1,5 +1,5 @@
 import { SpendGuard, type SpendGuardPolicy } from "./spend-guard.js";
-export { SpendGuard, type SpendGuardPolicy, type SpendGuardTrustPolicy, type SpendEvaluateInput, type SpendDenyReason, type SpendDecision, } from "./spend-guard.js";
+export { SpendGuard, DEFAULT_MAX_SCORE_AGE_MS, type SpendGuardPolicy, type SpendGuardTrustPolicy, type SpendEvaluateInput, type SpendDenyReason, type SpendDecision, } from "./spend-guard.js";
 export type Recommendation = "ALLOW" | "WARN" | "BLOCK";
 export type TrustScoreResult = {
     agentId: string;

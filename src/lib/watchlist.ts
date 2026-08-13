@@ -4,6 +4,7 @@ import { isMissingSchemaError } from "./db/pg-errors";
 import { watchlistEntries } from "./db/schema";
 import { scoreAgentById, scoreWallet } from "./scoring/engine";
 import { dispatchWebhookEvent } from "./webhooks";
+import { invalidatePayeeCacheForVerdictChange } from "./payee/cache-guard";
 import { logServerError } from "./util/log";
 
 // ============================================================
@@ -167,6 +168,16 @@ export async function scanWatchlist(limit = 100): Promise<{
 
       if (verdictChanged) {
         changed += 1;
+        // H-3: a worsened verdict (a drain flipping ALLOW→WARN/BLOCK is the
+        // canonical cause) must also drop the wallet from the buyer-side payee
+        // cache, or a buyer lookup keeps replaying the pre-drain ALLOW for up
+        // to the 5-min TTL. Best-effort, in-process (see cache-guard's note).
+        invalidatePayeeCacheForVerdictChange({
+          targetType: row.targetType as "agent" | "wallet",
+          target: row.target,
+          previous: row.lastRecommendation,
+          current: result.recommendation,
+        });
         void dispatchWebhookEvent(row.apiKeyId, "watch.verdict_changed", {
           watchId: row.id,
           targetType: row.targetType,

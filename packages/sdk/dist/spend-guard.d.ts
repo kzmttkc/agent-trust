@@ -34,6 +34,21 @@ export type SpendGuardPolicy = {
     /** Deny when the Vouch payee score is below this value (0-100). */
     minPayeeScore?: number;
     /**
+     * Maximum age of the payee score, in milliseconds, before it is treated as
+     * stale and denied fail-closed (`payee_score_stale`). Measured from the
+     * score's own `scoredAt`. Defaults to {@link DEFAULT_MAX_SCORE_AGE_MS}
+     * (5 min), matching the API's own cache TTL. The score's `cacheExpiresAt`
+     * is ALSO honoured as a hard ceiling: a score past its declared expiry is
+     * stale no matter how lax this value is — so this can only make the guard
+     * STRICTER than the score's self-declared freshness window, never laxer.
+     *
+     * H-2 (2026-08-13): without this, an integrator whose fetcher returned a
+     * cached score could keep clearing large payments against a verdict the
+     * world had already moved past. Enforced under "allow-only"/"block-only";
+     * "custom" keeps pre-0.2.0 behaviour and does not enforce it.
+     */
+    maxScoreAgeMs?: number;
+    /**
      * Deny when the Vouch payee recommendation is BLOCK. Kept for backward
      * compatibility: under the default "allow-only" policy this is already
      * implied (anything that is not ALLOW denies). It remains meaningful with
@@ -54,6 +69,12 @@ export type SpendDenyReason = "max_per_tx_exceeded" | "daily_budget_exceeded" | 
  | "payee_score_degraded"
 /** Some inputs could not be measured (signalsUnavailable non-empty). */
  | "payee_partial_measurement"
+/**
+ * The score was too old to trust: its `scoredAt` is older than
+ * `maxScoreAgeMs`, or it is past its own `cacheExpiresAt`, or its timestamps
+ * could not be parsed. A stale score is not a current measurement.
+ */
+ | "payee_score_stale"
 /**
  * The lookup was refused for a credential reason the CALLER owns: the API
  * key is missing, invalid, or not entitled to this endpoint (401/403).
@@ -85,6 +106,12 @@ export type SpendDecision = {
      */
     payeeScore: PayeeScoreResult | null;
 };
+/**
+ * Default staleness bound (5 min), matching the score API's own cache TTL: a
+ * score is trusted for exactly as long as the server itself would have served
+ * it from cache. See SpendGuardPolicy.maxScoreAgeMs.
+ */
+export declare const DEFAULT_MAX_SCORE_AGE_MS: number;
 /**
  * Non-custodial spend-policy layer: answers "may my agent send this payment?"
  * and nothing else. It never touches keys, funds, signing, or transaction
