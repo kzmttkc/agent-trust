@@ -1,11 +1,24 @@
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
 const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
 const AGENT_ID_RE = /^\d+$/;
+/**
+ * Hosted production API — the default when VOUCH_API_URL is unset.
+ *
+ * 2026-08-13 (hackathon persona R2): this defaulted to
+ * `http://localhost:3000/api/v1`. That is the right default for whoever is
+ * developing this server and the wrong one for everybody who installs it: an
+ * MCP client launched via `npx @vouchscore/mcp-server` with only a key set
+ * would silently point at a port on the user's own machine and fail with a
+ * connection error that names nothing. A published binary defaults to the
+ * published API; local development sets the env var.
+ */
+const DEFAULT_API_URL = "https://vet402.com/api/v1";
 function getConfig() {
-    const apiUrl = process.env.VOUCH_API_URL ?? "http://localhost:3000/api/v1";
+    const apiUrl = process.env.VOUCH_API_URL ?? DEFAULT_API_URL;
     const apiKey = process.env.VOUCH_API_KEY;
     if (!apiKey) {
-        throw new Error("VOUCH_API_KEY is required");
+        throw new Error("VOUCH_API_KEY is required — create one at https://vet402.com/dashboard/keys " +
+            "and set it in your MCP client's env block");
     }
     return { apiUrl: apiUrl.replace(/\/$/, ""), apiKey };
 }

@@ -136,10 +136,39 @@ export type PayeeScoreResult = {
     disclaimer: string;
 };
 export type VouchClientOptions = {
-    apiUrl: string;
+    /**
+     * Base URL of the Vouch REST API, including the `/api/v1` suffix.
+     * Optional — defaults to the hosted production API, {@link DEFAULT_API_URL}.
+     */
+    apiUrl?: string;
     apiKey: string;
     fetch?: typeof fetch;
 };
+/**
+ * Hosted production API. Used when `apiUrl` is omitted.
+ *
+ * 2026-08-13 (hackathon persona R2): `createVouchClient({ apiKey })` used to
+ * throw a raw `TypeError: Cannot read properties of undefined (reading
+ * 'replace')` from inside dist/index.js — the single most likely first line a
+ * new integrator writes, failing with a stack trace that names none of our
+ * options. The one URL that argument could sensibly take is this one, so it is
+ * now the default instead of a crash.
+ */
+export declare const DEFAULT_API_URL = "https://vet402.com/api/v1";
+/**
+ * Error thrown when the Vouch API answers with a non-2xx status.
+ *
+ * `message` is the machine-readable code the API returned (e.g.
+ * `missing_api_key`, `invalid_api_key`, `rate_limit_exceeded`) so existing
+ * `err.message` checks keep working; `code` and `status` expose the same
+ * facts without string parsing. SpendGuard uses them to tell "your key is
+ * missing" apart from "the upstream is down".
+ */
+export declare class VouchApiError extends Error {
+    readonly code: string;
+    readonly status: number;
+    constructor(code: string, status: number);
+}
 export type X402PaymentAttestation = {
     wallet: string;
     txHash: string;

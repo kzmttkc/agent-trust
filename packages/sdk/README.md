@@ -1,30 +1,64 @@
 # @vouchscore/sdk
 
-Thin TypeScript client for the Vouch Trust API.
+Thin TypeScript client for the [vet402](https://vet402.com) Trust API. Node 20+,
+ESM, zero runtime dependencies.
 
 ```bash
-cd packages/sdk && npm install && npm run build
+npm install @vouchscore/sdk
 ```
+
+Get a key at [vet402.com/dashboard/keys](https://vet402.com/dashboard/keys),
+export it as `VOUCH_API_KEY`, and this runs as-is:
 
 ```typescript
 import { createVouchClient } from "@vouchscore/sdk";
 
-// apiUrl below is the current production deployment. A custom domain
-// (e.g. api.vouch.dev) is not registered yet — swap this in once it is.
-const vouch = createVouchClient({
-  apiUrl: "https://vet402.com/api/v1",
-  apiKey: process.env.VOUCH_API_KEY!,
-});
+// apiUrl defaults to https://vet402.com/api/v1 — pass it only to point at
+// another deployment (a local dev server, say).
+const vouch = createVouchClient({ apiKey: process.env.VOUCH_API_KEY! });
 
-const score = await vouch.getWalletScore("0x...");
+// Seller side: "should I accept payment from this wallet?"
+const score = await vouch.getWalletScore("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+console.log(score.trustScore, score.recommendation); // e.g. 72 'ALLOW'
+
+// Buyer side: "should my agent pay this wallet?"
+const payee = await vouch.getPayeeScore("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+console.log(payee.score, payee.recommendation, payee.dataDepth);
+
+// After an x402 payment settles, feed it back (weights future scores).
 await vouch.attestX402Payment({
-  wallet: "0x...",
-  txHash: "0x...",
+  wallet: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+  txHash: "0x" + "11".repeat(32),
   resource: "/api/premium/data",
 });
 ```
 
 Methods: `getAgentScore`, `getWalletScore`, `getPayeeScore`, `batchScore`, `attestX402Payment`, `createSpendGuard`.
+
+> **On 0.1.0?** Check with `npm ls @vouchscore/sdk`. That release predates
+> three things documented here: the `apiUrl` default (pass
+> `apiUrl: "https://vet402.com/api/v1"` explicitly), the `VouchApiError` class
+> (errors are plain `Error`s whose `message` is the API's code), and the
+> fail-closed `trustPolicy` default (see SpendGuard below). Everything else
+> below is the same on both.
+
+## Errors
+
+A non-2xx answer throws a `VouchApiError` carrying the API's machine-readable
+code and the HTTP status, so you can tell *your key is wrong* from *we are
+having a bad day* without parsing strings:
+
+```typescript
+import { VouchApiError } from "@vouchscore/sdk";
+
+try {
+  await vouch.getPayeeScore("0x...");
+} catch (err) {
+  if (err instanceof VouchApiError && err.status === 401) {
+    // err.code === "missing_api_key" | "invalid_api_key" — fix the key.
+  }
+}
+```
 
 ## SpendGuard — pre-payment policy for agents
 
@@ -44,12 +78,18 @@ Privy, ...).
 > | Recommendation is `WARN` or `BLOCK` | `payee_recommendation_not_allow` |
 > | The score came from a degraded read | `payee_score_degraded` |
 > | Partial measurement (`signalsUnavailable` non-empty) | `payee_partial_measurement` |
-> | The score lookup itself failed | `payee_trust_unavailable` |
+> | The lookup was refused for your key (401/403) | `payee_trust_unauthenticated` |
+> | The lookup failed on our side (5xx, timeout, rate limit) | `payee_trust_unavailable` |
 >
 > Opt-outs: `trustPolicy: "block-only"` (WARN passes; BLOCK, degraded and
 > failed lookups still deny) or `trustPolicy: "custom"` (pre-0.2.0 behaviour —
 > only the rules you set apply, and the lookup only runs when
 > `minPayeeScore` / `blockOnRecommendation` is set).
+>
+> **Which default do you have?** Check with `npm ls @vouchscore/sdk`. **0.1.0**
+> has no `trustPolicy` option: the lookup runs only when you set
+> `minPayeeScore` / `blockOnRecommendation`, which is what `"custom"` means
+> here. **0.2.0 and later** are fail-closed out of the box.
 
 ```typescript
 const guard = vouch.createSpendGuard({
@@ -78,7 +118,10 @@ How it works:
   neither set, no API calls happen at all.
 - Everything the guard cannot vet **fails closed**: a WARN/BLOCK verdict, a
   degraded read, a partial measurement, or a failed lookup all deny (reason
-  codes in the table above).
+  codes in the table above). A failed lookup names *whose* problem it is:
+  `payee_trust_unauthenticated` means the API key is missing or invalid and
+  retrying will not help; `payee_trust_unavailable` means the upstream is
+  unhappy and retrying might.
 - Budget reservation is optimistic: once the local rules pass, the amount is
   reserved *before* the trust lookup awaits and returned automatically if the
   trust rules deny — so concurrent `evaluate` calls within one process cannot
@@ -89,6 +132,15 @@ How it works:
   runaway-agent brake, not an accounting system — persist your own ledger if
   you need durable budgets.
 
-See [examples/agentkit-spend-guard](../../examples/agentkit-spend-guard) for a runnable demo and an AgentKit integration sketch.
+## Links
 
-See [OpenAPI](../../docs/openapi.yaml) and [x402 integration](../../docs/x402-integration.md).
+Absolute, because relative repo paths do not resolve on the npm package page.
+
+- [API key](https://vet402.com/dashboard/keys) — `VOUCH_API_KEY`
+- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml)
+- [Runnable AgentKit SpendGuard demo](https://github.com/kzmttkc/agent-trust/tree/main/examples/agentkit-spend-guard)
+- [x402 integration guide](https://github.com/kzmttkc/agent-trust/blob/main/docs/x402-integration.md)
+- [`@vouchscore/middleware`](https://www.npmjs.com/package/@vouchscore/middleware) — seller side (x402 request gate)
+- [`@vouchscore/mcp-server`](https://www.npmjs.com/package/@vouchscore/mcp-server) — MCP tool
+
+MIT · [vet402](https://vet402.com)

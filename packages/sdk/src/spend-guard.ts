@@ -62,7 +62,16 @@ export type SpendDenyReason =
   | "payee_score_degraded"
   /** Some inputs could not be measured (signalsUnavailable non-empty). */
   | "payee_partial_measurement"
-  /** The score lookup itself failed (network, 5xx, timeout). */
+  /**
+   * The lookup was refused for a credential reason the CALLER owns: the API
+   * key is missing, invalid, or not entitled to this endpoint (401/403).
+   * Retrying will not help — fix the key.
+   */
+  | "payee_trust_unauthenticated"
+  /**
+   * The score lookup itself failed for a reason on OUR side or in between:
+   * network error, timeout, 5xx, rate limit. Retrying may help.
+   */
   | "payee_trust_unavailable";
 
 export type SpendDecision = {
@@ -87,6 +96,43 @@ export type SpendDecision = {
 };
 
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
+
+/**
+ * API error codes that mean "the caller's credentials are the problem".
+ * The REST API returns these with a 401 (src/lib/api/auth.ts).
+ */
+const AUTH_ERROR_CODES = new Set([
+  "missing_api_key",
+  "invalid_api_key",
+  "forbidden",
+  "unauthorized",
+]);
+
+/**
+ * Why did the payee lookup fail — the caller's key, or the upstream?
+ *
+ * 2026-08-13 (hackathon persona R2): both collapsed into
+ * `payee_trust_unavailable`, so an integrator who had simply not set
+ * VOUCH_API_KEY saw the same code as a real Vouch outage and went looking for
+ * our downtime. The raw API was already saying `missing_api_key`; the guard
+ * was swallowing it. Distinguished by status code first (structured, from
+ * VouchApiError) and by message only as a fallback, so an injected fetcher in
+ * a host app still classifies sensibly.
+ */
+function classifyLookupFailure(error: unknown): SpendDenyReason {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number") {
+    return status === 401 || status === 403
+      ? "payee_trust_unauthenticated"
+      : "payee_trust_unavailable";
+  }
+  const code = (error as { code?: unknown } | null)?.code;
+  const message = error instanceof Error ? error.message : "";
+  const token = typeof code === "string" ? code : message;
+  return AUTH_ERROR_CODES.has(token)
+    ? "payee_trust_unauthenticated"
+    : "payee_trust_unavailable";
+}
 
 function assertPolicy(policy: SpendGuardPolicy): void {
   for (const key of ["maxPerTxUsd", "dailyBudgetUsd", "minPayeeScore"] as const) {
@@ -197,8 +243,8 @@ export class SpendGuard {
     if (needsTrustLookup && reasons.length === 0) {
       try {
         payeeScore = await this.fetchPayeeScore(input.payee);
-      } catch {
-        reasons.push("payee_trust_unavailable");
+      } catch (error) {
+        reasons.push(classifyLookupFailure(error));
       }
       if (payeeScore) {
         // Policy verdicts, most fundamental defect first: a degraded read is

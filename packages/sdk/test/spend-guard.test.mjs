@@ -2,7 +2,7 @@
 // dependency — run with `npm test` after `npm run build`).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SpendGuard } from "../dist/index.js";
+import { SpendGuard, VouchApiError } from "../dist/index.js";
 
 const PAYEE = "0x1111111111111111111111111111111111111111";
 
@@ -188,6 +188,77 @@ test("fails closed when the trust lookup errors", async () => {
   const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
   assert.equal(decision.allow, false);
   assert.deepEqual(decision.reasons, ["payee_trust_unavailable"]);
+});
+
+// 2026-08-13 (hackathon persona R2): "no API key" and "Vouch is down" both
+// came back as payee_trust_unavailable, so an integrator who had simply not
+// exported VOUCH_API_KEY went hunting for our outage. The raw API was already
+// answering `missing_api_key` (401) — the guard was swallowing it. These pin
+// the split by HTTP status first, by error code/message as the fallback.
+test("a missing API key denies as unauthenticated, not unavailable", async () => {
+  const guard = new SpendGuard({}, async () => {
+    throw new VouchApiError("missing_api_key", 401);
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.equal(decision.allow, false);
+  assert.deepEqual(decision.reasons, ["payee_trust_unauthenticated"]);
+});
+
+test("an invalid API key denies as unauthenticated", async () => {
+  const guard = new SpendGuard({}, async () => {
+    throw new VouchApiError("invalid_api_key", 401);
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.deepEqual(decision.reasons, ["payee_trust_unauthenticated"]);
+});
+
+test("a 403 denies as unauthenticated", async () => {
+  const guard = new SpendGuard({}, async () => {
+    throw new VouchApiError("forbidden", 403);
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.deepEqual(decision.reasons, ["payee_trust_unauthenticated"]);
+});
+
+test("an upstream 5xx stays payee_trust_unavailable", async () => {
+  const guard = new SpendGuard({}, async () => {
+    throw new VouchApiError("scoring_unavailable", 503);
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.deepEqual(decision.reasons, ["payee_trust_unavailable"]);
+});
+
+test("a rate limit stays payee_trust_unavailable (retryable, not a key problem)", async () => {
+  const guard = new SpendGuard({}, async () => {
+    throw new VouchApiError("rate_limit_exceeded", 429);
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.deepEqual(decision.reasons, ["payee_trust_unavailable"]);
+});
+
+test("a bare network error (no status) stays payee_trust_unavailable", async () => {
+  const guard = new SpendGuard({}, async () => {
+    throw new TypeError("fetch failed");
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.deepEqual(decision.reasons, ["payee_trust_unavailable"]);
+});
+
+test("an injected fetcher without a status is classified by message", async () => {
+  const guard = new SpendGuard({}, async () => {
+    throw new Error("missing_api_key");
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.deepEqual(decision.reasons, ["payee_trust_unauthenticated"]);
+});
+
+test("an unauthenticated lookup returns the optimistic budget reservation", async () => {
+  const guard = new SpendGuard({ dailyBudgetUsd: 50 }, async () => {
+    throw new VouchApiError("missing_api_key", 401);
+  });
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 20 });
+  assert.equal(decision.allow, false);
+  assert.equal(guard.state().spentTodayUsd, 0);
 });
 
 test("default policy requires the lookup even with no explicit trust rule", async () => {

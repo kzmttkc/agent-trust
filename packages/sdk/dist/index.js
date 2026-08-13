@@ -1,5 +1,35 @@
 import { SpendGuard } from "./spend-guard.js";
 export { SpendGuard, } from "./spend-guard.js";
+/**
+ * Hosted production API. Used when `apiUrl` is omitted.
+ *
+ * 2026-08-13 (hackathon persona R2): `createVouchClient({ apiKey })` used to
+ * throw a raw `TypeError: Cannot read properties of undefined (reading
+ * 'replace')` from inside dist/index.js — the single most likely first line a
+ * new integrator writes, failing with a stack trace that names none of our
+ * options. The one URL that argument could sensibly take is this one, so it is
+ * now the default instead of a crash.
+ */
+export const DEFAULT_API_URL = "https://vet402.com/api/v1";
+/**
+ * Error thrown when the Vouch API answers with a non-2xx status.
+ *
+ * `message` is the machine-readable code the API returned (e.g.
+ * `missing_api_key`, `invalid_api_key`, `rate_limit_exceeded`) so existing
+ * `err.message` checks keep working; `code` and `status` expose the same
+ * facts without string parsing. SpendGuard uses them to tell "your key is
+ * missing" apart from "the upstream is down".
+ */
+export class VouchApiError extends Error {
+    code;
+    status;
+    constructor(code, status) {
+        super(code);
+        this.name = "VouchApiError";
+        this.code = code;
+        this.status = status;
+    }
+}
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
 const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
 const AGENT_ID_RE = /^\d+$/;
@@ -8,7 +38,15 @@ export class VouchClient {
     apiKey;
     fetchFn;
     constructor(options) {
-        this.apiUrl = options.apiUrl.replace(/\/$/, "");
+        const apiUrl = options.apiUrl ?? DEFAULT_API_URL;
+        if (typeof apiUrl !== "string" || apiUrl.trim() === "") {
+            throw new Error("invalid_api_url: apiUrl must be a non-empty URL string " +
+                `(e.g. "${DEFAULT_API_URL}") — omit it to use the hosted API`);
+        }
+        if (typeof options.apiKey !== "string" || options.apiKey.trim() === "") {
+            throw new Error("invalid_api_key: apiKey is required — create one at https://vet402.com/dashboard");
+        }
+        this.apiUrl = apiUrl.replace(/\/$/, "");
         this.apiKey = options.apiKey;
         this.fetchFn = options.fetch ?? fetch;
     }
@@ -74,9 +112,10 @@ export class VouchClient {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-            throw new Error(typeof data === "object" && data && "error" in data
+            const code = typeof data === "object" && data && "error" in data
                 ? String(data.error)
-                : `vouch_api_error_${response.status}`);
+                : `vouch_api_error_${response.status}`;
+            throw new VouchApiError(code, response.status);
         }
         return data;
     }

@@ -1,6 +1,14 @@
-# Vouch MCP Server
+# @vouchscore/mcp-server
 
-MCP tools for checking ERC-8004 agent trust scores from Cursor, Claude Desktop, or any MCP client.
+MCP tools for checking [vet402](https://vet402.com) trust scores from Claude
+Desktop, Cursor, or any MCP client — so an agent can ask *"is this wallet safe
+to pay?"* before it pays.
+
+Published on npm. No clone, no build: your MCP client launches it with `npx`.
+
+```bash
+npm install -g @vouchscore/mcp-server   # optional — the configs below use npx
+```
 
 ## Tools
 
@@ -12,67 +20,18 @@ MCP tools for checking ERC-8004 agent trust scores from Cursor, Claude Desktop, 
 | `explain_trust_score` | Human-readable score breakdown (includes x402 + dataCoverage) |
 | `attest_x402_payment` | Write settlement attestation after payment verification |
 
-## Setup
+## Setup — Claude Desktop
 
-```bash
-cd packages/mcp-server
-npm install
-npm run build
-```
-
-## Environment
-
-| Variable | Description |
-|---|---|
-| `VOUCH_API_URL` | API base URL (default `http://localhost:3000/api/v1`) |
-| `VOUCH_API_KEY` | Your Vouch API key |
-
-## Cursor configuration
-
-Add to `~/.cursor/mcp.json` (or project `.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "vouch": {
-      "command": "node",
-      "args": ["/absolute/path/to/vouch/packages/mcp-server/dist/index.js"],
-      "env": {
-        "VOUCH_API_URL": "http://localhost:3000/api/v1",
-        "VOUCH_API_KEY": "vouch_live_your_key_here"
-      }
-    }
-  }
-}
-```
-
-For local development with `tsx` (no build step):
+Get a key at [vet402.com/dashboard/keys](https://vet402.com/dashboard/keys),
+then add this to `~/Library/Application Support/Claude/claude_desktop_config.json`
+(`%APPDATA%\Claude\claude_desktop_config.json` on Windows) and restart the app:
 
 ```json
 {
   "mcpServers": {
     "vouch": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/vouch/packages/mcp-server/src/index.ts"],
-      "env": {
-        "VOUCH_API_URL": "http://localhost:3000/api/v1",
-        "VOUCH_API_KEY": "vouch_live_your_key_here"
-      }
-    }
-  }
-}
-```
-
-## Claude Desktop configuration
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "vouch": {
-      "command": "node",
-      "args": ["/absolute/path/to/vouch/packages/mcp-server/dist/index.js"],
+      "args": ["-y", "@vouchscore/mcp-server"],
       "env": {
         "VOUCH_API_URL": "https://vet402.com/api/v1",
         "VOUCH_API_KEY": "vouch_live_your_key_here"
@@ -82,8 +41,46 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-> `VOUCH_API_URL` above points at the current production deployment. A custom domain
-> (e.g. `api.vouch.dev`) is not registered yet — swap this in once it is.
+## Setup — Cursor
+
+Same block in `~/.cursor/mcp.json` (or a project-local `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "vouch": {
+      "command": "npx",
+      "args": ["-y", "@vouchscore/mcp-server"],
+      "env": {
+        "VOUCH_API_URL": "https://vet402.com/api/v1",
+        "VOUCH_API_KEY": "vouch_live_your_key_here"
+      }
+    }
+  }
+}
+```
+
+Confirm it starts before wiring it into a client:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}' \
+  | VOUCH_API_KEY=vouch_live_your_key_here npx -y @vouchscore/mcp-server
+```
+
+A `serverInfo` line comes back on stdout. The package also installs a
+`vouch-mcp` binary, if you prefer `npx -p @vouchscore/mcp-server vouch-mcp`.
+
+## Environment
+
+| Variable | Default | Description |
+|---|---|---|
+| `VOUCH_API_KEY` | — | Required. [Create one here](https://vet402.com/dashboard/keys). |
+| `VOUCH_API_URL` | `https://vet402.com/api/v1` | API base URL. Override only to point at another deployment. |
+
+> **0.1.0 defaults `VOUCH_API_URL` to `http://localhost:3000/api/v1`** — a
+> development default that shipped by accident. The configs above set it
+> explicitly, so they are correct on every version; 0.1.1 and later default to
+> the hosted API.
 
 ## Example prompts
 
@@ -92,4 +89,19 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 - "Is it safe to pay wallet 0xdef...? Check its payee trust first"
 - "Explain the trust score for agent 7"
 
-See [MCP setup guide](../../docs/mcp-setup.md) for more detail.
+## Building from the repo (contributors)
+
+```bash
+git clone https://github.com/kzmttkc/agent-trust.git
+cd agent-trust/packages/mcp-server && npm install && npm run build
+# then point your client at "command": "node", "args": ["<abs>/dist/index.js"]
+```
+
+## Links
+
+- [MCP setup guide](https://github.com/kzmttkc/agent-trust/blob/main/docs/mcp-setup.md)
+- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml)
+- [`@vouchscore/sdk`](https://www.npmjs.com/package/@vouchscore/sdk) — buyer side (SpendGuard)
+- [`@vouchscore/middleware`](https://www.npmjs.com/package/@vouchscore/middleware) — seller side (x402 request gate)
+
+MIT · [vet402](https://vet402.com)

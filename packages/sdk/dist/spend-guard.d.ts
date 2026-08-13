@@ -54,7 +54,16 @@ export type SpendDenyReason = "max_per_tx_exceeded" | "daily_budget_exceeded" | 
  | "payee_score_degraded"
 /** Some inputs could not be measured (signalsUnavailable non-empty). */
  | "payee_partial_measurement"
-/** The score lookup itself failed (network, 5xx, timeout). */
+/**
+ * The lookup was refused for a credential reason the CALLER owns: the API
+ * key is missing, invalid, or not entitled to this endpoint (401/403).
+ * Retrying will not help — fix the key.
+ */
+ | "payee_trust_unauthenticated"
+/**
+ * The score lookup itself failed for a reason on OUR side or in between:
+ * network error, timeout, 5xx, rate limit. Retrying may help.
+ */
  | "payee_trust_unavailable";
 export type SpendDecision = {
     allow: boolean;

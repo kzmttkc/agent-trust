@@ -424,6 +424,79 @@ npm i @vouchscore/mcp-server   # MCP tool, so an agent can ask before it pays`}
           unrelated packages by other publishers &mdash; installing those gets you someone else&apos;s
           code, not ours.
         </p>
+
+        {/* 2026-08-13 UX監査R2: 前回のC4修正で `npm i` の行は載ったが、サイト全体を
+            通して `import` を含む SDK の使用例が1件も無かった（docs の <pre> 24個の
+            うち JS は webhook の HMAC 検証だけ）。「30分でデモに組み込めるか」を
+            計測したペルソナは、インストール行の次に何を書けばいいかをサイトから
+            得られず npm ページへ出ていった。npm README の完動例をここへ引く。 */}
+        <h3 className="text-base font-semibold text-brand-deep">SDK: read a score</h3>
+        <p className="text-sm text-brand">
+          <code>apiUrl</code> defaults to the hosted API, so a key is the only thing you have to
+          supply. Copy this into a <code>.mjs</code> file and it runs.
+        </p>
+        <CodeBlock
+          label="TypeScript: read a wallet score and a payee score with @vouchscore/sdk"
+          code={`import { createVouchClient } from "@vouchscore/sdk";
+
+const vouch = createVouchClient({ apiKey: process.env.VOUCH_API_KEY });
+
+// Seller side — "should I accept payment from this wallet?"
+const seller = await vouch.getWalletScore("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+console.log(seller.trustScore, seller.recommendation); // 72 'ALLOW'
+
+// Buyer side — "should my agent pay this wallet?"
+const payee = await vouch.getPayeeScore("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+console.log(payee.score, payee.recommendation, payee.dataDepth);`}
+        />
+
+        <h3 className="text-base font-semibold text-brand-deep">SDK: gate a payment</h3>
+        <p className="text-sm text-brand">
+          SpendGuard answers &ldquo;may my agent send this payment?&rdquo; and nothing else. It
+          never touches keys, funds, or signing &mdash; execution stays with your wallet stack.
+          Under the default <code>allow-only</code> policy, anything that is not a clean{" "}
+          <code>ALLOW</code> denies.
+        </p>
+        <CodeBlock
+          label="TypeScript: gate an agent payment with SpendGuard"
+          code={`const guard = vouch.createSpendGuard({
+  maxPerTxUsd: 10,      // deny any single payment above $10
+  dailyBudgetUsd: 50,   // deny once today's allowed total would pass $50
+});
+
+const decision = await guard.evaluate({ payee: "0xabc...", amountUsd: 5 });
+
+if (decision.allow) {
+  // hand off to AgentKit / Privy / your own signer
+} else {
+  console.error(decision.reasons);
+  // ["payee_recommendation_not_allow"]   verdict was WARN or BLOCK
+  // ["payee_score_degraded"]             the score came from a degraded read
+  // ["payee_partial_measurement"]        some inputs could not be measured
+  // ["payee_trust_unauthenticated"]      your API key is missing or invalid
+  // ["payee_trust_unavailable"]          the lookup failed upstream — retryable
+}`}
+        />
+
+        <h3 className="text-base font-semibold text-brand-deep">
+          Middleware: gate an x402 endpoint
+        </h3>
+        <CodeBlock
+          label="TypeScript: Express x402 gate with @vouchscore/middleware"
+          code={`import { createExpressGate } from "@vouchscore/middleware/express";
+
+// Mount AFTER x402 verification, so \`req.payer\` is set.
+app.use("/api/paid", createExpressGate({
+  apiUrl: "https://vet402.com/api/v1",
+  apiKey: process.env.VOUCH_API_KEY,
+  getAddress: (req) => req.payer,   // the counterparty to vet
+}));`}
+        />
+        <p className="text-sm text-brand-lift">
+          Anything but <code>ALLOW</code> returns{" "}
+          <code>403 {"{ error: \"trust_blocked\" }"}</code> before your handler runs; an{" "}
+          <code>ALLOW</code> continues with the full decision on <code>req.vouchTrust</code>.
+        </p>
         <p className="text-sm text-brand">
           <strong>Both the SDK and the middleware default to allow-only.</strong> Only an{" "}
           <code>ALLOW</code> passes; a <code>WARN</code>, a <code>BLOCK</code>, a degraded verdict
@@ -1026,9 +1099,17 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
           <li>
             <strong>Monitoring.</strong> A public health endpoint,{" "}
             <code>GET /api/health</code>, returns <code>200</code>/<code>503</code>{" "}
-            for uptime pollers. A deeper env/DB/RPC probe runs on a daily cron and
-            returns <code>503</code> only on a critical failure (indexer catch-up
-            lag is reported, not alerted, to avoid backfill alert fatigue).
+            for uptime pollers. It probes both scoring engines &mdash; seller-side
+            and buyer-side &mdash; and reports the worse of the two.{" "}
+            <code>200</code> means both answered from complete inputs; anything
+            else is <code>503</code>, including a <code>degraded</code> verdict
+            where the engine still answers but could not read everything (that is
+            what a visitor sees as &ldquo;Not verifiable right now&rdquo;). The
+            JSON body carries <code>{"\"degraded\""}</code> or{" "}
+            <code>{"\"error\""}</code> so you can tell a partial outage from a
+            total one. A deeper env/DB/RPC probe runs on a daily cron and returns{" "}
+            <code>503</code> only on a critical failure (indexer catch-up lag is
+            reported, not alerted, to avoid backfill alert fatigue).
           </li>
           <li>
             <strong>Status &amp; incidents.</strong> No hosted status page yet;

@@ -3,6 +3,7 @@ import { secureCompare } from "@/lib/util/secure-compare";
 import { runDeepHealthChecks } from "@/lib/health/deep-checks";
 import { runScoringProbe } from "@/lib/health/scoring-probe";
 import { runPayeeProbe, worstStatus } from "@/lib/scoring/payee-probe";
+import { evaluateLiveness } from "./liveness";
 
 function authorizeAdmin(request: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET;
@@ -47,13 +48,18 @@ export async function GET(request: NextRequest) {
   // before it: measuring the thing NEXT TO the thing that broke. Both sides
   // are probed now, concurrently (so the endpoint costs the slower probe, not
   // the sum), and the endpoint reports the worse of the two.
+  //
+  // 2026-08-13 (later, hackathon persona R2): and one layer under THAT, the
+  // same hole again — `degraded` returned HTTP 200 while the docs promised
+  // uptime pollers "200/503". A monitor reads the code, not the body, so a
+  // half-down product still looked green. The status→code mapping and the
+  // two-probe composition now live in ./liveness, pinned by tests.
   if (!deep) {
-    const [scoring, payee] = await Promise.all([runScoringProbe(), runPayeeProbe()]);
-    const status = worstStatus([scoring.status, payee.status]);
-    if (status === "error") {
-      return NextResponse.json({ status: "error" }, { status: 503 });
-    }
-    return NextResponse.json({ status });
+    const { status, httpStatus } = await evaluateLiveness({
+      scoring: runScoringProbe,
+      payee: runPayeeProbe,
+    });
+    return NextResponse.json({ status }, { status: httpStatus });
   }
 
   // Always require admin for deep health — never gate on APP_ENV alone.

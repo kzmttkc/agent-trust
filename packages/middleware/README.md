@@ -17,14 +17,15 @@ This is the productized form of the `facilitator-gate` and `x402-trust-gate`
 reference adapters. The x402 payment gate stays your beacon; this middleware
 reads Vouch before it settles.
 
-> **Status:** published on npm (0.1.0). The npm release still carries the old
-> lenient default (WARN allowed downstream); the fail-closed 0.2.0 described
-> here is in-repo and ships with the next publish. If you install 0.1.0, set
-> `blockOn: ["BLOCK", "WARN"]` to get the same posture today.
-
 ```bash
 npm install @vouchscore/middleware
 ```
+
+> **Which default do you have?** Check with `npm ls @vouchscore/middleware`.
+> **0.1.0** ships the old lenient default (a `WARN` passes downstream) and has
+> no `policy` option — set `blockOn: ["BLOCK", "WARN"]` to get the fail-closed
+> posture today. **0.2.0 and later** are fail-closed out of the box, and the
+> `policy` option documented below exists there.
 
 ## Express — three lines
 
@@ -33,7 +34,7 @@ import { createExpressGate } from "@vouchscore/middleware/express";
 
 // Mount AFTER x402 verification so `req.payer` is set.
 app.use("/api/paid", createExpressGate({
-  apiUrl: process.env.VOUCH_API_URL!,   // https://.../api/v1
+  apiUrl: process.env.VOUCH_API_URL!,   // https://vet402.com/api/v1
   apiKey: process.env.VOUCH_API_KEY!,
   getAddress: (req) => req.payer,       // the counterparty to vet
 }));
@@ -110,5 +111,13 @@ createExpressGate({
 
 The gate reads a score and returns a verdict. It never touches keys, funds,
 signing, or transaction submission — settlement stays with your x402 stack.
+
+## Links
+
+- [API key](https://vet402.com/dashboard/keys) — `VOUCH_API_KEY`
+- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml)
+- [x402 integration guide](https://github.com/kzmttkc/agent-trust/blob/main/docs/x402-integration.md)
+- [`@vouchscore/sdk`](https://www.npmjs.com/package/@vouchscore/sdk) — buyer side (SpendGuard)
+- [`@vouchscore/mcp-server`](https://www.npmjs.com/package/@vouchscore/mcp-server) — MCP tool
 
 MIT · [vet402](https://vet402.com)
