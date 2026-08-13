@@ -37,10 +37,44 @@ test("BLOCK recommendation → block", async () => {
   assert.equal(d.reason, "recommendation_block");
 });
 
-test("WARN recommendation → warn (still allowed downstream)", async () => {
+test("WARN recommendation → block by default (0.2.0 ALLOW-only)", async () => {
   const gate = createTrustGate({ ...CFG, fetch: scoreFetch({ trustScore: 55, recommendation: "WARN" }) });
   const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "block");
+  assert.equal(d.reason, "recommendation_not_allow");
+});
+
+test("policy block-only: WARN → warn (explicit opt-out, allowed downstream)", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    policy: "block-only",
+    fetch: scoreFetch({ trustScore: 55, recommendation: "WARN" }),
+  });
+  const d = await gate.evaluate(ADDR);
   assert.equal(d.action, "warn");
+});
+
+test("policy custom: warnOn/blockOn arrays band as configured", async () => {
+  const gate = createTrustGate({
+    ...CFG,
+    policy: "custom",
+    blockOn: ["BLOCK"],
+    warnOn: ["WARN"],
+    fetch: scoreFetch({ trustScore: 55, recommendation: "WARN" }),
+  });
+  const d = await gate.evaluate(ADDR);
+  assert.equal(d.action, "warn");
+});
+
+test("blockOn/warnOn without policy custom are rejected, not silently ignored", () => {
+  assert.throws(
+    () => createTrustGate({ ...CFG, warnOn: ["WARN"] }),
+    (e) => e instanceof VouchGateError && e.code === "invalid_policy_combination",
+  );
+  assert.throws(
+    () => createTrustGate({ ...CFG, policy: "block-only", blockOn: ["BLOCK"] }),
+    (e) => e instanceof VouchGateError && e.code === "invalid_policy_combination",
+  );
 });
 
 test("minScore floor blocks an otherwise-ALLOW verdict", async () => {

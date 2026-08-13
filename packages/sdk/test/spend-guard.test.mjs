@@ -12,6 +12,8 @@ function payeeScore(overrides = {}) {
     score: 80,
     recommendation: "ALLOW",
     dataDepth: "moderate",
+    degraded: false,
+    signalsUnavailable: [],
     signals: {
       receiving: { paymentCount: 5, uniqueDays: 3, distinctPayers: 2, score: 68 },
       walletHealth: { ageDays: 120, txCount: 300, isBurner: false, score: 85 },
@@ -66,7 +68,7 @@ test("denies above the per-tx cap without burning a trust lookup", async () => {
 });
 
 test("denies once the daily budget would be exceeded, then releases", async () => {
-  const guard = new SpendGuard({ dailyBudgetUsd: 10 }, mustNotFetch);
+  const guard = new SpendGuard({ dailyBudgetUsd: 10, trustPolicy: "custom" }, mustNotFetch);
 
   const first = await guard.evaluate({ payee: PAYEE, amountUsd: 6 });
   assert.equal(first.allow, true);
@@ -82,7 +84,7 @@ test("denies once the daily budget would be exceeded, then releases", async () =
 });
 
 test("exact budget consumption is allowed (boundary)", async () => {
-  const guard = new SpendGuard({ dailyBudgetUsd: 10 }, mustNotFetch);
+  const guard = new SpendGuard({ dailyBudgetUsd: 10, trustPolicy: "custom" }, mustNotFetch);
   const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 10 });
   assert.equal(decision.allow, true);
   assert.equal(decision.remainingDailyBudgetUsd, 0);
@@ -96,9 +98,9 @@ test("denies on payee score below minPayeeScore", async () => {
   assert.equal(decision.payeeScore.score, 25);
 });
 
-test("denies on BLOCK recommendation when blockOnRecommendation is set", async () => {
+test("denies on BLOCK recommendation when blockOnRecommendation is set (custom)", async () => {
   const guard = new SpendGuard(
-    { blockOnRecommendation: true },
+    { trustPolicy: "custom", blockOnRecommendation: true },
     scoreFetcher({ score: 70, recommendation: "BLOCK" }),
   );
   const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
@@ -106,13 +108,79 @@ test("denies on BLOCK recommendation when blockOnRecommendation is set", async (
   assert.deepEqual(decision.reasons, ["payee_recommendation_block"]);
 });
 
-test("ignores BLOCK recommendation when blockOnRecommendation is not set", async () => {
+// ---- fail-closed default (0.2.0): ALLOW-only unless explicitly opted out --
+
+test("default policy denies a WARN recommendation", async () => {
+  const guard = new SpendGuard({}, scoreFetcher({ score: 55, recommendation: "WARN" }));
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.equal(decision.allow, false);
+  assert.deepEqual(decision.reasons, ["payee_recommendation_not_allow"]);
+});
+
+test("default policy denies a BLOCK recommendation", async () => {
+  const guard = new SpendGuard({}, scoreFetcher({ score: 70, recommendation: "BLOCK" }));
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.equal(decision.allow, false);
+  assert.deepEqual(decision.reasons, ["payee_recommendation_not_allow"]);
+});
+
+test("default policy denies a degraded score", async () => {
   const guard = new SpendGuard(
-    { minPayeeScore: 40 },
-    scoreFetcher({ score: 70, recommendation: "BLOCK" }),
+    {},
+    scoreFetcher({ score: 10, recommendation: "BLOCK", degraded: true }),
   );
   const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
-  assert.equal(decision.allow, true);
+  assert.equal(decision.allow, false);
+  assert.deepEqual(decision.reasons, ["payee_score_degraded"]);
+});
+
+test("default policy denies a partial measurement (signalsUnavailable non-empty)", async () => {
+  const guard = new SpendGuard(
+    {},
+    scoreFetcher({
+      score: 55,
+      recommendation: "WARN",
+      degraded: false,
+      signalsUnavailable: ["drain_erc20"],
+    }),
+  );
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.equal(decision.allow, false);
+  assert.deepEqual(decision.reasons, ["payee_partial_measurement"]);
+});
+
+test("explicit opt-out lets a WARN through (block-only) and a lookup be skipped (custom)", async () => {
+  const blockOnly = new SpendGuard(
+    { trustPolicy: "block-only" },
+    scoreFetcher({ score: 55, recommendation: "WARN" }),
+  );
+  const warned = await blockOnly.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.equal(warned.allow, true);
+  assert.deepEqual(warned.reasons, []);
+
+  // "custom" with no trust rule set: pre-0.2.0 behaviour, no lookup at all.
+  const custom = new SpendGuard({ trustPolicy: "custom", maxPerTxUsd: 10 }, mustNotFetch);
+  const local = await custom.evaluate({ payee: PAYEE, amountUsd: 5 });
+  assert.equal(local.allow, true);
+  assert.equal(local.payeeScore, null);
+});
+
+test("block-only still denies BLOCK and degraded", async () => {
+  const guard = new SpendGuard(
+    { trustPolicy: "block-only" },
+    scoreFetcher({ score: 20, recommendation: "BLOCK" }),
+  );
+  const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.equal(decision.allow, false);
+  assert.deepEqual(decision.reasons, ["payee_recommendation_block"]);
+
+  const degradedGuard = new SpendGuard(
+    { trustPolicy: "block-only" },
+    scoreFetcher({ score: 10, recommendation: "BLOCK", degraded: true }),
+  );
+  const denied = await degradedGuard.evaluate({ payee: PAYEE, amountUsd: 1 });
+  assert.equal(denied.allow, false);
+  assert.deepEqual(denied.reasons, ["payee_score_degraded"]);
 });
 
 test("fails closed when the trust lookup errors", async () => {
@@ -122,16 +190,20 @@ test("fails closed when the trust lookup errors", async () => {
   assert.deepEqual(decision.reasons, ["payee_trust_unavailable"]);
 });
 
-test("skips the trust lookup entirely for a purely local policy", async () => {
-  const guard = new SpendGuard({ maxPerTxUsd: 10 }, mustNotFetch);
+test("default policy requires the lookup even with no explicit trust rule", async () => {
+  const guard = new SpendGuard({ maxPerTxUsd: 10 }, failingFetcher);
   const decision = await guard.evaluate({ payee: PAYEE, amountUsd: 5 });
-  assert.equal(decision.allow, true);
-  assert.equal(decision.payeeScore, null);
+  assert.equal(decision.allow, false);
+  assert.deepEqual(decision.reasons, ["payee_trust_unavailable"]);
 });
 
 test("resets the budget counter when the UTC day rolls over", async () => {
   let now = new Date("2026-07-15T23:50:00Z");
-  const guard = new SpendGuard({ dailyBudgetUsd: 10 }, mustNotFetch, () => now);
+  const guard = new SpendGuard(
+    { dailyBudgetUsd: 10, trustPolicy: "custom" },
+    mustNotFetch,
+    () => now,
+  );
 
   const first = await guard.evaluate({ payee: PAYEE, amountUsd: 8 });
   assert.equal(first.allow, true);
@@ -172,6 +244,9 @@ test("rejects invalid inputs and policies", async () => {
   });
   assert.throws(() => new SpendGuard({ minPayeeScore: 101 }, mustNotFetch), {
     message: "invalid_policy_minPayeeScore",
+  });
+  assert.throws(() => new SpendGuard({ trustPolicy: "lenient" }, mustNotFetch), {
+    message: "invalid_policy_trustPolicy",
   });
 });
 
@@ -225,7 +300,7 @@ test("trust-rule deny returns the optimistic reservation", async () => {
 });
 
 test("release clamps at zero and never goes negative", async () => {
-  const guard = new SpendGuard({ dailyBudgetUsd: 10 }, mustNotFetch);
+  const guard = new SpendGuard({ dailyBudgetUsd: 10, trustPolicy: "custom" }, mustNotFetch);
   await guard.evaluate({ payee: PAYEE, amountUsd: 3 });
   guard.release(100);
   assert.equal(guard.state().spentTodayUsd, 0);

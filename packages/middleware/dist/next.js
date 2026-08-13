@@ -31,8 +31,9 @@ export function createNextGate(options) {
     };
 }
 /**
- * Wrap an App Router handler so a BLOCK short-circuits with 403 before your
- * handler runs. The decision is passed as the second argument.
+ * Wrap an App Router handler so anything that is not ALLOW short-circuits
+ * with 403 before your handler runs (fail-closed default; opt out via
+ * `policy`). The decision is passed as the second argument.
  *
  *   export const POST = withVouchGate(
  *     { apiUrl: process.env.VOUCH_API_URL!, apiKey: process.env.VOUCH_API_KEY!,

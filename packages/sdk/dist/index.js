@@ -35,9 +35,11 @@ export class VouchClient {
     /**
      * Non-custodial spend-policy guard. Returns allow/deny decisions only —
      * never touches keys, funds, or transaction signing; execution remains the
-     * agent's wallet stack's job (Coinbase AgentKit, Privy, ...). The daily
-     * budget counter is in-memory per guard instance and resets on process
-     * restart. See SpendGuard for the full contract.
+     * agent's wallet stack's job (Coinbase AgentKit, Privy, ...). Fail-closed
+     * by default (0.2.0): money moves only on a clean ALLOW verdict unless the
+     * policy explicitly opts out via `trustPolicy`. The daily budget counter is
+     * in-memory per guard instance and resets on process restart. See
+     * SpendGuard for the full contract.
      */
     createSpendGuard(policy) {
         return new SpendGuard(policy, (payee) => this.getPayeeScore(payee));

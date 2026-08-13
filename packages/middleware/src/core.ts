@@ -10,8 +10,10 @@
 // beacon — this is the drop-in that reads it before a payment settles.
 //
 // Design rules kept in lock-step with @vouchscore/sdk and the examples:
-//   - fail-CLOSED by default (a score you cannot fetch blocks the payment),
-//     configurable to fail-open only if the integrator explicitly accepts it;
+//   - fail-CLOSED by default, in BOTH senses (BREAKING, 0.2.0): a score you
+//     cannot fetch blocks the payment, AND only a clean ALLOW verdict passes —
+//     the default `policy: "allow-only"` blocks WARN too. Letting WARN through
+//     ("block-only") or custom banding requires an explicit opt-out;
 //   - the three-way verdict is the product's own ALLOW/WARN/BLOCK banding —
 //     we never invent numeric thresholds that could drift from the engine,
 //     though an integrator MAY set a stricter `minScore` floor of their own;
@@ -36,15 +38,32 @@ export type ScoreSource = "wallet" | "payee";
 /** Behaviour when the score lookup itself fails (network, 5xx, timeout). */
 export type FailMode = "closed" | "open";
 
+/**
+ * How the recommendation gates the transaction. BREAKING (0.2.0): the default
+ * is "allow-only" — money moves only on ALLOW unless you explicitly opt out.
+ *
+ *  - "allow-only" (default, fail-closed): anything that is not ALLOW blocks.
+ *    A WARN blocks with reason `recommendation_not_allow`.
+ *  - "block-only": pre-0.2.0 behaviour — BLOCK blocks, WARN warns but is
+ *    allowed downstream.
+ *  - "custom": band with your own `blockOn` / `warnOn` arrays.
+ */
+export type GatePolicy = "allow-only" | "block-only" | "custom";
+
 export type VouchGateConfig = {
   /** Base URL including the version segment, e.g. https://host/api/v1 */
   apiUrl: string;
   apiKey: string;
   /** Score endpoint to consult. Default "wallet". */
   scoreSource?: ScoreSource;
-  /** Recommendations that BLOCK the transaction. Default ["BLOCK"]. */
+  /**
+   * Verdict gating policy. Default "allow-only" (fail-closed): only ALLOW
+   * passes. See GatePolicy for the explicit opt-outs.
+   */
+  policy?: GatePolicy;
+  /** Recommendations that BLOCK the transaction. Requires policy "custom". */
   blockOn?: Recommendation[];
-  /** Recommendations that WARN (allowed, but flagged). Default ["WARN"]. */
+  /** Recommendations that WARN (allowed, but flagged). Requires policy "custom". */
   warnOn?: Recommendation[];
   /**
    * Optional stricter floor: BLOCK when the numeric score is below this
@@ -127,6 +146,7 @@ export type TrustGate = {
 export type ResolvedGateConfig = {
   apiUrl: string;
   scoreSource: ScoreSource;
+  policy: GatePolicy;
   blockOn: Recommendation[];
   warnOn: Recommendation[];
   minScore: number | null;
@@ -140,8 +160,26 @@ export function createTrustGate(config: VouchGateConfig): TrustGate {
 
   const apiUrl = config.apiUrl.replace(/\/$/, "");
   const scoreSource: ScoreSource = config.scoreSource ?? "wallet";
-  const blockOn = config.blockOn ?? ["BLOCK"];
-  const warnOn = config.warnOn ?? ["WARN"];
+  const policy: GatePolicy = config.policy ?? "allow-only";
+  if (!["allow-only", "block-only", "custom"].includes(policy)) {
+    throw new VouchGateError("policy must be allow-only, block-only or custom", "invalid_policy");
+  }
+  // blockOn/warnOn silently ignored under a non-custom policy would be a
+  // config the integrator believes is in force but is not — fail loud instead.
+  if (policy !== "custom" && (config.blockOn !== undefined || config.warnOn !== undefined)) {
+    throw new VouchGateError(
+      'blockOn/warnOn require policy: "custom" (the explicit opt-out from the ALLOW-only default)',
+      "invalid_policy_combination",
+    );
+  }
+  const blockOn: Recommendation[] =
+    policy === "allow-only"
+      ? ["BLOCK", "WARN"]
+      : policy === "block-only"
+        ? ["BLOCK"]
+        : (config.blockOn ?? ["BLOCK"]);
+  const warnOn: Recommendation[] =
+    policy === "allow-only" ? [] : policy === "block-only" ? ["WARN"] : (config.warnOn ?? ["WARN"]);
   const failMode: FailMode = config.failMode ?? "closed";
   const timeoutMs = config.timeoutMs ?? 5000;
   const minScore = config.minScore;
@@ -184,7 +222,16 @@ export function createTrustGate(config: VouchGateConfig): TrustGate {
       return { action: "block", recommendation, score, address, reason: "below_min_score", degraded: false };
     }
     if (blockOn.includes(recommendation)) {
-      return { action: "block", recommendation, score, address, reason: "recommendation_block", degraded: false };
+      return {
+        action: "block",
+        recommendation,
+        score,
+        address,
+        // A blocked WARN is blocked for not being ALLOW, not for being BLOCK —
+        // keep the reason honest so integrators can tell the two apart.
+        reason: recommendation === "BLOCK" ? "recommendation_block" : "recommendation_not_allow",
+        degraded: false,
+      };
     }
     if (warnOn.includes(recommendation)) {
       return { action: "warn", recommendation, score, address, reason: "recommendation_warn", degraded: false };
@@ -228,6 +275,6 @@ export function createTrustGate(config: VouchGateConfig): TrustGate {
   return {
     evaluate,
     attest,
-    config: { apiUrl, scoreSource, blockOn, warnOn, minScore: minScore ?? null, failMode, timeoutMs },
+    config: { apiUrl, scoreSource, policy, blockOn, warnOn, minScore: minScore ?? null, failMode, timeoutMs },
   };
 }

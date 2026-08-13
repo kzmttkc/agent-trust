@@ -14,6 +14,7 @@ export {
   type ResolvedGateConfig,
   type GateDecision,
   type GateAction,
+  type GatePolicy,
   type Recommendation,
   type ScoreSource,
   type FailMode,

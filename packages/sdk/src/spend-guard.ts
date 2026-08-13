@@ -1,5 +1,23 @@
 import type { PayeeScoreResult } from "./index.js";
 
+/**
+ * Trust posture toward the payee score. BREAKING (0.2.0): the default is
+ * "allow-only" — money moves only on a clean ALLOW unless you explicitly
+ * opt out.
+ *
+ *  - "allow-only" (default, fail-closed): every evaluate() performs the payee
+ *    trust lookup and denies unless the verdict is a clean ALLOW — a WARN or
+ *    BLOCK recommendation, a degraded read, a partial measurement
+ *    (signalsUnavailable non-empty), or a failed lookup all deny.
+ *  - "block-only": the lookup still always runs and a failed or degraded read
+ *    still denies, but a WARN (or partially measured) verdict passes. Deny
+ *    only on BLOCK.
+ *  - "custom": pre-0.2.0 behaviour — only the rules you set below apply, and
+ *    the lookup runs only when `minPayeeScore` or `blockOnRecommendation`
+ *    is set.
+ */
+export type SpendGuardTrustPolicy = "allow-only" | "block-only" | "custom";
+
 export type SpendGuardPolicy = {
   /** Deny any single payment above this USD amount. */
   maxPerTxUsd?: number;
@@ -9,9 +27,20 @@ export type SpendGuardPolicy = {
    * resets on process restart — see README for the operational implications.
    */
   dailyBudgetUsd?: number;
+  /**
+   * How the Vouch payee verdict gates the payment. Default "allow-only"
+   * (fail-closed): deny everything that is not a clean ALLOW. See
+   * SpendGuardTrustPolicy for the explicit opt-outs.
+   */
+  trustPolicy?: SpendGuardTrustPolicy;
   /** Deny when the Vouch payee score is below this value (0-100). */
   minPayeeScore?: number;
-  /** Deny when the Vouch payee recommendation is BLOCK. */
+  /**
+   * Deny when the Vouch payee recommendation is BLOCK. Kept for backward
+   * compatibility: under the default "allow-only" policy this is already
+   * implied (anything that is not ALLOW denies). It remains meaningful with
+   * `trustPolicy: "custom"`.
+   */
   blockOnRecommendation?: boolean;
 };
 
@@ -26,7 +55,14 @@ export type SpendDenyReason =
   | "max_per_tx_exceeded"
   | "daily_budget_exceeded"
   | "payee_score_below_min"
+  /** Recommendation was WARN or BLOCK under the default "allow-only" policy. */
+  | "payee_recommendation_not_allow"
   | "payee_recommendation_block"
+  /** The score itself came from a degraded read (inputs missing entirely). */
+  | "payee_score_degraded"
+  /** Some inputs could not be measured (signalsUnavailable non-empty). */
+  | "payee_partial_measurement"
+  /** The score lookup itself failed (network, 5xx, timeout). */
   | "payee_trust_unavailable";
 
 export type SpendDecision = {
@@ -43,9 +79,9 @@ export type SpendDecision = {
   /** null when the policy has no dailyBudgetUsd. */
   remainingDailyBudgetUsd: number | null;
   /**
-   * Full payee trust result when the policy required a Vouch lookup and it
-   * succeeded; null when the lookup was skipped (no trust rule in the
-   * policy, or a cheaper local rule already denied) or failed.
+   * Full payee trust result when the Vouch lookup ran and succeeded; null
+   * when the lookup was skipped (a cheaper local rule already denied, or
+   * `trustPolicy: "custom"` with no trust rule set) or failed.
    */
   payeeScore: PayeeScoreResult | null;
 };
@@ -62,6 +98,12 @@ function assertPolicy(policy: SpendGuardPolicy): void {
   if (policy.minPayeeScore !== undefined && policy.minPayeeScore > 100) {
     throw new Error("invalid_policy_minPayeeScore");
   }
+  if (
+    policy.trustPolicy !== undefined &&
+    !["allow-only", "block-only", "custom"].includes(policy.trustPolicy)
+  ) {
+    throw new Error("invalid_policy_trustPolicy");
+  }
 }
 
 /**
@@ -72,13 +114,16 @@ function assertPolicy(policy: SpendGuardPolicy): void {
  *
  * 1. Local policy — per-transaction cap and an in-memory daily budget
  *    counter (UTC day, resets on process restart).
- * 2. Vouch's Payee Trust API (`GET /v1/payees/{address}/score`) — only
- *    consulted when the policy sets `minPayeeScore` or
- *    `blockOnRecommendation`, and skipped when a local rule already denied
- *    (no quota burned on a payment that's dead anyway).
+ * 2. Vouch's Payee Trust API (`GET /v1/payees/{address}/score`) — consulted
+ *    on every evaluate under the default fail-closed policy (skipped when a
+ *    local rule already denied, so no quota is burned on a payment that's
+ *    dead anyway). Only `trustPolicy: "custom"` makes the lookup conditional
+ *    on `minPayeeScore` / `blockOnRecommendation` being set.
  *
- * Trust-lookup failures deny with `payee_trust_unavailable` (fail-closed),
- * matching the rest of Vouch's fail-closed posture.
+ * BREAKING (0.2.0) — fail-closed by default (`trustPolicy: "allow-only"`):
+ * a WARN or BLOCK recommendation, a degraded read, a partial measurement,
+ * or a failed lookup all deny. Money moves only on a clean ALLOW unless the
+ * integrator explicitly opts out via `trustPolicy`.
  *
  * Budget reservation is optimistic: once the local rules pass, the amount is
  * reserved against the daily budget BEFORE the trust lookup yields to the
@@ -117,6 +162,7 @@ export class SpendGuard {
 
     const reasons: SpendDenyReason[] = [];
     const { maxPerTxUsd, dailyBudgetUsd, minPayeeScore, blockOnRecommendation } = this.policy;
+    const trustPolicy = this.policy.trustPolicy ?? "allow-only";
 
     if (maxPerTxUsd !== undefined && input.amountUsd > maxPerTxUsd) {
       reasons.push("max_per_tx_exceeded");
@@ -140,8 +186,13 @@ export class SpendGuard {
     }
 
     let payeeScore: PayeeScoreResult | null = null;
+    // Fail-closed default: "allow-only" and "block-only" always vet the
+    // payee. Only the explicit "custom" opt-out makes the lookup conditional
+    // on a trust rule being configured (pre-0.2.0 behaviour).
     const needsTrustLookup =
-      minPayeeScore !== undefined || blockOnRecommendation === true;
+      trustPolicy !== "custom" ||
+      minPayeeScore !== undefined ||
+      blockOnRecommendation === true;
 
     if (needsTrustLookup && reasons.length === 0) {
       try {
@@ -150,10 +201,33 @@ export class SpendGuard {
         reasons.push("payee_trust_unavailable");
       }
       if (payeeScore) {
+        // Policy verdicts, most fundamental defect first: a degraded read is
+        // not a measurement at all, a partial measurement is not a clean one,
+        // and only then does the recommendation itself get a say.
+        if (trustPolicy === "allow-only") {
+          if (payeeScore.degraded === true) {
+            reasons.push("payee_score_degraded");
+          } else if ((payeeScore.signalsUnavailable?.length ?? 0) > 0) {
+            reasons.push("payee_partial_measurement");
+          } else if (payeeScore.recommendation !== "ALLOW") {
+            reasons.push("payee_recommendation_not_allow");
+          }
+        } else if (trustPolicy === "block-only") {
+          if (payeeScore.degraded === true) {
+            reasons.push("payee_score_degraded");
+          } else if (payeeScore.recommendation === "BLOCK") {
+            reasons.push("payee_recommendation_block");
+          }
+        }
+        // Explicit rules compose on top in every mode.
         if (minPayeeScore !== undefined && payeeScore.score < minPayeeScore) {
           reasons.push("payee_score_below_min");
         }
-        if (blockOnRecommendation === true && payeeScore.recommendation === "BLOCK") {
+        if (
+          blockOnRecommendation === true &&
+          payeeScore.recommendation === "BLOCK" &&
+          !reasons.includes("payee_recommendation_block")
+        ) {
           reasons.push("payee_recommendation_block");
         }
       }

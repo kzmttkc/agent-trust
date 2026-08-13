@@ -11,15 +11,31 @@ export type GateAction = "allow" | "warn" | "block";
 export type ScoreSource = "wallet" | "payee";
 /** Behaviour when the score lookup itself fails (network, 5xx, timeout). */
 export type FailMode = "closed" | "open";
+/**
+ * How the recommendation gates the transaction. BREAKING (0.2.0): the default
+ * is "allow-only" — money moves only on ALLOW unless you explicitly opt out.
+ *
+ *  - "allow-only" (default, fail-closed): anything that is not ALLOW blocks.
+ *    A WARN blocks with reason `recommendation_not_allow`.
+ *  - "block-only": pre-0.2.0 behaviour — BLOCK blocks, WARN warns but is
+ *    allowed downstream.
+ *  - "custom": band with your own `blockOn` / `warnOn` arrays.
+ */
+export type GatePolicy = "allow-only" | "block-only" | "custom";
 export type VouchGateConfig = {
     /** Base URL including the version segment, e.g. https://host/api/v1 */
     apiUrl: string;
     apiKey: string;
     /** Score endpoint to consult. Default "wallet". */
     scoreSource?: ScoreSource;
-    /** Recommendations that BLOCK the transaction. Default ["BLOCK"]. */
+    /**
+     * Verdict gating policy. Default "allow-only" (fail-closed): only ALLOW
+     * passes. See GatePolicy for the explicit opt-outs.
+     */
+    policy?: GatePolicy;
+    /** Recommendations that BLOCK the transaction. Requires policy "custom". */
     blockOn?: Recommendation[];
-    /** Recommendations that WARN (allowed, but flagged). Default ["WARN"]. */
+    /** Recommendations that WARN (allowed, but flagged). Requires policy "custom". */
     warnOn?: Recommendation[];
     /**
      * Optional stricter floor: BLOCK when the numeric score is below this
@@ -82,6 +98,7 @@ export type TrustGate = {
 export type ResolvedGateConfig = {
     apiUrl: string;
     scoreSource: ScoreSource;
+    policy: GatePolicy;
     blockOn: Recommendation[];
     warnOn: Recommendation[];
     minScore: number | null;

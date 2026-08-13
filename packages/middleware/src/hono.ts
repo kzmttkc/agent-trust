@@ -26,15 +26,20 @@ export type HonoGateOptions<Ctx extends HonoContext> = VouchGateConfig & {
   setAs?: string;
   /** HTTP status used when the gate blocks. Default 403. */
   blockStatus?: number;
-  /** Called for a WARN verdict (request still proceeds). */
+  /**
+   * Called for a WARN verdict (request still proceeds). Only reachable when
+   * `policy` opts out of the ALLOW-only default ("block-only" or "custom") —
+   * the default blocks WARN before this ever fires.
+   */
   onWarn?: (decision: GateDecision, c: Ctx) => void;
   /** Optional: attest the settlement after an allowed/warned request. */
   getAttestation?: (c: Ctx) => X402PaymentAttestation | undefined;
 };
 
 /**
- * Hono middleware. Returns a blocking Response on BLOCK (fail-closed by
- * default) or calls next(). Three lines to mount:
+ * Hono middleware. Returns a blocking Response on anything that is not ALLOW
+ * (fail-closed default; opt out via `policy`) or calls next(). Three lines
+ * to mount:
  *
  *   app.use("/api/paid/*", createHonoGate({
  *     apiUrl: process.env.VOUCH_API_URL!, apiKey: process.env.VOUCH_API_KEY!,

@@ -35,30 +35,50 @@ non-custodial: it never touches keys, funds, signing, or transaction
 submission. Execution stays with your wallet stack (Coinbase AgentKit,
 Privy, ...).
 
+> **BREAKING (v0.2.0): fail-closed by default.** Money moves only on a clean
+> `ALLOW` verdict unless you explicitly opt out. With no `trustPolicy` set,
+> every `evaluate()` performs the payee trust lookup and **denies** when:
+>
+> | Condition | Reason code |
+> |---|---|
+> | Recommendation is `WARN` or `BLOCK` | `payee_recommendation_not_allow` |
+> | The score came from a degraded read | `payee_score_degraded` |
+> | Partial measurement (`signalsUnavailable` non-empty) | `payee_partial_measurement` |
+> | The score lookup itself failed | `payee_trust_unavailable` |
+>
+> Opt-outs: `trustPolicy: "block-only"` (WARN passes; BLOCK, degraded and
+> failed lookups still deny) or `trustPolicy: "custom"` (pre-0.2.0 behaviour —
+> only the rules you set apply, and the lookup only runs when
+> `minPayeeScore` / `blockOnRecommendation` is set).
+
 ```typescript
 const guard = vouch.createSpendGuard({
   maxPerTxUsd: 10,             // deny any single payment above $10
   dailyBudgetUsd: 50,          // deny once today's allowed total would pass $50
-  minPayeeScore: 40,           // deny when the payee scores below 40
-  blockOnRecommendation: true, // deny when the payee recommendation is BLOCK
+  // trustPolicy: "allow-only" is the default: deny anything but a clean ALLOW
+  minPayeeScore: 40,           // optional stricter floor on top of the policy
 });
 
 const decision = await guard.evaluate({ payee: "0x...", amountUsd: 5 });
 if (decision.allow) {
   // hand off to AgentKit / Privy / your own signer
 } else {
-  console.error(decision.reasons); // e.g. ["payee_score_below_min"]
+  console.error(decision.reasons); // e.g. ["payee_recommendation_not_allow"]
 }
 ```
 
 How it works:
 
-- All policy fields are optional — set only the rules you want. `minPayeeScore` /
-  `blockOnRecommendation` trigger a `GET /v1/payees/{address}/score` lookup
-  (skipped when a local rule already denied, so no quota is burned on a dead
-  payment). A purely local policy makes no API calls at all.
-- Trust-lookup failures **fail closed**: the decision is deny with reason
-  `payee_trust_unavailable`.
+- The local rules (`maxPerTxUsd`, `dailyBudgetUsd`) are optional — set only
+  the ones you want. Under the default `trustPolicy: "allow-only"` the payee
+  trust lookup (`GET /v1/payees/{address}/score`) always runs, but is skipped
+  when a local rule already denied, so no quota is burned on a dead payment.
+  Only `trustPolicy: "custom"` makes the lookup conditional on
+  `minPayeeScore` / `blockOnRecommendation` being set — with `"custom"` and
+  neither set, no API calls happen at all.
+- Everything the guard cannot vet **fails closed**: a WARN/BLOCK verdict, a
+  degraded read, a partial measurement, or a failed lookup all deny (reason
+  codes in the table above).
 - Budget reservation is optimistic: once the local rules pass, the amount is
   reserved *before* the trust lookup awaits and returned automatically if the
   trust rules deny — so concurrent `evaluate` calls within one process cannot

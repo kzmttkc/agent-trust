@@ -1,5 +1,5 @@
 import { SpendGuard, type SpendGuardPolicy } from "./spend-guard.js";
-export { SpendGuard, type SpendGuardPolicy, type SpendEvaluateInput, type SpendDenyReason, type SpendDecision, } from "./spend-guard.js";
+export { SpendGuard, type SpendGuardPolicy, type SpendGuardTrustPolicy, type SpendEvaluateInput, type SpendDenyReason, type SpendDecision, } from "./spend-guard.js";
 export type Recommendation = "ALLOW" | "WARN" | "BLOCK";
 export type TrustScoreResult = {
     agentId: string;
@@ -92,6 +92,19 @@ export type PayeeScoreResult = {
     score: number;
     recommendation: Recommendation;
     dataDepth: PayeeDataDepth;
+    /**
+     * True when the verdict came from a degraded read — one or more inputs
+     * could not be read at all, so the score is a fail-closed refusal, not a
+     * measurement. SpendGuard's default policy denies on this.
+     */
+    degraded: boolean;
+    /**
+     * Machine-readable names of the inputs that could not be measured. When
+     * this is non-empty but `degraded` is false, the score is backed by real
+     * but partial measurements — SpendGuard's default policy denies on this
+     * too (`payee_partial_measurement`).
+     */
+    signalsUnavailable: string[];
     signals: {
         receiving: {
             paymentCount: number;
@@ -157,9 +170,11 @@ export declare class VouchClient {
     /**
      * Non-custodial spend-policy guard. Returns allow/deny decisions only —
      * never touches keys, funds, or transaction signing; execution remains the
-     * agent's wallet stack's job (Coinbase AgentKit, Privy, ...). The daily
-     * budget counter is in-memory per guard instance and resets on process
-     * restart. See SpendGuard for the full contract.
+     * agent's wallet stack's job (Coinbase AgentKit, Privy, ...). Fail-closed
+     * by default (0.2.0): money moves only on a clean ALLOW verdict unless the
+     * policy explicitly opts out via `trustPolicy`. The daily budget counter is
+     * in-memory per guard instance and resets on process restart. See
+     * SpendGuard for the full contract.
      */
     createSpendGuard(policy: SpendGuardPolicy): SpendGuard;
     batchScore(agents: BatchScoreItem[]): Promise<{

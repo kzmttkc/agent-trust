@@ -7,8 +7,9 @@
 // ============================================================
 import { createTrustGate, VouchGateError, } from "./core.js";
 /**
- * Hono middleware. Returns a blocking Response on BLOCK (fail-closed by
- * default) or calls next(). Three lines to mount:
+ * Hono middleware. Returns a blocking Response on anything that is not ALLOW
+ * (fail-closed default; opt out via `policy`) or calls next(). Three lines
+ * to mount:
  *
  *   app.use("/api/paid/*", createHonoGate({
  *     apiUrl: process.env.VOUCH_API_URL!, apiKey: process.env.VOUCH_API_KEY!,

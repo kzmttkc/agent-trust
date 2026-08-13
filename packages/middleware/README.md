@@ -2,23 +2,27 @@
 
 Drop-in **x402 transaction gate**. Score the payment counterparty and
 **ALLOW / WARN / BLOCK** before the payment settles — from Express, Next.js,
-or Hono, in about three lines. Fail-closed by default: a score you cannot
-fetch blocks the payment rather than waving it through.
+or Hono, in about three lines. Fail-closed by default, in both senses: a
+score you cannot fetch blocks the payment, and only a clean `ALLOW` verdict
+passes — the default policy blocks `WARN` too.
+
+> **BREAKING (v0.2.0): fail-closed by default — money moves only on ALLOW
+> unless you explicitly opt out.** The default `policy: "allow-only"` blocks
+> any verdict that is not `ALLOW` (a blocked WARN carries reason
+> `recommendation_not_allow`). The pre-0.2.0 behaviour (WARN allowed
+> downstream) is now the explicit opt-out `policy: "block-only"`; custom
+> `blockOn`/`warnOn` banding requires `policy: "custom"`.
 
 This is the productized form of the `facilitator-gate` and `x402-trust-gate`
 reference adapters. The x402 payment gate stays your beacon; this middleware
 reads Vouch before it settles.
 
-> **Status: not yet published to npm.** The package is built and tested in this
-> repo but has not been released, so `npm install @vouchscore/middleware` does
-> not resolve yet. Until it ships, consume it from the repo — build
-> `packages/middleware` and reference it via a workspace/`file:` dependency, or
-> install the packed tarball (`npm pack` in `packages/middleware`). The
-> published SDK (`@vouchscore/sdk`) and MCP server (`@vouchscore/mcp-server`)
-> are live on npm today; this middleware follows once its API is frozen.
+> **Status:** published on npm (0.1.0). The npm release still carries the old
+> lenient default (WARN allowed downstream); the fail-closed 0.2.0 described
+> here is in-repo and ships with the next publish. If you install 0.1.0, set
+> `blockOn: ["BLOCK", "WARN"]` to get the same posture today.
 
 ```bash
-# once published:
 npm install @vouchscore/middleware
 ```
 
@@ -35,8 +39,10 @@ app.use("/api/paid", createExpressGate({
 }));
 ```
 
-A `BLOCK` returns `403 { error: "trust_blocked", ... }` before your handler
-runs. `ALLOW`/`WARN` continue, with the full decision on `req.vouchTrust`.
+Anything but `ALLOW` returns `403 { error: "trust_blocked", ... }` before
+your handler runs (default `policy: "allow-only"`). `ALLOW` continues with
+the full decision on `req.vouchTrust`; under the `"block-only"` /`"custom"`
+opt-outs a `WARN` also continues and fires `onWarn`.
 
 ## Next.js (App Router)
 
@@ -73,8 +79,9 @@ app.use("/api/paid/*", createHonoGate({
 | Option | Default | Meaning |
 |---|---|---|
 | `scoreSource` | `"wallet"` | `"wallet"` (the x402 beacon) or `"payee"` (buyer-side receiving history). |
-| `blockOn` | `["BLOCK"]` | Recommendations that block the transaction. |
-| `warnOn` | `["WARN"]` | Recommendations that warn (still allowed). |
+| `policy` | `"allow-only"` | `"allow-only"` blocks anything that is not ALLOW (fail-closed). `"block-only"` lets WARN through (pre-0.2.0 behaviour). `"custom"` bands with your own `blockOn`/`warnOn`. |
+| `blockOn` | `["BLOCK"]` | Recommendations that block. Requires `policy: "custom"` (rejected otherwise, never silently ignored). |
+| `warnOn` | `["WARN"]` | Recommendations that warn (still allowed). Requires `policy: "custom"`. |
 | `minScore` | — | Stricter numeric floor (0–100): block below it even on ALLOW. |
 | `failMode` | `"closed"` | `"closed"` blocks on a lookup failure; `"open"` allows it (flagged `degraded`). |
 | `timeoutMs` | `5000` | Score-lookup timeout — a hung Vouch never hangs the payment path. |

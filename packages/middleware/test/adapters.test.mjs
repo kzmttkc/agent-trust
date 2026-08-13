@@ -80,9 +80,27 @@ test("express: missing address → 400", async () => {
   assert.equal(res.statusCode, 400);
 });
 
-test("express: onWarn fires on a WARN verdict and still calls next", async () => {
+test("express: WARN blocks by default (0.2.0 ALLOW-only)", async () => {
   const mw = createExpressGate({
     ...CFG,
+    fetch: scoreFetch({ trustScore: 50, recommendation: "WARN" }),
+    getAddress: (r) => r.payer,
+  });
+  const req = { payer: ADDR };
+  const res = mockRes();
+  let nexted = false;
+  await mw(req, res, () => {
+    nexted = true;
+  });
+  assert.equal(nexted, false);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.reason, "recommendation_not_allow");
+});
+
+test("express: onWarn fires on a WARN verdict under the block-only opt-out", async () => {
+  const mw = createExpressGate({
+    ...CFG,
+    policy: "block-only",
     fetch: scoreFetch({ trustScore: 50, recommendation: "WARN" }),
     getAddress: (r) => r.payer,
     onWarn: (d, r) => {

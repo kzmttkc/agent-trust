@@ -7,8 +7,9 @@
 // ============================================================
 import { createTrustGate, VouchGateError, } from "./core.js";
 /**
- * Express middleware: score the counterparty, block on BLOCK (fail-closed by
- * default), attach the decision, otherwise call next(). Three lines to mount:
+ * Express middleware: score the counterparty, block anything that is not
+ * ALLOW (fail-closed default; opt out via `policy`), attach the decision,
+ * otherwise call next(). Three lines to mount:
  *
  *   app.use("/api/paid", createExpressGate({
  *     apiUrl: process.env.VOUCH_API_URL!, apiKey: process.env.VOUCH_API_KEY!,

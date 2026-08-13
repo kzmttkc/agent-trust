@@ -26,7 +26,11 @@ export type ExpressGateOptions<Req extends object> = VouchGateConfig & {
   attachAs?: string;
   /** HTTP status used when the gate blocks. Default 403. */
   blockStatus?: number;
-  /** Called for a WARN verdict (request still proceeds). */
+  /**
+   * Called for a WARN verdict (request still proceeds). Only reachable when
+   * `policy` opts out of the ALLOW-only default ("block-only" or "custom") —
+   * the default blocks WARN before this ever fires.
+   */
   onWarn?: (decision: GateDecision, req: Req) => void;
   /**
    * When set, a successful (allowed/warned) request attests the settlement
@@ -36,8 +40,9 @@ export type ExpressGateOptions<Req extends object> = VouchGateConfig & {
 };
 
 /**
- * Express middleware: score the counterparty, block on BLOCK (fail-closed by
- * default), attach the decision, otherwise call next(). Three lines to mount:
+ * Express middleware: score the counterparty, block anything that is not
+ * ALLOW (fail-closed default; opt out via `policy`), attach the decision,
+ * otherwise call next(). Three lines to mount:
  *
  *   app.use("/api/paid", createExpressGate({
  *     apiUrl: process.env.VOUCH_API_URL!, apiKey: process.env.VOUCH_API_KEY!,

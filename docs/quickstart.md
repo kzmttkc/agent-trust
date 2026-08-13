@@ -107,6 +107,11 @@ Decision-only guard for agents that *pay*: per-tx cap + in-memory daily budget +
 payee trust check in one allow/deny. Never touches keys or funds — execution
 stays with your wallet stack.
 
+**Fail-closed by default (v0.2.0, breaking):** money moves only on a clean
+`ALLOW` — a WARN/BLOCK verdict, a degraded or partial measurement, or a failed
+lookup all deny unless you explicitly opt out via
+`trustPolicy: "block-only" | "custom"`.
+
 ```typescript
 const guard = vouch.createSpendGuard({ maxPerTxUsd: 10, dailyBudgetUsd: 50, minPayeeScore: 40 });
 const decision = await guard.evaluate({ payee: "0x...", amountUsd: 5 });

@@ -1,1 +1,1 @@
-export { createTrustGate, VouchGateError, type TrustGate, type VouchGateConfig, type ResolvedGateConfig, type GateDecision, type GateAction, type Recommendation, type ScoreSource, type FailMode, type X402PaymentAttestation, } from "./core.js";
+export { createTrustGate, VouchGateError, type TrustGate, type VouchGateConfig, type ResolvedGateConfig, type GateDecision, type GateAction, type GatePolicy, type Recommendation, type ScoreSource, type FailMode, type X402PaymentAttestation, } from "./core.js";

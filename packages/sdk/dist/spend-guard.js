@@ -9,6 +9,10 @@ function assertPolicy(policy) {
     if (policy.minPayeeScore !== undefined && policy.minPayeeScore > 100) {
         throw new Error("invalid_policy_minPayeeScore");
     }
+    if (policy.trustPolicy !== undefined &&
+        !["allow-only", "block-only", "custom"].includes(policy.trustPolicy)) {
+        throw new Error("invalid_policy_trustPolicy");
+    }
 }
 /**
  * Non-custodial spend-policy layer: answers "may my agent send this payment?"
@@ -18,13 +22,16 @@ function assertPolicy(policy) {
  *
  * 1. Local policy — per-transaction cap and an in-memory daily budget
  *    counter (UTC day, resets on process restart).
- * 2. Vouch's Payee Trust API (`GET /v1/payees/{address}/score`) — only
- *    consulted when the policy sets `minPayeeScore` or
- *    `blockOnRecommendation`, and skipped when a local rule already denied
- *    (no quota burned on a payment that's dead anyway).
+ * 2. Vouch's Payee Trust API (`GET /v1/payees/{address}/score`) — consulted
+ *    on every evaluate under the default fail-closed policy (skipped when a
+ *    local rule already denied, so no quota is burned on a payment that's
+ *    dead anyway). Only `trustPolicy: "custom"` makes the lookup conditional
+ *    on `minPayeeScore` / `blockOnRecommendation` being set.
  *
- * Trust-lookup failures deny with `payee_trust_unavailable` (fail-closed),
- * matching the rest of Vouch's fail-closed posture.
+ * BREAKING (0.2.0) — fail-closed by default (`trustPolicy: "allow-only"`):
+ * a WARN or BLOCK recommendation, a degraded read, a partial measurement,
+ * or a failed lookup all deny. Money moves only on a clean ALLOW unless the
+ * integrator explicitly opts out via `trustPolicy`.
  *
  * Budget reservation is optimistic: once the local rules pass, the amount is
  * reserved against the daily budget BEFORE the trust lookup yields to the
@@ -56,6 +63,7 @@ export class SpendGuard {
         this.rollDayIfNeeded();
         const reasons = [];
         const { maxPerTxUsd, dailyBudgetUsd, minPayeeScore, blockOnRecommendation } = this.policy;
+        const trustPolicy = this.policy.trustPolicy ?? "allow-only";
         if (maxPerTxUsd !== undefined && input.amountUsd > maxPerTxUsd) {
             reasons.push("max_per_tx_exceeded");
         }
@@ -74,7 +82,12 @@ export class SpendGuard {
             reserved = true;
         }
         let payeeScore = null;
-        const needsTrustLookup = minPayeeScore !== undefined || blockOnRecommendation === true;
+        // Fail-closed default: "allow-only" and "block-only" always vet the
+        // payee. Only the explicit "custom" opt-out makes the lookup conditional
+        // on a trust rule being configured (pre-0.2.0 behaviour).
+        const needsTrustLookup = trustPolicy !== "custom" ||
+            minPayeeScore !== undefined ||
+            blockOnRecommendation === true;
         if (needsTrustLookup && reasons.length === 0) {
             try {
                 payeeScore = await this.fetchPayeeScore(input.payee);
@@ -83,10 +96,35 @@ export class SpendGuard {
                 reasons.push("payee_trust_unavailable");
             }
             if (payeeScore) {
+                // Policy verdicts, most fundamental defect first: a degraded read is
+                // not a measurement at all, a partial measurement is not a clean one,
+                // and only then does the recommendation itself get a say.
+                if (trustPolicy === "allow-only") {
+                    if (payeeScore.degraded === true) {
+                        reasons.push("payee_score_degraded");
+                    }
+                    else if ((payeeScore.signalsUnavailable?.length ?? 0) > 0) {
+                        reasons.push("payee_partial_measurement");
+                    }
+                    else if (payeeScore.recommendation !== "ALLOW") {
+                        reasons.push("payee_recommendation_not_allow");
+                    }
+                }
+                else if (trustPolicy === "block-only") {
+                    if (payeeScore.degraded === true) {
+                        reasons.push("payee_score_degraded");
+                    }
+                    else if (payeeScore.recommendation === "BLOCK") {
+                        reasons.push("payee_recommendation_block");
+                    }
+                }
+                // Explicit rules compose on top in every mode.
                 if (minPayeeScore !== undefined && payeeScore.score < minPayeeScore) {
                     reasons.push("payee_score_below_min");
                 }
-                if (blockOnRecommendation === true && payeeScore.recommendation === "BLOCK") {
+                if (blockOnRecommendation === true &&
+                    payeeScore.recommendation === "BLOCK" &&
+                    !reasons.includes("payee_recommendation_block")) {
                     reasons.push("payee_recommendation_block");
                 }
             }
