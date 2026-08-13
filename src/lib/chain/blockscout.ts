@@ -149,10 +149,38 @@ function isRateLimitMessage(message: string): boolean {
   return lower.includes("too many requests") || lower.includes("rate limit");
 }
 
-function retryDelayMs(attempt: number): number {
+/**
+ * Back-off base for a 5xx, which is a DIFFERENT animal from a network blip.
+ *
+ * MEASURED 2026-08-13. base.blockscout.com answers HTTP 500 to history reads
+ * for high-activity addresses — v1 `txlist` and v2 `/transactions` alike — and
+ * it is intermittent, not permanent: for 0xd8dA…6045 the same request returned
+ * 200 (in 1,518-18,411ms) and 500 in the same session. That shape says the
+ * query is timing out server-side on an expensive address, not that the
+ * endpoint is down.
+ *
+ * The old back-off retried at 250ms and 500ms, so all three attempts landed
+ * inside a single second — the same cold window, three times, and then the
+ * caller failed closed. Production logged exactly that:
+ * `wallet_metrics_unavailable 0xd8da…6045: blockscout_http_500`. Retrying an
+ * expensive query immediately asks the same overloaded planner the same
+ * question; spacing the attempts is the only version of "try again" that can
+ * observe a different answer. The retries stay bounded by the caller's budget,
+ * so this buys sampling spread, not unlimited patience.
+ */
+const SERVER_ERROR_RETRY_BASE_MS = 1_500;
+
+function retryDelayMs(attempt: number, base = RETRY_BASE_MS): number {
   // Exponential with jitter, so concurrent callers that tripped the same limit
   // do not march back in lockstep and trip it again.
-  return RETRY_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * RETRY_BASE_MS);
+  return base * 2 ** (attempt - 1) + Math.floor(Math.random() * base);
+}
+
+/** 5xx gets the wide spacing; everything else keeps the quick blip retry. */
+function retryBaseFor(error: unknown): number {
+  return error instanceof BlockscoutUnavailableError && /_http_5\d\d$/.test(error.message)
+    ? SERVER_ERROR_RETRY_BASE_MS
+    : RETRY_BASE_MS;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -366,7 +394,7 @@ async function blockscoutGet<T>(
       lastError = error;
       const retryable = error instanceof BlockscoutUnavailableError && error.retryable;
       if (!retryable || attempt === MAX_ATTEMPTS) break;
-      const delay = retryDelayMs(attempt);
+      const delay = retryDelayMs(attempt, retryBaseFor(error));
       if (deadline.remaining() <= delay) break;
       await sleep(delay);
     }
@@ -698,7 +726,7 @@ async function blockscoutV2Get<T extends BlockscoutV2Page>(
       lastError = error;
       const retryable = error instanceof BlockscoutUnavailableError && error.retryable;
       if (!retryable || attempt === MAX_ATTEMPTS) break;
-      const delay = retryDelayMs(attempt);
+      const delay = retryDelayMs(attempt, retryBaseFor(error));
       // No point sleeping into a budget that cannot hold the retry as well.
       if (deadline.remaining() <= delay) break;
       await sleep(delay);

@@ -14,8 +14,30 @@ export type WalletMetrics = {
 };
 
 const metricsCache = new LruCache<string, { metrics: WalletMetrics; expiresAt: number }>(5000);
-const FETCH_TIMEOUT_MS = 8_000;
+/**
+ * Budget for the history walk.
+ *
+ * Raised from 8s on 2026-08-13. Blockscout answers HTTP 500 to history reads
+ * for high-activity addresses and does so INTERMITTENTLY (see
+ * SERVER_ERROR_RETRY_BASE_MS in blockscout.ts), so the retries that can
+ * actually catch a good window are spaced seconds apart — and each v1 attempt
+ * also waits its turn at the 2,500ms pacing gate. Three spaced attempts do not
+ * fit in eight seconds, so the old budget guaranteed that the retry policy
+ * meant to survive this failure was cut off before it could.
+ *
+ * Callers impose their own, tighter deadlines (the seller-side engine has a 6s
+ * one), so this ceiling does not lengthen anybody's request on its own — it
+ * only stops this function from giving up before its own retries are done.
+ */
+const FETCH_TIMEOUT_MS = 18_000;
 const MAX_NONCE_TX_COUNT = 50;
+
+function walkBudgetMs(): number {
+  const raw = process.env.WALLET_METRICS_BUDGET_MS;
+  if (raw === undefined || raw === "") return FETCH_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : FETCH_TIMEOUT_MS;
+}
 /**
  * Budget for the OPTIONAL /counters short-circuit.
  *
@@ -54,7 +76,7 @@ async function withTimeout<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error("wallet_metrics_timeout")), FETCH_TIMEOUT_MS);
+      setTimeout(() => reject(new Error("wallet_metrics_timeout")), walkBudgetMs());
     }),
   ]);
 }
