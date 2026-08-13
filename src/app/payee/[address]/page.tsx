@@ -206,6 +206,15 @@ export default async function PayeePage({
           props={{ band, verified: Boolean(entry) }}
           withReferrerType
         />
+        {/* payee_scored: 買い手のコア価値到達＝金に一番近い段。payee_view は
+            「頁に着いた」だけで、上流障害の fail-closed hold（degraded）や
+            計算不能（score=null → band=unavailable）も含む。ここは実際に
+            支払い判定（Go/Caution/Stop）が計算されて出た時だけ発火させ、
+            ファネルの本命指標を頁到達から分離する。verdict は band を流用
+            （high/medium/low）。events 数でなく visitors 数で意味を持つ。 */}
+        {score && !score.degraded ? (
+          <TrackView event="payee_scored" props={{ band, verified: Boolean(entry) }} />
+        ) : null}
 
         <div className="doc-head">
           <div className="doc-head-col">
