@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# ローカルのエージェント作業用（launch.json / worktrees）
+/.claude/
+
 # Gate2 ledger (contains external signup emails — PII, do not commit)
 /state/
 

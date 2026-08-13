@@ -4,7 +4,9 @@ import { getAllPosts } from "@/lib/blog";
 import { SITE_URL } from "@/lib/site-url";
 
 export const metadata: Metadata = {
-  title: "Blog — vet402",
+  // 2026-08-13 [m2]: 接尾辞は layout の template "%s | vet402" が付ける。
+  // ここに書くと「Blog — vet402 | vet402」になる。
+  title: "Blog",
   description: "Notes on agent-to-agent payments, x402, and trust scoring on Base.",
   alternates: { canonical: `${SITE_URL}/blog` },
 };

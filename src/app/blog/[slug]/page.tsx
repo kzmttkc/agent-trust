@@ -20,7 +20,10 @@ export async function generateMetadata({
   if (!post) return {};
 
   return {
-    title: `${post.title} — vet402`,
+    // 2026-08-13 UX監査2巡目 [m2]: ここで " — vet402" を足したうえに、
+    // layout の template "%s | vet402" が更に足していたので、タブは
+    // 「… — vet402 | vet402」になっていた。接尾辞は template の1本だけにする。
+    title: post.title,
     description: post.description,
     alternates: { canonical: `${SITE_URL}/blog/${post.slug}` },
     openGraph: {

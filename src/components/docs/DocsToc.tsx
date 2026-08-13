@@ -140,8 +140,12 @@ export default function DocsToc({ items }: { items: TocItem[] }) {
         </ul>
       </details>
 
-      {/* デスクトップ: 従来の横一列（この幅では6項目が収まる） */}
-      <ul className="mx-auto -mb-1 hidden w-full max-w-[var(--column)] gap-2 overflow-x-auto px-[var(--sheet-pad)] pb-1 text-xs whitespace-nowrap md:flex">
+      {/* デスクトップ: 横並び。2026-08-13 [M2] で Quickstart が増えて7項目になり、
+          scrollWidth 834 > clientWidth 763 で `Error codes` が画面外へ出た
+          （overflow-x-auto は「隠れている項目がある」ことを示さないので、
+          2026-08-12 にモバイルで直したのと同じ欠陥が desktop 側に再発した）。
+          横スクロールをやめて折り返す。項目が増えても隠れない。 */}
+      <ul className="mx-auto -mb-1 hidden w-full max-w-[var(--column)] flex-wrap gap-x-2 gap-y-0.5 px-[var(--sheet-pad)] pb-1 text-xs md:flex">
         {items.map((item) => (
           <li key={item.href}>
             <a

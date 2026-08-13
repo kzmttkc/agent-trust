@@ -287,6 +287,21 @@ export default async function AccuracyPage() {
                 </tbody>
               </table>
             </div>
+            {/* 2026-08-13 UX監査2巡目 [M7]: 「誤ブロック 0%」は自賛に読める。
+                実測では 17件の known-good のうち ALLOW は0件で、17件全部が WARN
+                だった — つまり 0% が言っているのは「1件も BLOCK しなかった」で
+                あって「全部を通した」ではない。数字の隣で自分から言う。
+                件数はレポートから引く（ここに 17 を焼き込むと、集合が変わった
+                翌週に嘘になる）。 */}
+            {benchmark.knownGood.total > 0 && benchmark.knownGood.allowed === 0 ? (
+              <p className="doc-note mt-5 max-w-[70ch]">
+                On that 0%: a false positive here counts only a BLOCK on a known-good address.
+                None of the {benchmark.knownGood.total} known-good addresses currently scores
+                ALLOW &mdash; {benchmark.knownGood.warned} of them score WARN &mdash; so 0% means
+                &ldquo;none were blocked&rdquo;, not &ldquo;all were passed&rdquo;. The engine is
+                cautious on this set, not accurate on it.
+              </p>
+            ) : null}
             <p className="doc-note mt-5 max-w-[70ch]">
               {benchmark.scans.toLocaleString("en-US")} benchmark scans in the last 90 days
               {benchmark.lastScanAt

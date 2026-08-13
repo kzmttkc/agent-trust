@@ -34,7 +34,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { agentId } = await params;
   return {
-    title: `Agent ${agentId} — trust passport | vet402`,
+    // 2026-08-13 [m2]: 二重サフィックス解消（template が " | vet402" を付ける）。
+    title: `Agent ${agentId} — trust passport`,
     description: "Verified AI agent: signature-proven identity claim plus a live trust score and x402 payment record.",
   };
 }

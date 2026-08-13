@@ -124,7 +124,11 @@ export default async function Home() {
   };
 
   return (
-    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+    // 2026-08-13 UX監査2巡目 [M8]: 1440×720 で2本の CTA の下端が 843px にあり、
+    // fold の 123px 下だった。RFC 第1面の要素と順序（ヘッダ／表題／タグライン／
+    // ダブルルール／マーク／Abstract／2本の入口）は一つも動かさず、行間と
+    // マークの寸法だけを詰めて 712px に収めている。ここは md:pt-12 を外した分。
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-6">
       {/* 2026-08-06 growth: lp_view opens the funnel (Verilot parity). Without
           it, CTA click-through rate has no denominator — the automatic
           pageview can't carry utm_source as a queryable prop. */}
@@ -167,27 +171,34 @@ export default async function Home() {
           </div>
         </div>
 
-        <h1 className="doc-title mt-10">
+        <h1 className="doc-title mt-6">
           vet402 — Independent Verification of the x402 Agent-Payment Economy
         </h1>
         <p className="mx-auto mt-3 max-w-[52ch] text-center text-brand-lift">
           We buy. We settle. We publish the measurements.
         </p>
 
-        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+        <div className="rule-double mx-auto mt-4 w-full max-w-[34ch]" />
 
-        <div className="mt-8 flex justify-center">
-          <Mark402 animate className="h-auto w-[104px] sm:w-[132px]" />
+        {/* マークは 132 → 104px（モバイルと同寸）。[M8] の 123px のうち 28px を
+            ここから出している。紙面の中央・ダブルルールの直下という位置は同じ。 */}
+        <div className="mt-5 flex justify-center">
+          <Mark402 animate className="h-auto w-[104px]" />
         </div>
 
-        <div className="mt-8 flex flex-col gap-1 sm:flex-row sm:gap-0">
+        <div className="mt-5 flex flex-col gap-1 sm:flex-row sm:gap-0">
           <p className="shrink-0 text-brand-deep sm:w-[10ch]">Abstract</p>
           <p className="min-w-0 max-w-[62ch] text-brand">
             {/* 引用符は straight。RFC の原典はプレーンテキストで、curly quote は
-                存在しない。/faq と /legal も straight で統一されている。 */}
+                存在しない。/faq と /legal も straight で統一されている。
+
+                2026-08-13 [M8]: 5行 → 3行。落としたのは "Every verdict will carry
+                a transaction hash, a timestamp and reproduction steps." の1文で、
+                これは §3.1 が同じ内容をより強い形（「無ければ公開しない」）で
+                述べている重複。Abstract が §3 を先取りするのをやめただけで、
+                デッキの主張は1つも減っていない。 */}
             vet402 buys what x402 endpoints actually sell, verifies fulfillment against the
-            seller&apos;s own declaration, and publishes the results with evidence. Every verdict
-            will carry a transaction hash, a timestamp and reproduction steps.{" "}
+            seller&apos;s own declaration, and publishes the results with evidence.{" "}
             <strong>Nothing on this site is an estimate.</strong>
           </p>
         </div>
@@ -195,7 +206,7 @@ export default async function Home() {
         {/* 2026-08-06 growth: lp_cta_click{position} tells us WHICH CTA converts
             (hero vs final vs pricing), which a plain /signup pageview can never
             attribute. */}
-        <div className="mt-8 flex flex-wrap gap-3 sm:pl-[10ch]">
+        <div className="mt-5 flex flex-wrap gap-3 sm:pl-[10ch]">
           <TrackedLink
             href="#methodology"
             event="lp_cta_click"
@@ -352,6 +363,27 @@ export default async function Home() {
             </div>
           ))}
         </dl>
+
+        {/* 2026-08-13 UX監査2巡目 [M5]: この §2 の L0–L3 と、API/SDK が今日返して
+            いる trust score (0–100 / ALLOW-WARN-BLOCK) は別の物差しなのに、両方が
+            同じサイトの上に無説明で並んでいた（/payee は "Level: L0" と
+            "39 BLOCK" を同じ画面に出していた）。関係を書く場所はここ1箇所に決め、
+            docs 側からはここへリンクする。実績の先取りをしないため、置き換えは
+            すべて未来形で書く。 */}
+        <div className="mt-8 flex gap-4">
+          <span className="w-[4ch] shrink-0 text-brand-lift">2.1</span>
+          <p className="min-w-0 max-w-[64ch] text-brand">
+            The trust score this API returns today &mdash; 0&ndash;100, banded{" "}
+            <span className="whitespace-nowrap">ALLOW / WARN / BLOCK</span> &mdash; predates these
+            levels. It stays available to API and SDK callers during the transition. Observatory
+            verdicts (L0&ndash;L2) replace it as they ship, and both will run side by side until
+            then. A score is never reported as an L0&ndash;L2 result.{" "}
+            <Link href="/docs/api#score-breakdown" className="doc-link">
+              How the score is composed
+            </Link>
+            .
+          </p>
+        </div>
 
         {/* ================= 3. Evidence rules ================= */}
         <h2 id="evidence" className="sec-head scroll-mt-24">

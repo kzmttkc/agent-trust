@@ -14,7 +14,8 @@ import type { Metadata } from "next";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
 
 export const metadata: Metadata = {
-  title: "Legal Notice | vet402",
+  // 2026-08-13 [m2]: 二重サフィックス解消（template が " | vet402" を付ける）。
+  title: "Legal Notice",
   description: "Operator disclosure and contact information for vet402.",
 };
 

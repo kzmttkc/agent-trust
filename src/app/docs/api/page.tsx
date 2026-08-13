@@ -1,9 +1,19 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import CodeBlock from "@/components/docs/CodeBlock";
 import DocsToc, { type TocItem } from "@/components/docs/DocsToc";
 import { SITE_URL } from "@/lib/site-url";
+
+// 2026-08-13 UX監査2巡目 [m2]: このページには metadata が無く、layout の
+// default（LP と同じ長い表題）をそのまま名乗っていた。template "%s | vet402"
+// が効くので、ここは接尾辞なしの固有名だけを書く。
+export const metadata: Metadata = {
+  title: "API reference",
+  description:
+    "REST v1 reference for vet402: score a payee before paying it, register a verified payee, read the public accuracy ledger. Includes a key-less curl quickstart, rate limits, webhooks and error codes.",
+};
 
 type Endpoint = {
   method: "GET" | "POST";
@@ -53,6 +63,24 @@ const endpoints: Endpoint[] = [
   "scoredAt": "2026-07-14T00:00:00Z",
   "cacheExpiresAt": "2026-07-14T00:05:00Z",
   "disclaimer": "Scores are informational only and do not constitute a guarantee, credit assessment, or investment advice."
+}`,
+  },
+  {
+    // 2026-08-13 [M6]: 買い手側の主要エンドポイントが docs のどこにも無く、
+    // /payee/:address が出している数字の出所を読者が辿れなかった。
+    method: "GET",
+    path: "/api/v1/payees/:address/score",
+    note: "Buyer-side screening: should my agent pay this wallet? Never 404s for an unfamiliar wallet — a wallet with no history returns 200 with dataDepth \"thin\" so you can weigh the confidence yourself. See Payee score below for the composition.",
+    response: `{
+  "payee": "0x1234...",
+  "score": 52,
+  "recommendation": "WARN",
+  "dataDepth": "thin",
+  "degraded": false,
+  "signals": { "receiving": {...}, "walletHealth": {...}, "drainPattern": {...}, "outcomeHistory": {...}, "flags": [...] },
+  "scoredAt": "2026-08-13T00:00:00Z",
+  "cacheExpiresAt": "2026-08-13T00:05:00Z",
+  "disclaimer": "Scores are informational only … it is not an identity or legal-standing check."
 }`,
   },
   {
@@ -179,6 +207,7 @@ function endpointId(ep: Endpoint): string {
 // 2026-08-11: sticky 簡易目次の項目。リンク先の id は各 <section> と
 // 各エンドポイントカードに付けてある。
 const TOC: TocItem[] = [
+  { href: "#quickstart", label: "Quickstart" },
   { href: "#rate-limits", label: "Rate limits" },
   {
     href: "#endpoints",
@@ -188,7 +217,11 @@ const TOC: TocItem[] = [
       label: `${ep.method} ${ep.path.split("?")[0]}`,
     })),
   },
-  { href: "#score-breakdown", label: "Score breakdown" },
+  {
+    href: "#score-breakdown",
+    label: "Score breakdown",
+    children: [{ href: "#payee-score", label: "Payee score" }],
+  },
   { href: "#webhooks", label: "Webhooks" },
   { href: "#availability", label: "Availability" },
   { href: "#error-codes", label: "Error codes" },
@@ -198,7 +231,7 @@ const errorCodes = [
   { status: "400", meaning: "Bad request", detail: "Malformed body/params (e.g. invalid wallet format, empty batch)." },
   { status: "401", meaning: "Unauthorized", detail: "Missing or invalid API key on the Authorization: Bearer header." },
   { status: "403", meaning: "Forbidden / plan upgrade required", detail: "e.g. score history on a plan below Pro." },
-  { status: "429", meaning: "Rate limited", detail: `Monthly quota spent (or an IP abuse throttle tripped). Response includes "retryAfter" (seconds); see Rate limits above.` },
+  { status: "429", meaning: "Rate limited", detail: `Two causes, told apart by the error string: "rate_limit_exceeded" is the monthly quota (retry next month), "rate_limited" is a one-minute IP throttle (retry after the reported seconds). See Two kinds of 429 above.` },
 ];
 
 export default function ApiDocsPage() {
@@ -290,6 +323,71 @@ export default function ApiDocsPage() {
         </p>
       </div>
 
+      {/* 2026-08-13 UX監査2巡目 [M2]: このページは「Authenticate with Bearer …」
+          から始まっていたので、評価しに来た開発者が最初に踏む段が「アカウントを
+          作る」だった。鍵無しで叩ける公開パスは実在するのに、それが 13 本の
+          エンドポイント表の中ほどに埋まっていて入口として使えていない。
+          先頭に、コピーして即動く curl を3本置く。
+          下の2本は 2026-08-13 に本番 (vet402.com) で実行して応答を確認済み。 */}
+      <section id="quickstart" className="scroll-mt-32 space-y-3">
+        <h2 className="sec-head">Quickstart</h2>
+        <p className="text-sm text-brand">
+          Two of these need no account, no key and no signature &mdash; paste them into a terminal
+          as they are.
+        </p>
+
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
+            1 &mdash; The public accuracy ledger (no key)
+          </p>
+          <CodeBlock
+            label="curl: read the public accuracy ledger"
+            code={`curl "${SITE_URL}/api/v1/accuracy"`}
+          />
+          <p className="mt-1 text-sm text-brand-lift">
+            Aggregate counts only. The same numbers{" "}
+            <Link href="/accuracy" className="doc-link">
+              /accuracy
+            </Link>{" "}
+            renders, including the operator benchmark.
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
+            2 &mdash; The exact message a payee has to sign (no key)
+          </p>
+          <CodeBlock
+            label="curl: preview the canonical payee-verify message"
+            code={`curl "${SITE_URL}/api/v1/payees/verify?wallet=0x4200000000000000000000000000000000000006&name=Acme%20API"`}
+          />
+          <p className="mt-1 text-sm text-brand-lift">
+            Returns{" "}
+            <code className="text-brand-deep">{`{ "message": "…" }`}</code> &mdash; sign it with
+            that wallet and POST it back to the same path to publish a verified-payee page and a
+            badge. Read-only; nothing is written.
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
+            3 &mdash; Score a payee before paying it (key required)
+          </p>
+          <CodeBlock
+            label="curl: score a payee wallet"
+            code={`curl -H "Authorization: Bearer vouch_live_…" \\
+  "${SITE_URL}/api/v1/payees/0x4200000000000000000000000000000000000006/score"`}
+          />
+          <p className="mt-1 text-sm text-brand-lift">
+            The buyer-side question.{" "}
+            <Link href="/signup" className="doc-link">
+              Get a key
+            </Link>{" "}
+            &mdash; the free tier is 1,000 lookups a month.
+          </p>
+        </div>
+      </section>
+
       {/* 2026-08-06: capacity planning. Quotas were on the pricing page but the
           burst behaviour was nowhere — a synchronous gate needs both to size a
           deployment. Values are read from the code (auth.ts PLAN_LIMITS,
@@ -329,19 +427,78 @@ export default function ApiDocsPage() {
             <strong>No per-second burst throttle on authenticated calls today.</strong>{" "}
             Authenticated requests are governed by the monthly quota only — you
             may spend it as fast as you like — so pace client-side if you must
-            not exhaust the month in one run. A <code>429</code> with{" "}
-            <code>Retry-After</code> means the monthly quota is spent (retry after
-            the reported seconds, i.e. next month).
+            not exhaust the month in one run.
           </li>
+          {/* 2026-08-13 UX監査2巡目 [m1]: ここの数字が実測と合っていなかった。
+              「payee-verify を 10/minute/IP」と書いていたが、実際に本番へ投げると
+              `RateLimit-Limit: 30` が返る（GET と POST で別の上限であることが
+              docs に無かった）。値は各 route.ts の定数から写している。 */}
           <li>
-            <strong>Abuse throttles (IP-based).</strong> To blunt key-guessing and
-            scraping, some paths carry an IP burst cap independent of the quota:
-            authentication <em>failures</em> are limited to 60/minute/IP, the
-            unauthenticated demo scorer to 10/minute/IP, and the public{" "}
-            <code>/accuracy</code> and payee-verify endpoints to 20 and 10/minute/IP
-            respectively. Valid authenticated traffic does not hit these.
+            <strong>Abuse throttles (IP-based), per minute.</strong> Key-less and
+            pre-auth paths carry their own IP cap, independent of the quota:
+            authentication <em>failures</em> 60; the unauthenticated demo scorer
+            10; <code>GET /api/v1/accuracy</code> 20; the badge SVGs 60; the agent
+            passport 20. Verify endpoints split read from write:{" "}
+            <code>GET</code> (message preview) 30/IP, while <code>POST</code> is
+            8/IP <em>and</em> 4 per wallet or agent, so one identity cannot rewrite
+            its public profile in a loop from many IPs. Valid authenticated traffic
+            does not hit any of these.
           </li>
         </ul>
+        {/* 2026-08-13 [m1]: 429 は2系統あり、区別できないと誤ったリトライを
+            書かれる（月次枯渇に指数バックオフを掛けても、翌月まで通らない）。 */}
+        <h3 className="sub-head">Two kinds of 429</h3>
+        <div className="table-scroll">
+          <table className="fact-table">
+            <caption className="sr-only">
+              The two distinct causes of an HTTP 429 and how to tell them apart
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Cause</th>
+                <th scope="col">Body</th>
+                <th scope="col">Headers</th>
+                <th scope="col">What to do</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="text-brand-deep">Monthly quota spent (authenticated)</td>
+                <td className="break-all text-brand">
+                  <code>error: &quot;rate_limit_exceeded&quot;</code> with{" "}
+                  <code>retryAfter</code>, <code>usage</code>, <code>limit</code>
+                </td>
+                <td className="break-all text-brand">
+                  <code>X-RateLimit-*</code> and <code>Retry-After</code> (seconds to the start of
+                  next month, UTC)
+                </td>
+                <td className="text-brand">
+                  Stop. Retrying inside the month cannot succeed — raise the plan or wait for the
+                  reset.
+                </td>
+              </tr>
+              <tr>
+                <td className="text-brand-deep">IP throttle (key-less / pre-auth paths)</td>
+                <td className="break-all text-brand">
+                  <code>error: &quot;rate_limited&quot;</code>
+                </td>
+                <td className="break-all text-brand">
+                  <code>RateLimit-Limit</code> / <code>-Remaining</code> / <code>-Reset</code> and{" "}
+                  <code>Retry-After</code> (seconds, always under 60)
+                </td>
+                <td className="text-brand">
+                  Sleep for <code>Retry-After</code> and retry. The window is one minute.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="text-sm text-brand-lift">
+          The header families are deliberately different names:{" "}
+          <code className="text-brand-deep">X-RateLimit-*</code> reports the monthly plan quota,{" "}
+          <code className="text-brand-deep">RateLimit-*</code> (IETF draft names) reports the
+          short IP window. No route sets both families on the same response.
+        </p>
       </section>
 
       <section id="endpoints" className="scroll-mt-32 space-y-5">
@@ -435,6 +592,111 @@ export default function ApiDocsPage() {
           ran — and carry a <code className="text-brand-deep">blockReason</code>{" "}
           instead. Treat the field as optional.
         </p>
+
+        {/* 2026-08-13 UX監査2巡目 [M6]: /payee/:address が出す "37 / 100 · data:
+            thin" の出所を書く場所がどこにも無かった。ここが /payee 頁からの
+            リンク先（#payee-score）で、閾値と重みは
+            src/lib/scoring/payee-engine.ts の determineDataDepth /
+            WEIGHTS_BY_DEPTH を写している。 */}
+        <div id="payee-score" className="scroll-mt-32 space-y-3">
+          <h3 className="sub-head">Payee score</h3>
+          <p className="text-sm text-brand">
+            <code className="break-all text-brand-deep">
+              GET /api/v1/payees/:address/score
+            </code>{" "}
+            — and the public page at{" "}
+            <code className="break-all text-brand-deep">/payee/:address</code> — runs a different
+            engine from the agent/wallet endpoints above and carries no{" "}
+            <code>breakdown</code> object. It weighs three tracks, and the weights shift with how
+            much receiving history the wallet actually has, because a cold wallet cannot be judged
+            on a track record it does not have.
+          </p>
+          <div className="table-scroll">
+            <table className="fact-table">
+              <caption className="sr-only">
+                Payee score component weights by data depth
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    <code>dataDepth</code>
+                  </th>
+                  <th scope="col">Means</th>
+                  <th scope="col" className="num">
+                    Receiving
+                  </th>
+                  <th scope="col" className="num">
+                    Wallet health
+                  </th>
+                  <th scope="col" className="num">
+                    Drain pattern
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="text-brand-deep">thin</td>
+                  <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                    under 3 payments received, or from under 2 distinct payers
+                  </td>
+                  <td className="num text-brand-deep">15%</td>
+                  <td className="num text-brand-deep">45%</td>
+                  <td className="num text-brand-deep">40%</td>
+                </tr>
+                <tr>
+                  <td className="text-brand-deep">moderate</td>
+                  <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                    3+ payments received from 2+ distinct payers
+                  </td>
+                  <td className="num text-brand-deep">35%</td>
+                  <td className="num text-brand-deep">35%</td>
+                  <td className="num text-brand-deep">30%</td>
+                </tr>
+                <tr>
+                  <td className="text-brand-deep">rich</td>
+                  <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                    10+ payments received across 7+ days from 3+ distinct payers
+                  </td>
+                  <td className="num text-brand-deep">50%</td>
+                  <td className="num text-brand-deep">25%</td>
+                  <td className="num text-brand-deep">25%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ul className="list-disc space-y-2 pl-5 text-sm text-brand">
+            <li>
+              <strong>The raw inputs are in the response.</strong>{" "}
+              <code>signals.receiving</code> reports{" "}
+              <code>paymentCount / uniqueDays / distinctPayers</code>,{" "}
+              <code>signals.walletHealth</code> reports{" "}
+              <code>ageDays / txCount / isBurner</code>, and{" "}
+              <code>signals.drainPattern</code> reports the in/out counts and ratio — each with
+              its own 0–100 <code>score</code>, so the weighted arithmetic above can be re-run
+              from the payload.
+            </li>
+            <li>
+              <strong>
+                <code>degraded: true</code> is a refusal, not a reading.
+              </strong>{" "}
+              It means an input could not be read at all. Callers receive a fail-closed{" "}
+              <code>BLOCK</code>; the public page prints{" "}
+              <em>&ldquo;Not verifiable right now&rdquo;</em> rather than a number, because a
+              specific accusation against a named wallet must not rest on an upstream outage.
+              <code>dataDepth</code> answers a different question — how much history exists — and
+              a data-poor wallet read completely is not the same thing.
+            </li>
+            <li>
+              <strong>Outcomes adjust the score after weighting.</strong>{" "}
+              <code>signals.outcomeHistory</code> carries the outcome types on record and the
+              points they moved, which is the same ledger{" "}
+              <Link href="/accuracy" className="doc-link">
+                /accuracy
+              </Link>{" "}
+              aggregates.
+            </li>
+          </ul>
+        </div>
       </section>
 
       <section id="webhooks" className="scroll-mt-32 space-y-4">
