@@ -733,6 +733,13 @@ app.use("/api/paid", createExpressGate({
                   is byte-identical to the old <p>. */}
               <h2 className="break-all font-[family-name:var(--font-display)] font-semibold text-brand-deep">
                 <span className="marker marker-plan mr-2 align-middle">{ep.method}</span>
+                {/* 2026-08-13 全盲ペルソナ監査 R2【微差】: バッジの `mr-2` は視覚的な
+                    余白でしかなく、読み上げには何の隙間も作らない。実測では見出しが
+                    `GET/api/v1/agents/:agentId/score` と1語に繋がって聞こえていた
+                    （メソッドとパスの境が消える）。/leaderboard の SeedTag と同じ手で、
+                    視覚に出ない空白を挟んで HTTP のリクエスト行と同じ `GET /api/…` の
+                    区切りを音にだけ渡す。紙面は 1px も変えない。 */}
+                <span className="sr-only"> </span>
                 {ep.path}
               </h2>
               <p className="mt-1 text-brand">{ep.note}</p>
