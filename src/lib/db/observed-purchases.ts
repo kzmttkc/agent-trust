@@ -156,6 +156,16 @@ export async function getObservedPurchaseStats(
  * Seller-side: how many independent buyers this address actually delivered to.
  * The premium receiving signal for the payee engine — vet402 confirmed real
  * buyers received what they paid this seller for. Degrades to empty.
+ *
+ * vet402 2026-08-14 (中-2A, double-check Sybil hole). `distinctBuyers` is
+ * FUNDER-COLLAPSED, not a raw wallet count: scoreL1Receiving's docstring promises
+ * "already funder-collapsed by the reader", and the receiving-diversity bonus it
+ * pays would otherwise be buyable by one actor spinning up N wallets from a
+ * single funder — the exact twin of the payer-side collapse getPayeeStats does
+ * via countDistinctFunders. Buyers whose funder is unknown count as their own
+ * source (permissive degrade), so an empty/lagging funder index simply yields
+ * distinctBuyers == the raw buyer count and never penalizes diversity on data we
+ * lack. `deliveryCount` and `uniqueDays` remain the true event totals.
  */
 export async function getObservedDeliveryStats(
   counterparty: string,
@@ -181,10 +191,11 @@ export async function getObservedDeliveryStats(
         ),
       );
     const row = rows[0];
+    const rawBuyers = Number(row?.distinctBuyers ?? 0);
     return {
       deliveryCount: Number(row?.deliveryCount ?? 0),
       uniqueDays: Number(row?.uniqueDays ?? 0),
-      distinctBuyers: Number(row?.distinctBuyers ?? 0),
+      distinctBuyers: await countDistinctBuyerFunders(db, partyLower, rawBuyers),
     };
   } catch (error) {
     if (!isMissingSchemaError(error)) throw error;
@@ -193,6 +204,60 @@ export async function getObservedDeliveryStats(
       new Error("observed_purchases not migrated yet; reading as no L1 deliveries"),
     );
     return empty;
+  }
+}
+
+/**
+ * vet402 2026-08-14 (中-2A) — collapse a seller's distinct delivered buyers down
+ * to their distinct FUNDING SOURCES, the seller-side twin of x402-payments'
+ * countDistinctFunders. Sybil clusters share one funder, so counting funders
+ * instead of wallets stops a seller from manufacturing "many independent buyers"
+ * from one funded set. A buyer with no funder row counts as its own source
+ * (coalesce to the wallet), so an empty/lagging funder index returns the raw
+ * buyer count — the diversity bonus is never penalized on data we lack. Reads the
+ * same funder_wallets index the payer-side checks use (trusted indexer only). A
+ * failed/absent funder index falls back to the raw count rather than failing the
+ * whole delivery read — the funder join is a sybil discount, not a correctness
+ * gate.
+ */
+async function countDistinctBuyerFunders(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  sellerLower: string,
+  rawBuyers: number,
+): Promise<number> {
+  if (rawBuyers === 0) return 0;
+  try {
+    const buyers = db
+      .selectDistinct({ wallet: observedPurchases.wallet })
+      .from(observedPurchases)
+      .where(
+        and(
+          eq(observedPurchases.counterparty, sellerLower),
+          deliveryEligible,
+          sql`lower(${observedPurchases.wallet}) <> ${sellerLower}`,
+        ),
+      )
+      .as("buyers");
+
+    const rows = await db
+      .select({
+        distinctFunders: sql<number>`count(distinct coalesce(${funderWallets.funder}, ${buyers.wallet}))`,
+      })
+      .from(buyers)
+      .leftJoin(funderWallets, sql`lower(${funderWallets.wallet}) = ${buyers.wallet}`);
+
+    const value = Number(rows[0]?.distinctFunders ?? rawBuyers);
+    // Never report MORE funding sources than buyers — a defensive floor in case
+    // a wallet somehow carries multiple funder rows in the index.
+    return Math.min(value, rawBuyers);
+  } catch (error) {
+    // The funder index is an optimization for a sybil discount, not a correctness
+    // gate: if it cannot be read (e.g. funder_wallets not migrated), fall back to
+    // the raw buyer count rather than failing the whole delivery read.
+    if (!isMissingSchemaError(error)) {
+      logServerError("observed_delivery_distinct_funders", error);
+    }
+    return rawBuyers;
   }
 }
 

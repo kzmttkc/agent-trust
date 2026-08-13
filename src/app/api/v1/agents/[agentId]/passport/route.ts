@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db/client";
 import { agentPassports } from "@/lib/db/schema";
 import { parseAgentId } from "@/lib/chain/client";
 import { scoreAgentById } from "@/lib/scoring/engine";
-import { agentPassportMessage } from "@/app/api/v1/agents/verify/route";
+import { agentPassportMessage } from "@/lib/verify-message";
 import { logServerError } from "@/lib/util/log";
 
 // A-10 — the portable, third-party-verifiable passport. Key-less on purpose:

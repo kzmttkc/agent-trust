@@ -189,6 +189,41 @@ test("the seller/delivery view: distinct independent BUYERS who received deliver
   assert.equal(stats.distinctBuyers, 2);
 });
 
+test("seller distinctBuyers is FUNDER-COLLAPSED — sockpuppet buyers sharing a funder count once (中-2A)", async (t) => {
+  if (!reachable) return t.skip("no Postgres");
+  await reset();
+  const SELLER = wal(800);
+  const FUNDER = wal(900);
+  const SOCK_A = wal(801); // two buyer wallets, one funder = one sybil cluster
+  const SOCK_B = wal(802);
+  const REAL = wal(803); // an independently funded, genuinely distinct buyer
+  await sql!`INSERT INTO funder_wallets (funder, wallet) VALUES
+    (${FUNDER}, ${SOCK_A}), (${FUNDER}, ${SOCK_B}), (${wal(998)}, ${REAL})`;
+  await seed([
+    { wallet: SOCK_A, counterparty: SELLER, txHash: tx(), deliveryVerified: true },
+    { wallet: SOCK_B, counterparty: SELLER, txHash: tx(), deliveryVerified: true },
+    { wallet: REAL, counterparty: SELLER, txHash: tx(), deliveryVerified: true },
+  ]);
+  const stats = await getObservedDeliveryStats(SELLER);
+  // Three delivered settlements happened, but only TWO independent funding
+  // sources are behind them — the sybil cluster must not buy a 3-buyer diversity
+  // bonus. The docstring on scoreL1Receiving promises this collapse; here it is.
+  assert.equal(stats.deliveryCount, 3, "every delivered settlement is still counted");
+  assert.equal(stats.distinctBuyers, 2, "the two same-funder buyers collapse to one source");
+});
+
+test("seller distinctBuyers with no funder index falls back to the raw buyer count (permissive degrade)", async (t) => {
+  if (!reachable) return t.skip("no Postgres");
+  await reset(); // funder_wallets is empty: every buyer is its own source
+  const SELLER = wal(850);
+  await seed([
+    { wallet: wal(851), counterparty: SELLER, txHash: tx(), deliveryVerified: true },
+    { wallet: wal(852), counterparty: SELLER, txHash: tx(), deliveryVerified: true },
+  ]);
+  const stats = await getObservedDeliveryStats(SELLER);
+  assert.equal(stats.distinctBuyers, 2, "an unpopulated funder index never penalizes diversity");
+});
+
 test("a missing observed_purchases table degrades to empty, never throws", async (t) => {
   if (!reachable) return t.skip("no Postgres");
   await sql!`DROP TABLE IF EXISTS observed_purchases`;

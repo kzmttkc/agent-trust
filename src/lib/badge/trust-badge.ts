@@ -26,6 +26,8 @@
 // blanket trust guarantee.
 // ============================================================
 
+import { hasUnavailableInput } from "@/lib/scoring/verdict";
+
 export type BadgeRecommendation = "ALLOW" | "WARN" | "BLOCK";
 
 /** Machine-readable badge state, independent of colour/label wording. */
@@ -116,6 +118,71 @@ export function resolveBadgeState(input: BadgeStateInput): BadgeState {
     color: AMBER,
     aria: `vet402: Caution — ownership is signed but trust is not established (the live vet402 score is not a clean ALLOW). Ownership only; not a trust guarantee.`,
   };
+}
+
+// ---- score → badge bridges (中-2B, 2026-08-14 double-check) ----------------
+//
+// WHY THESE EXIST, AND WHY THEY ARE NOT just resolveBadgeState. resolveBadgeState
+// takes `degraded` as an ALREADY-COMPUTED input, so a pure test of it can pass
+// while a ROUTE forgets to derive and pass `degraded` at all. That is exactly
+// what happened: the payee badge route read `score.degraded` and passed it, but
+// the AGENT badge route passed only `recommendation` — so a degraded agent
+// (recommendation BLOCK because its reads failed) rendered red "Flagged"
+// ("we caught this agent"), while the identical payee rendered amber "Caution"
+// ("we could not check"). An asymmetric, accusatory misread of "we don't know".
+//
+// The two subjects carry "degraded" in DIFFERENT shapes — the payee engine
+// exposes an explicit `degraded` boolean plus a flat `signals.flags`, while the
+// agent engine exposes `signals.sybil.flags` — so the derivation is per-subject.
+// Routing BOTH badge routes through these bridges means the derivation lives in
+// ONE tested place per subject and a route can no longer build a badge that
+// skips it. Structural input types keep this file free of the engine (and its DB
+// imports); `hasUnavailableInput` is the SAME definition the fail-closed verdict
+// uses, so "degraded" means the one thing here it means everywhere.
+
+/** The slice of an agent trust-score result a badge needs. */
+export type AgentBadgeScoreView = {
+  recommendation: BadgeRecommendation | null;
+  signals: { sybil: { flags: readonly string[] } };
+};
+
+/** The slice of a payee trust-score result a badge needs. */
+export type PayeeBadgeScoreView = {
+  recommendation: BadgeRecommendation | null;
+  degraded?: boolean;
+  signals?: { flags?: readonly string[] };
+};
+
+/**
+ * Agent badge state from a raw agent score (or null when the lookup could not be
+ * completed). Derives `degraded` from the score's OWN sybil flags so a
+ * fail-closed agent reads amber "Caution", symmetric with the payee side.
+ */
+export function agentBadgeState(signed: boolean, score: AgentBadgeScoreView | null): BadgeState {
+  return resolveBadgeState({
+    signed,
+    subject: "agent",
+    recommendation: score ? score.recommendation : null,
+    degraded: score ? hasUnavailableInput(score.signals.sybil.flags) : false,
+  });
+}
+
+/**
+ * Payee badge state from a raw payee score (or null). Honours the engine's
+ * explicit `degraded` flag AND, belt-and-suspenders, the same unavailable-input
+ * derivation the agent side uses — so if `degraded` were ever dropped from the
+ * payee result, the flags still keep a fail-closed read out of red.
+ */
+export function payeeBadgeState(signed: boolean, score: PayeeBadgeScoreView | null): BadgeState {
+  const degraded = score
+    ? score.degraded === true || hasUnavailableInput(score.signals?.flags ?? [])
+    : false;
+  return resolveBadgeState({
+    signed,
+    subject: "payee",
+    recommendation: score ? score.recommendation : null,
+    degraded,
+  });
 }
 
 // Minimal XML-attribute/text escaper. Labels come from a fixed set today, but

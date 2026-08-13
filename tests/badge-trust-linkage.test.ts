@@ -11,11 +11,22 @@
 // state where trust cannot be established (WARN, a degraded read, or a failed
 // score lookup) is fail-closed to "Caution", never green.
 // ============================================================
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBadgeState, renderBadgeSvg } from "@/lib/badge/trust-badge";
+import { NextRequest } from "next/server";
+import {
+  resolveBadgeState,
+  renderBadgeSvg,
+  agentBadgeState,
+  payeeBadgeState,
+} from "@/lib/badge/trust-badge";
+import { __setDbForTests } from "@/lib/db/client";
+import { GET as agentBadgeGET } from "@/app/api/badge/agent/[agentId]/route";
+import { GET as payeeBadgeGET } from "@/app/api/badge/[address]/route";
 
 const GREEN = "#059669";
+const RED = "#b91c1c";
+const AMBER = "#b45309";
 
 test("unsigned wallet is Unverified regardless of a good score", () => {
   const s = resolveBadgeState({ signed: false, recommendation: "ALLOW", subject: "payee" });
@@ -105,6 +116,142 @@ test("rendered SVG is well-formed and stays 156px wide", () => {
   assert.match(svg, /^<svg xmlns=/);
   assert.match(svg, /width="156"/);
   assert.match(svg, /<title>/);
+});
+
+// ============================================================
+// 中-2B (2026-08-14 double-check) — the badge ROUTES must DERIVE `degraded`,
+// not merely accept it. resolveBadgeState takes `degraded` pre-computed, so a
+// pure test of it passed while the AGENT route dropped the derivation and a
+// fail-closed agent (recommendation BLOCK because its reads failed) rendered red
+// "Flagged" — accusing an agent we simply could not measure, while the identical
+// payee rendered amber "Caution". These tests exercise the score→badge bridges
+// the routes now delegate to, so a future drop of the derivation turns a test
+// red instead of a live badge.
+// ============================================================
+
+test("agentBadgeState: a degraded BLOCK (unavailable reads) is amber Caution, NOT red Flagged", () => {
+  const s = agentBadgeState(true, {
+    recommendation: "BLOCK", // assessSybilRisk turns any *_unavailable into high→BLOCK
+    signals: { sybil: { flags: ["sybil_checks_unavailable"] } },
+  });
+  assert.equal(s.state, "caution", "a read we could not complete is 'we don't know', not 'flagged'");
+  assert.equal(s.color, AMBER);
+  assert.notEqual(s.color, RED);
+});
+
+test("agentBadgeState: a GENUINE BLOCK (no unavailable flags) still reads Flagged", () => {
+  const s = agentBadgeState(true, {
+    recommendation: "BLOCK",
+    signals: { sybil: { flags: ["funding_cluster", "multi_agent_owner"] } },
+  });
+  assert.equal(s.state, "flagged", "a measured BLOCK is a real revocation, not merely unknown");
+  assert.equal(s.color, RED);
+});
+
+test("agentBadgeState: a clean ALLOW is green; a null score (lookup failed) is amber", () => {
+  const green = agentBadgeState(true, { recommendation: "ALLOW", signals: { sybil: { flags: [] } } });
+  assert.equal(green.state, "verified");
+  assert.equal(green.color, GREEN);
+
+  const failed = agentBadgeState(true, null);
+  assert.equal(failed.state, "caution");
+  assert.notEqual(failed.color, GREEN);
+});
+
+test("agent vs payee are SYMMETRIC on a degraded read — both amber, neither red", () => {
+  const agent = agentBadgeState(true, {
+    recommendation: "BLOCK",
+    signals: { sybil: { flags: ["wallet_metrics_unavailable"] } },
+  });
+  const payee = payeeBadgeState(true, {
+    recommendation: "BLOCK",
+    degraded: true,
+    signals: { flags: ["wallet_metrics_unavailable"] },
+  });
+  assert.equal(agent.state, payee.state, "the two subjects must not disagree on 'we could not check'");
+  assert.equal(agent.state, "caution");
+});
+
+test("payeeBadgeState: degraded via unavailable flags alone (no explicit flag) still avoids red", () => {
+  // Belt-and-suspenders: if the engine's explicit `degraded` were ever dropped,
+  // the flags still keep a fail-closed read out of "Flagged".
+  const s = payeeBadgeState(true, {
+    recommendation: "BLOCK",
+    signals: { flags: ["reputation_summary_unavailable"] },
+  });
+  assert.equal(s.state, "caution");
+  assert.notEqual(s.color, RED);
+});
+
+test("payeeBadgeState: a genuine measured BLOCK is Flagged; clean ALLOW is green", () => {
+  const flagged = payeeBadgeState(true, { recommendation: "BLOCK", degraded: false, signals: { flags: [] } });
+  assert.equal(flagged.state, "flagged");
+  const green = payeeBadgeState(true, { recommendation: "ALLOW", degraded: false, signals: { flags: [] } });
+  assert.equal(green.state, "verified");
+  assert.equal(green.color, GREEN);
+});
+
+// ---- real route handlers: the unsigned path drives the actual GET ----------
+// The degraded case cannot be driven end-to-end without a live chain (the score
+// needs an RPC), so the bridges above pin that wiring; here the REAL handlers
+// are driven through the injectable DB seam for the branch that needs no chain —
+// no signed claim → Unverified — proving each route calls its bridge + renders.
+
+function emptySignedDb() {
+  return {
+    // The key-less badge routes rate-limit first (DB-backed when a db is set):
+    // model one fresh bucket hit (count 1 ≤ limit → allowed).
+    insert() {
+      return {
+        values(v: { bucketKey: string; resetAt: Date }) {
+          return {
+            onConflictDoUpdate() {
+              return {
+                returning: async () => [{ bucketKey: v.bucketKey, count: 1, resetAt: v.resetAt }],
+              };
+            },
+          };
+        },
+      };
+    },
+    // The signed-claim lookup: no row → unsigned → Unverified, no scoring.
+    select() {
+      return {
+        from() {
+          return {
+            where() {
+              return { limit: async () => [] as unknown[] };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+afterEach(() => __setDbForTests(null));
+
+test("ROUTE /api/badge/agent/[agentId]: an unsigned agent renders Unverified SVG", async () => {
+  __setDbForTests(emptySignedDb());
+  const req = new NextRequest("http://localhost/api/badge/agent/42.svg");
+  const res = await agentBadgeGET(req, { params: Promise.resolve({ agentId: "42.svg" }) });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("Content-Type"), "image/svg+xml");
+  const svg = await res.text();
+  assert.match(svg, /Unverified/);
+  assert.doesNotMatch(svg, new RegExp(GREEN));
+});
+
+test("ROUTE /api/badge/[address]: an unsigned payee renders Unverified SVG", async () => {
+  __setDbForTests(emptySignedDb());
+  const addr = "0x1111111111111111111111111111111111111111";
+  const req = new NextRequest(`http://localhost/api/badge/${addr}.svg`);
+  const res = await payeeBadgeGET(req, { params: Promise.resolve({ address: `${addr}.svg` }) });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("Content-Type"), "image/svg+xml");
+  const svg = await res.text();
+  assert.match(svg, /Unverified/);
+  assert.doesNotMatch(svg, new RegExp(GREEN));
 });
 
 test("every state carries an aria description that says what green means", () => {

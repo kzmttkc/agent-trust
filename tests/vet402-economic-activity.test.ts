@@ -24,6 +24,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   scoreEconomicActivity,
+  scoreL1Purchases,
   scoreL1Receiving,
   scoreX402Payments,
   X402_NO_HISTORY_SCORE,
@@ -71,6 +72,30 @@ test("L1 dominates when both are present — the premium signal is never dragged
     x402: NO_X402,
   });
   assert.equal(both, l1Only, "a weak x402 history must not lower a strong L1 score");
+});
+
+test("a strong x402 history is NOT dragged down when a first L1 purchase appears (monotonicity)", () => {
+  // 中-1 (2026-08-14 double-check): the buyer axis used to UNCONDITIONALLY adopt
+  // L1 the moment purchaseCount>0, discarding a thicker x402 record. A wallet
+  // with a deep x402 history (95) that then makes its first delivery-verified L1
+  // purchase (75) would have its economic-activity axis FALL 95→75 — a positive
+  // new fact lowering the score, which can flip ALLOW→WARN. Positive evidence
+  // must be monotone non-decreasing: adding a real purchase can never subtract.
+  const strongX402 = { paymentCount: 20, uniqueDays: 14 };
+  const x402Only = scoreEconomicActivity({ l1: NO_L1, x402: strongX402 });
+  const withFirstL1 = scoreEconomicActivity({
+    l1: { purchaseCount: 1, uniqueDays: 1, distinctCounterparties: 1 },
+    x402: strongX402,
+  });
+  assert.ok(
+    withFirstL1 >= x402Only,
+    `a first L1 purchase dropped the axis ${x402Only}→${withFirstL1}; positive evidence must never lower the score`,
+  );
+  // And it takes the STRONGER of the two, exactly as the payee engine does.
+  assert.equal(
+    withFirstL1,
+    Math.max(scoreX402Payments(strongX402), scoreL1Purchases({ purchaseCount: 1, uniqueDays: 1, distinctCounterparties: 1 })),
+  );
 });
 
 test("more L1 breadth (distinct counterparties, days) scores higher, and it clamps at 100", () => {

@@ -14,7 +14,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { verifyMessage } from "viem";
-import { agentPassportMessage } from "@/app/api/v1/agents/verify/route";
+import { agentPassportMessage } from "@/lib/verify-message";
 
 test("agentPassportMessage produces the documented 5-line canonical message", () => {
   const msg = agentPassportMessage(42n, "0xAbC0000000000000000000000000000000000001", "Acme Agent");

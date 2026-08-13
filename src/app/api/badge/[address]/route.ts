@@ -5,7 +5,7 @@ import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit"
 import { getDb } from "@/lib/db/client";
 import { verifiedPayees } from "@/lib/db/schema";
 import { isValidAddress } from "@/lib/chain/client";
-import { resolveBadgeState, renderBadgeSvg, type BadgeRecommendation } from "@/lib/badge/trust-badge";
+import { payeeBadgeState, renderBadgeSvg, type PayeeBadgeScoreView } from "@/lib/badge/trust-badge";
 import { scorePayeeWallet } from "@/lib/scoring/payee-engine";
 import { logServerError } from "@/lib/util/log";
 
@@ -66,20 +66,21 @@ export async function GET(
   // probe over fresh addresses never pays the scoring cost. Fail-closed: any
   // error or timeout leaves recommendation null, which resolveBadgeState keeps
   // out of green.
-  let recommendation: BadgeRecommendation | null = null;
-  let degraded = false;
+  // Carry the whole score to payeeBadgeState, which derives `degraded` from the
+  // engine's explicit flag AND the unavailable-input flags (the same derivation
+  // the agent badge uses). Fail-closed: any error leaves the score null, kept
+  // out of green. See trust-badge.ts for why the derivation lives there.
+  let score: PayeeBadgeScoreView | null = null;
   if (signed) {
     try {
-      const score = await scorePayeeWallet(clean);
-      recommendation = score.recommendation;
-      degraded = score.degraded === true;
+      score = await scorePayeeWallet(clean);
     } catch (error) {
       logServerError("badge_payee_score", error);
-      recommendation = null;
+      score = null;
     }
   }
 
-  const state = resolveBadgeState({ signed, recommendation, degraded, subject: "payee" });
+  const state = payeeBadgeState(signed, score);
   return new NextResponse(renderBadgeSvg(state), {
     headers: {
       "Content-Type": "image/svg+xml",

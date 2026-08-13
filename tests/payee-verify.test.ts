@@ -10,7 +10,7 @@
 // ============================================================
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { payeeMessage } from "@/app/api/v1/payees/verify/route";
+import { payeeMessage } from "@/lib/verify-message";
 import { isCanonicalName, NAME_MAX_LENGTH } from "@/lib/validation/canonical-name";
 import { ipRateLimitHeaders, type IpRateLimitResult } from "@/lib/api/ip-rate-limit";
 

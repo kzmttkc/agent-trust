@@ -200,6 +200,54 @@ export async function addCustomerListEntry(params: {
   };
 }
 
+/**
+ * vet402 2026-08-14 (中-3A, double-check) — REMOVE a GLOBAL operator blacklist
+ * and record the removal in the PUBLIC operator-override log. The ToS promise is
+ * that an operator censorship act can be "withdrawn, and the withdrawal
+ * recorded" — but no code path recorded `blacklist_removed`, so the withdrawal
+ * half of the promise had no implementation. This is it: the operator-wide
+ * blacklist rows for the wallet are deleted, and — ONLY when something was
+ * actually removed — a reasoned `blacklist_removed` entry is appended to the same
+ * public log the addition wrote to. A removal request for a wallet that was not
+ * globally blacklisted logs NOTHING (a phantom "removed" would be a lie in a
+ * transparency log). Symmetric with addCustomerListEntry's global path: the
+ * public record and the enforcement change land together (awaited), so the
+ * withdrawal can never be a silent one.
+ */
+export async function removeGlobalBlacklistEntry(params: {
+  wallet: string;
+  reason: string;
+}): Promise<{ removed: boolean }> {
+  const db = getDb();
+  if (!db) throw new Error("DATABASE_URL is not configured");
+
+  const wallet = params.wallet.toLowerCase();
+  const removedRows = await db
+    .delete(customerLists)
+    .where(
+      and(
+        sql`lower(${customerLists.wallet}) = ${wallet}`,
+        isNull(customerLists.apiKeyId),
+        eq(customerLists.listType, "blacklist"),
+      ),
+    )
+    .returning();
+
+  const removed = removedRows.length > 0;
+  if (removed) {
+    // AWAITED, like the addition: the withdrawal and its public trace land
+    // together, or the "silent censorship" this closes would reappear as a
+    // silent un-censorship.
+    await recordOperatorOverride({
+      wallet,
+      action: "blacklist_removed",
+      reason: params.reason.trim() || "unspecified",
+    });
+  }
+
+  return { removed };
+}
+
 export async function removeCustomerListEntry(
   apiKeyId: string,
   entryId: string,

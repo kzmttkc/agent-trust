@@ -8,30 +8,17 @@ import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { verifiedPayees } from "@/lib/db/schema";
 import { isValidAddress } from "@/lib/chain/client";
 import { logServerError } from "@/lib/util/log";
-// 2026-08-14: isCanonicalName/NAME_MAX_LENGTH moved to @/lib/validation so a
-// route file no longer exports a shared helper (Next 16 route-type contract).
+// 2026-08-14: isCanonicalName/NAME_MAX_LENGTH moved to @/lib/validation and
+// payeeMessage to @/lib/verify-message so this route file no longer exports a
+// shared helper (Next 16 route-type contract — a route may only export handlers).
 import { isCanonicalName } from "@/lib/validation/canonical-name";
+import { payeeMessage } from "@/lib/verify-message";
 
-// N-16 — payee self-verification. Sign the canonical message with the payee
-// wallet; a valid signature IS the proof of control (EIP-191 via viem, which
-// also handles smart accounts per EIP-6492 where supported). No API key
-// required: registering yourself as a payee should have zero friction, and
-// the signature requirement is the anti-abuse gate.
-//
-// SECURITY: callers MUST validate `name` with isCanonicalName() before calling
-// this. The throw is a defense-in-depth backstop so a non-canonical name can
-// never be silently folded into the signed message even via a future caller.
-export function payeeMessage(wallet: string, name: string): string {
-  if (!isCanonicalName(name)) {
-    throw new Error("payeeMessage: non-canonical name would break the 4-line canonical message");
-  }
-  return [
-    "Vouch verified payee registration",
-    `wallet: ${wallet.toLowerCase()}`,
-    `name: ${name}`,
-    "This signature only proves control of the wallet above.",
-  ].join("\n");
-}
+// N-16 — payee self-verification. Sign the canonical message (payeeMessage,
+// @/lib/verify-message) with the payee wallet; a valid signature IS the proof of
+// control (EIP-191 via viem, which also handles smart accounts per EIP-6492 where
+// supported). No API key required: registering yourself as a payee should have
+// zero friction, and the signature requirement is the anti-abuse gate.
 
 const schema = z.object({
   wallet: z.string(),

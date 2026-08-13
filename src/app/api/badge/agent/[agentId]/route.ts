@@ -5,7 +5,7 @@ import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit"
 import { getDb } from "@/lib/db/client";
 import { agentPassports } from "@/lib/db/schema";
 import { parseAgentId } from "@/lib/chain/client";
-import { resolveBadgeState, renderBadgeSvg, type BadgeRecommendation } from "@/lib/badge/trust-badge";
+import { agentBadgeState, renderBadgeSvg, type AgentBadgeScoreView } from "@/lib/badge/trust-badge";
 import { scoreAgentById } from "@/lib/scoring/engine";
 import { logServerError } from "@/lib/util/log";
 
@@ -56,19 +56,22 @@ export async function GET(
   }
 
   // Score only a signed passport (see the payee badge for the rationale).
-  // Fail-closed: any error leaves recommendation null, kept out of green.
-  let recommendation: BadgeRecommendation | null = null;
+  // Fail-closed: any error leaves the score null, which agentBadgeState keeps
+  // out of green. `degraded` is derived FROM the score's own sybil flags inside
+  // agentBadgeState — the whole score is carried there rather than just
+  // `recommendation`, so a fail-closed read reads amber "Caution" (symmetric
+  // with the payee badge), never accusatory red "Flagged". See trust-badge.ts.
+  let score: AgentBadgeScoreView | null = null;
   if (signed) {
     try {
-      const score = await scoreAgentById(agentId);
-      recommendation = score.recommendation;
+      score = await scoreAgentById(agentId);
     } catch (error) {
       logServerError("badge_agent_score", error);
-      recommendation = null;
+      score = null;
     }
   }
 
-  const state = resolveBadgeState({ signed, recommendation, subject: "agent" });
+  const state = agentBadgeState(signed, score);
   return new NextResponse(renderBadgeSvg(state), {
     headers: {
       "Content-Type": "image/svg+xml",

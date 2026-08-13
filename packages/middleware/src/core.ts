@@ -154,6 +154,21 @@ export const DEFAULT_MAX_SCORE_AGE_MS = 5 * 60 * 1000;
  * (the /wallets beacon) is treated as fresh, since absence is not expiry. When
  * `scoredAt` is present it is honoured (an unparseable one is stale); when
  * `cacheExpiresAt` is present it caps regardless of maxScoreAgeMs.
+ *
+ * 軽-2B (2026-08-14 double-check) — two behaviours to be explicit about, because
+ * both are silent by construction:
+ *   1. NO-FRESHNESS-FIELDS ⇒ FRESH, ALWAYS. A body carrying neither `scoredAt`
+ *      nor `cacheExpiresAt` returns false (fresh) NO MATTER what `maxScoreAgeMs`
+ *      is — there is no timestamp to measure against, and "absence is not
+ *      expiry". So the freshness gate simply does not apply to fieldless bodies;
+ *      an upstream that stops emitting timestamps disables staleness for that
+ *      response, not throttles it. The score-recommendation gate still runs.
+ *   2. `maxScoreAgeMs = +Infinity` DISABLES the age check. `nowMs - scoredAtMs >
+ *      +Infinity` is never true, so a present `scoredAt` can no longer make a
+ *      score stale — deliberately, for a caller that wants to opt out of the
+ *      age bound. A present `cacheExpiresAt` STILL caps (it is a hard ceiling,
+ *      independent of maxScoreAgeMs), and an unparseable `scoredAt` is STILL
+ *      stale. So +Infinity turns off "too old", not "well-formed".
  */
 function isScoreStale(body: ScoreResponse, nowMs: number, maxScoreAgeMs: number): boolean {
   const hasScoredAt = typeof body.scoredAt === "string";

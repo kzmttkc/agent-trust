@@ -18,6 +18,7 @@ import {
   recordOperatorOverride,
   listOperatorOverrides,
 } from "@/lib/db/operator-overrides";
+import { removeGlobalBlacklistEntry } from "@/lib/db/customer-lists";
 
 const URL =
   process.env.TEST_DATABASE_URL ??
@@ -48,6 +49,14 @@ before(async () => {
     wallet text NOT NULL,
     action text NOT NULL,
     reason text NOT NULL,
+    created_at timestamptz DEFAULT now()
+  )`;
+  await sql`DROP TABLE IF EXISTS customer_lists`;
+  await sql`CREATE TABLE customer_lists (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    api_key_id uuid,
+    wallet text NOT NULL,
+    list_type text NOT NULL,
     created_at timestamptz DEFAULT now()
   )`;
   __setDbForTests(drizzle(sql, { schema }));
@@ -85,6 +94,55 @@ test("the log is append-only and newest-first", async (t) => {
   const log = await listOperatorOverrides();
   assert.equal(log.length, 2, "both entries retained — nothing overwrites");
   assert.equal(log[0]!.reason, "second", "newest first");
+});
+
+// ---- 中-3A: the WITHDRAWAL path the ToS promised now has an implementation ----
+
+const GLOBAL = "0x00000000000000000000000000000000000000bb";
+
+test("removing a GLOBAL blacklist deletes the row AND records blacklist_removed with its reason", async (t) => {
+  if (!reachable) return t.skip("no Postgres");
+  await sql!`TRUNCATE operator_overrides`;
+  await sql!`TRUNCATE customer_lists`;
+  // A standing global blacklist entry (apiKeyId NULL = operator-wide).
+  await sql!`INSERT INTO customer_lists (api_key_id, wallet, list_type)
+    VALUES (NULL, ${GLOBAL}, 'blacklist')`;
+
+  const { removed } = await removeGlobalBlacklistEntry({
+    wallet: GLOBAL,
+    reason: "OFAC delisting confirmed 2026-08-14",
+  });
+  assert.equal(removed, true, "the standing global entry was removed");
+
+  const rows = await sql!`SELECT count(*)::int AS n FROM customer_lists
+    WHERE lower(wallet) = ${GLOBAL} AND api_key_id IS NULL AND list_type = 'blacklist'`;
+  assert.equal(rows[0]!.n, 0, "the enforcement row is gone");
+
+  const log = await listOperatorOverrides();
+  const removal = log.find((e) => e.action === "blacklist_removed");
+  assert.ok(removal, "the withdrawal is on the PUBLIC log");
+  assert.equal(removal!.wallet, GLOBAL);
+  assert.match(removal!.reason, /OFAC delisting/);
+});
+
+test("removing a wallet that was NOT globally blacklisted logs nothing (no phantom withdrawal)", async (t) => {
+  if (!reachable) return t.skip("no Postgres");
+  await sql!`TRUNCATE operator_overrides`;
+  await sql!`TRUNCATE customer_lists`;
+  // A CUSTOMER-scoped blacklist (api_key_id set) must NOT be touched or logged
+  // by the global removal — it is that customer's private management right.
+  await sql!`INSERT INTO customer_lists (api_key_id, wallet, list_type)
+    VALUES (gen_random_uuid(), ${GLOBAL}, 'blacklist')`;
+
+  const { removed } = await removeGlobalBlacklistEntry({ wallet: GLOBAL, reason: "n/a" });
+  assert.equal(removed, false, "there was no GLOBAL entry to remove");
+
+  const log = await listOperatorOverrides();
+  assert.equal(log.length, 0, "a transparency log must never carry a removal that did not happen");
+
+  const stillThere = await sql!`SELECT count(*)::int AS n FROM customer_lists
+    WHERE lower(wallet) = ${GLOBAL} AND api_key_id IS NOT NULL`;
+  assert.equal(stillThere[0]!.n, 1, "the customer-scoped entry is untouched");
 });
 
 test("a missing table degrades to an empty public log, never throws", async (t) => {

@@ -9,10 +9,13 @@ import { agentPassports } from "@/lib/db/schema";
 import { parseAgentId } from "@/lib/chain/client";
 import { readCanonicalAgentWallet } from "@/lib/chain/agent-wallet";
 // Reuse the payee route's name canonicalization verbatim: the passport message
-// shares the exact same 4-line-injection risk (a name with a newline could
-// forge an extra "wallet:" or "agentId:" line), so the fix must be the SAME
-// rule, not a second copy that could drift. See that file's comment.
+// shares the exact same line-injection risk (a name with a newline could forge
+// an extra "wallet:" or "agentId:" line), so the fix must be the SAME rule, not
+// a second copy that could drift. isCanonicalName + agentPassportMessage both
+// live in lib now (@/lib/validation, @/lib/verify-message) so no route exports a
+// shared helper (Next 16 route-type contract).
 import { isCanonicalName } from "@/lib/validation/canonical-name";
+import { agentPassportMessage } from "@/lib/verify-message";
 import { logServerError } from "@/lib/util/log";
 
 // A-10 — agent passport self-verification, the symmetric twin of N-16
@@ -21,23 +24,7 @@ import { logServerError } from "@/lib/util/log";
 // signature proves control of that wallet, and the on-chain lookup proves the
 // wallet IS the agent's. No API key: presenting your own passport should have
 // zero friction, and the signature + on-chain binding are the anti-abuse gate.
-//
-// SECURITY: the signed message is a FIXED 5 lines. `name` MUST be canonical
-// (single line, trimmed, no control chars) or it could forge extra lines —
-// isCanonicalName enforces this at the schema layer AND here as defense in
-// depth, exactly as the payee route does.
-export function agentPassportMessage(agentId: bigint, wallet: string, name: string): string {
-  if (!isCanonicalName(name)) {
-    throw new Error("agentPassportMessage: non-canonical name would break the 5-line canonical message");
-  }
-  return [
-    "Vouch agent passport registration",
-    `agentId: ${agentId.toString()}`,
-    `wallet: ${wallet.toLowerCase()}`,
-    `name: ${name}`,
-    "This signature only proves control of the wallet above.",
-  ].join("\n");
-}
+// The canonical message builder is agentPassportMessage (@/lib/verify-message).
 
 const schema = z.object({
   // Accept a numeric string or number; parseAgentId does the real validation.

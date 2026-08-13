@@ -171,9 +171,20 @@ export function scoreX402Payments(params: {
 
 /**
  * L1 observed-purchase stats (see src/lib/db/observed-purchases.ts). Every field
- * counts ONLY delivery-verified purchases to independent counterparties — the
- * reader strips self-dealing, dust and funder-shared recipients before they get
- * here, exactly as getX402PaymentStats does for the interim proxy.
+ * counts ONLY delivery-verified purchases to independent counterparties.
+ *
+ * 2026-08-14 (軽 docstring accuracy) — this is NOT "the same shape as x402", and
+ * the distinction matters for the trust argument. The soundness of L1 comes from
+ * TWO different places, only one of which is a read-time filter:
+ *   - DELIVERY is a WRITE-TIME guarantee: `delivery_verified` is set by the
+ *     trusted observatory when it records the row (recordObservedPurchase), the
+ *     same trust boundary as funder_wallets/feedback_events. It is not, and
+ *     cannot be, derived at read time — the reader only trusts the flag.
+ *   - Independence/dust are READ-TIME filters, ANALOGOUS to getX402PaymentStats
+ *     (self-dealing, sub-dust and funder-shared counterparties are stripped by
+ *     the reader) but NOT the identical query: L1 filters on delivery_verified +
+ *     its own columns, x402 on owner-signature + ownership_verified. Same intent,
+ *     different SQL — see observed-purchases.ts for the exact eligibility.
  */
 export type L1PurchaseStats = {
   purchaseCount: number;
@@ -251,8 +262,10 @@ export function scoreL1Receiving(l1: {
  *   1. L1 delivery-verified observed purchases (PREMIUM). 0 rows today; the
  *      intake is designed now (src/lib/db/observed-purchases.ts) so the moment
  *      the observatory writes one, it becomes the strongest ALLOW basis a wallet
- *      can have. When present it DOMINATES — a weak x402 history can never drag
- *      a strong L1 score down (Math based on L1 alone, not a blend).
+ *      can have. L1 STARTS above the x402 curve, so when it is present it
+ *      normally dominates — but see the monotonicity note below: we take the
+ *      STRONGER of L1 and x402, never L1 alone, so a thick x402 record is never
+ *      thrown away by a first thin L1 purchase.
  *   2. x402 owner-signed independent USDC settlements (INTERIM PROXY). The
  *      2026-08-13 anti-manipulation ledger is reused verbatim (getX402PaymentStats
  *      already strips self-sends, dust, unsigned rows and funder-shared payees).
@@ -262,14 +275,28 @@ export function scoreL1Receiving(l1: {
  *      (see the arithmetic in the SCORE_WEIGHTS note in chain/config.ts). The
  *      broadening adds ALLOW routes for REAL activity; it does not lower this
  *      floor, so no fake gains a route it did not have.
+ *
+ * MONOTONICITY (中-1, 2026-08-14 double-check). This used to `return
+ * scoreL1Purchases(l1)` the instant purchaseCount>0, DISCARDING x402. Because a
+ * first L1 purchase scores 75 while a deep x402 history scores up to 95, that
+ * unconditional switch could make the axis FALL (95→75) when a positive new fact
+ * arrived — enough to flip a buyer ALLOW→WARN. Positive evidence must be
+ * monotone non-decreasing, so we take Math.max of the two active signals, exactly
+ * as the payee engine already does on its receiving axis (payee-engine.ts:
+ * `Math.max(scoreReceiving, scoreL1Receiving)`). L1 still dominates whenever it
+ * is the stronger of the two, which is the normal case; it just can no longer
+ * subtract.
  */
 export function scoreEconomicActivity(inputs: {
   l1: L1PurchaseStats;
   x402: { paymentCount: number; uniqueDays: number };
 }): number {
-  if (inputs.l1.purchaseCount > 0) return scoreL1Purchases(inputs.l1);
-  if (inputs.x402.paymentCount > 0) return scoreX402Payments(inputs.x402);
-  return X402_NO_HISTORY_SCORE;
+  const hasL1 = inputs.l1.purchaseCount > 0;
+  const hasX402 = inputs.x402.paymentCount > 0;
+  if (!hasL1 && !hasX402) return X402_NO_HISTORY_SCORE;
+  const l1Score = hasL1 ? scoreL1Purchases(inputs.l1) : X402_NO_HISTORY_SCORE;
+  const x402Score = hasX402 ? scoreX402Payments(inputs.x402) : X402_NO_HISTORY_SCORE;
+  return Math.max(l1Score, x402Score);
 }
 
 export function computeWeightedScore(
