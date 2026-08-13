@@ -41,26 +41,30 @@ export type ButtonSize = "sm" | "md";
 // ring は box-shadow なのでレイアウトに影響しない。
 //
 // 同意ゲート自体（checkbox の `required`）には触れていない。
+//
+// 2026-08-13 vet402: 角丸を 6px から 2px へ。RFC 組版の世界では押せるものは
+// 「囲まれた文字」であって丸いピルではない。無効時の階調も zinc から紺系へ
+// 移した（#3e537c on #eef0f3 = 6.4:1。zinc-600 と同等の可読性を保つ）。
+// 書体は Martian Mono 600。Fragment Mono は 400 しか無く、font-semibold を当てると
+// ブラウザの合成ボールドで輪郭が濁る。押せるものだけが本文より重い、という
+// 一段のコントラストを実在するウェイトで作る。
 const BASE =
-  "inline-flex items-center justify-center rounded-md transition-[background-color,border-color] disabled:bg-zinc-100 disabled:text-zinc-600 disabled:ring-1 disabled:ring-zinc-300";
+  "inline-flex items-center justify-center rounded-[2px] font-[family-name:var(--font-display)] font-semibold tracking-[-0.01em] transition-[background-color,border-color] disabled:bg-ground disabled:text-brand disabled:ring-1 disabled:ring-hair";
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: "px-4 py-2 text-sm font-medium",
-  md: "px-6 py-3 text-base font-semibold",
+  sm: "px-4 py-2 text-[0.8125rem]",
+  md: "px-6 py-3 text-[0.9375rem]",
 };
 
 const VARIANTS: Record<ButtonVariant, string> = {
   // 白文字 on #233456 = 12.37:1。hover は同じ紺階調の1段明るい #3e537c(7.68:1)。
   primary: "bg-brand-deep text-white hover:bg-brand",
-  // 罫線は brand-mist（文字を載せない階調）、文字は brand-deep。
-  //
-  // 2026-08-12: 罫線を border から ring（内側）へ移した。高さを固定していない
-  // ボタンでは border が外側に 1px ずつ積まれるため、同じ size でも
-  // primary 48px / secondary 50px と2pxずれる（実測。Pricing の3枚が
-  // Pro=48・Free/Scale=50 で並んでいた）。ring は box-shadow なのでレイアウトに
-  // 影響せず、見た目は 1px の内枠のまま変わらない。BASE の disabled 側で
-  // ring を使っているのも同じ理由（そちらは 2026-08-12 の別件）。
-  secondary: "ring-1 ring-inset ring-brand-mist bg-white text-brand-deep hover:bg-zinc-50",
+  // 2026-08-13: 罫線を brand-mist(#8f9cb2・白地 2.78:1) から brand-deep へ。
+  // この1本がボタンの形を表す唯一の表現なので WCAG 1.4.11 の 3:1 が要る
+  // （2026-08-12 に入力欄で同じ穴を塞いだのに、ボタン側は残っていた）。
+  // ring（内側）のままなのは高さを変えないため — border だと primary 48px /
+  // secondary 50px と2pxずれる（2026-08-12 実測）。
+  secondary: "ring-1 ring-inset ring-brand-deep bg-paper text-brand-deep hover:bg-ground",
 };
 
 export function buttonClass({

@@ -20,8 +20,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { address } = await params;
   return {
-    title: `Payee ${address.slice(0, 10)}… — verified profile | Vouch`,
-    description: "Verified x402 payee: signature-proven identity claim plus a live trust score.",
+    title: `Payee ${address.slice(0, 10)}…`,
+    description: "Verified x402 payee: signature-proven identity claim plus a live payee score.",
   };
 }
 
@@ -74,53 +74,79 @@ export default async function PayeePage({
           : "unknown";
 
   return (
-    <main className="mx-auto max-w-2xl px-5 py-16 md:px-8">
-      {/* payee_view: the two-sided loop's read side. referrer=external is the
-          closest observable proxy for badge-embed inflow (the badge image on a
-          payee's own site links here); the referring URL itself is never sent. */}
-      <TrackView
-        event="payee_view"
-        props={{ band, verified: Boolean(entry) }}
-        withReferrerType
-      />
-      <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-        {entry ? "Verified payee" : "Payee"}
-      </p>
-      <h1 className="mt-2 break-all font-mono text-2xl font-semibold text-zinc-900">{wallet}</h1>
-      {entry ? (
-        <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="font-semibold text-emerald-900">{entry.name}</p>
-          <p className="mt-1 text-sm text-emerald-800">
-            Control of this wallet was proven by signature
-            {entry.verifiedAt ? ` on ${entry.verifiedAt.toISOString().slice(0, 10)}` : ""}.
-            {entry.url ? (
-              <>
-                {" "}
-                Site:{" "}
-                <a href={entry.url} rel="noopener noreferrer nofollow" target="_blank" className="underline">
-                  {entry.url}
-                </a>
-              </>
-            ) : null}
-          </p>
-          <p className="mt-2 text-xs text-emerald-700">
-            Verification proves wallet control only — it is not an endorsement, and the score below
-            is computed independently of it.
-          </p>
-        </div>
-      ) : (
-        <p className="mt-6 text-zinc-600">
-          This wallet has not registered a verified-payee profile.{" "}
-          <span className="text-zinc-500">
-            Own it? POST a signed claim to <code className="rounded bg-zinc-100 px-1 text-zinc-700">/api/v1/payees/verify</code>{" "}
-            — free, no API key, signature required.
-          </span>
-        </p>
-      )}
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <article className="sheet">
+        {/* payee_view: the two-sided loop's read side. referrer=external is the
+            closest observable proxy for badge-embed inflow (the badge image on a
+            payee's own site links here); the referring URL itself is never sent. */}
+        <TrackView
+          event="payee_view"
+          props={{ band, verified: Boolean(entry) }}
+          withReferrerType
+        />
 
-      <div className="mt-8 rounded-xl border border-zinc-200 p-5">
-        <p className="text-sm text-zinc-500">Live payee score</p>
-        {score ? (
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>Verified Payee</span>
+            <span>Subject: Base wallet</span>
+            <span>
+              {/* この頁のシアン1点。識別が済んでいるかどうかという事実。 */}
+              Identity:{" "}
+              <span className="text-signal">{entry ? "claimed and proven" : "unclaimed"}</span>
+            </span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>Level: L0 identity claim</span>
+            <span>Score computed on request</span>
+          </div>
+        </div>
+
+        <h1 className="mt-10 break-all text-center text-[clamp(0.8125rem,2.6vw,1.125rem)] text-brand-deep">
+          {wallet}
+        </h1>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        {entry ? (
+          <div className="mt-8 border-l-[3px] border-emerald-700 bg-emerald-50 px-5 py-4">
+            <p className="text-emerald-900">{entry.name}</p>
+            <p className="mt-2 text-[0.8125rem] text-emerald-800">
+              Control of this wallet was proven by signature
+              {entry.verifiedAt ? ` on ${entry.verifiedAt.toISOString().slice(0, 10)}` : ""}.
+              {entry.url ? (
+                <>
+                  {" "}
+                  Site:{" "}
+                  <a
+                    href={entry.url}
+                    rel="noopener noreferrer nofollow"
+                    target="_blank"
+                    className="break-all underline"
+                  >
+                    {entry.url}
+                  </a>
+                </>
+              ) : null}
+            </p>
+            <p className="mt-2 text-xs text-emerald-800">
+              Verification proves wallet control only — it is not an endorsement, and the score
+              below is computed independently of it.
+            </p>
+          </div>
+        ) : (
+          <p className="doc-p mt-8">
+            This wallet has not registered a verified-payee profile.{" "}
+            <span className="text-brand-lift">
+              Own it? POST a signed claim to{" "}
+              <code className="break-all text-brand-deep">/api/v1/payees/verify</code> — free, no API
+              key, signature required.
+            </span>
+          </p>
+        )}
+
+        <div className="dashbox mt-8">
+          <p className="doc-caption">Live payee score</p>
+          {score ? (
           // 2026-08-06 a11y (keyboard+screen-reader persona audit L5): the verdict
           // word used to be separated from the data-depth note by nothing but a
           // visual `ml-2` margin, so innerText read "37 BLOCKdata: thin" and the
@@ -130,32 +156,47 @@ export default async function PayeePage({
           // an explicit accessible name so "37" is not heard without its scale.
           // The role="img" + aria-label shape is deliberately the same one the
           // homepage gauge already uses ("Trust score 78 out of 100").
-          <p className="mt-1 text-3xl font-semibold text-zinc-900">
-            <span
-              role="img"
-              aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
-            >
-              {score.value} <VerdictBadge verdict={score.recommendation} className="align-middle" />
-            </span>{" "}
-            <span className="align-middle text-xs font-normal text-zinc-500">data: {score.dataDepth}</span>
+            <p className="mt-3 font-[family-name:var(--font-display)] text-[1.75rem] font-semibold leading-none text-brand-deep">
+              <span
+                role="img"
+                aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
+              >
+                {score.value}{" "}
+                <VerdictBadge verdict={score.recommendation} className="align-middle" />
+              </span>{" "}
+              <span className="align-middle font-[family-name:var(--font-sans)] text-xs font-normal text-brand-lift">
+                data: {score.dataDepth}
+              </span>
+            </p>
+          ) : (
+            <p className="mt-3 text-brand-lift">Score unavailable right now.</p>
+          )}
+          <p className="doc-note mt-4">
+            {/* 2026-08-06 a11y (WCAG 2.4.4): the link text used to be the bare
+                path "/accuracy", which reads as "slash accuracy" in a screen
+                reader's link list. The descriptive phrase is now the link. */}
+            <Link href="/accuracy" className="doc-link">
+              Methodology and measured accuracy
+            </Link>
+            .{" "}
+            {/* 2026-08-06 (320px persona audit A-3): this badge URL is ~65 chars
+                of unbreakable token and overflowed the viewport by 110px on a
+                320px screen, taking the whole page into horizontal scroll. */}
+            Badge for your site:{" "}
+            <code className="break-all text-brand-deep">/api/badge/{wallet}</code>
           </p>
-        ) : (
-          <p className="mt-1 text-zinc-500">Score unavailable right now.</p>
-        )}
-        <p className="mt-2 text-xs text-zinc-500">
-          {/* 2026-08-06 a11y (WCAG 2.4.4): the link text used to be the bare path
-              "/accuracy", which reads as "slash accuracy" in a screen reader's
-              link list. The descriptive phrase is now the link itself. */}
-          <Link href="/accuracy" className="underline">Methodology and measured accuracy</Link>.
-          {" "}
-          {/* 2026-08-06 (320px persona audit A-3): this badge URL is ~65 chars of
-              unbreakable token and overflowed the viewport by 110px on a 320px
-              screen, taking the whole page into horizontal scroll. The wallet
-              heading above already solves this with break-all — the same fix was
-              simply missing here. */}
-          Badge for your site: <code className="break-all rounded bg-zinc-100 px-1 text-zinc-700">/api/badge/{wallet}</code>
+        </div>
+
+        <p className="mt-8 text-[0.8125rem]">
+          <Link href="/payee" className="doc-link">
+            Verify another payee
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
+          <Link href="/docs/api" className="doc-link">
+            API reference
+          </Link>
         </p>
-      </div>
+      </article>
     </main>
   );
 }

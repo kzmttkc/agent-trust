@@ -1,8 +1,18 @@
 "use client";
 
 /**
- * SiteHeader — standard header (2026-07-20 company-wide header/footer standard).
- * Ported from output/0720/header_footer_standard/SiteHeader.tsx.
+ * SiteHeader — the running head of the document.
+ *
+ * 2026-08-13 vet402: rebuilt in the RFC plaintext world. The bar sits on the
+ * ground colour (not on paper) so the sheet below reads as a separate object,
+ * and it closes with the single navy rule that opens every RFC page.
+ *
+ * The mobile toggle is the word [menu] / [close], not a hamburger. This world
+ * has no icon system, and craft-floor is explicit that unicode glyphs standing
+ * in for icons are a failure — in a plaintext document the honest control is
+ * the bracketed word, which is also what a screen reader was going to say
+ * anyway. The 44px hit area is unchanged.
+ *
  * Vouch is Web3/stealth (pseudonymous), English-only, so no product name
  * localization or language switcher is needed here.
  */
@@ -10,16 +20,25 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { buttonClass } from "@/components/ui/Button";
+import { Wordmark } from "@/components/site/Wordmark";
 
 type NavItem = { label: string; href: string };
 
+// 5項目まで。ヘッダの内寸は紙面と同じ幅に揃えてあり（下の max-w）、7項目では
+// 収まらない。Leaderboard と Blog はフッタの索引に載っているので、上には
+// 「読む・試す・繋ぐ」の主導線だけを置く。
 const NAV_ITEMS: NavItem[] = [
-  { label: "Docs", href: "/docs/api" },
+  { label: "Method", href: "/#methodology" },
+  { label: "Verify", href: "/payee" },
   { label: "Accuracy", href: "/accuracy" },
-  { label: "Leaderboard", href: "/leaderboard" },
+  { label: "Docs", href: "/docs/api" },
   { label: "FAQ", href: "/faq" },
+];
+
+// モバイルの抽斗にだけ出す二次動線。デスクトップではフッタの索引が担う。
+const NAV_SECONDARY: NavItem[] = [
+  { label: "Leaderboard", href: "/leaderboard" },
   { label: "Blog", href: "/blog" },
-  { label: "Pricing", href: "/#pricing" },
 ];
 
 export function SiteHeader() {
@@ -44,53 +63,48 @@ export function SiteHeader() {
   }, [mobileOpen]);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 md:px-8">
-        <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold text-brand-deep">
-          <span>Vouch</span>
-        </Link>
-
-        <nav aria-label="Main navigation" className="hidden items-center gap-6 text-sm text-zinc-600 md:flex">
-          {NAV_ITEMS.map((item) => (
-            <Link key={item.href} href={item.href} className="hover:text-brand-deep">
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="hidden items-center gap-4 md:flex">
-          <Link href="/dashboard/login" className="text-sm text-zinc-600 hover:text-brand-deep">
-            Dashboard
+    <header className="sticky top-0 z-40 border-b border-brand-deep bg-ground">
+      {/* 走り出しを紙面の本文列にぴたりと合わせる。外側が main と同じ余白、内側が
+          .sheet と同じ余白で、max-width も同じ式（72ch + 紙の左右余白）。これで
+          ワードマークの左端が Abstract の左端と 1px も違わずに揃う。
+          検分1回目の実測ではナビが 1440px 全幅・紙が 763px で、どの端も一致して
+          いなかった。罫線だけは全幅で引く（RFC の走り出し罫）。 */}
+      <div className="px-4 sm:px-6 md:px-8">
+        <div className="mx-auto flex h-14 w-full max-w-[var(--column)] items-center justify-between gap-6 px-[var(--sheet-pad)]">
+          <Link href="/" className="shrink-0">
+            <Wordmark className="text-[1.0625rem] leading-none" />
           </Link>
-          {/* 2026-08-06 a11y: `transition` (and `transition-colors`) include
-              outline-color in Tailwind v4, so the focus ring on this dark
-              button faded in over 150ms from white — mid-transition contrast
-              against the zinc-900 background is 1.00:1, i.e. invisible at the
-              exact moment a keyboard user needs it. Only the background
-              actually animates here, so name it explicitly. */}
-          <Link
-            href="/signup"
-            className={buttonClass()}
+
+          <nav
+            aria-label="Main navigation"
+            className="hidden items-center gap-5 text-[0.8125rem] text-brand-lift md:flex"
           >
-            Get API key
-          </Link>
-        </div>
+            {NAV_ITEMS.map((item) => (
+              <Link key={item.href} href={item.href} className="hover:text-brand-deep">
+                {item.label}
+              </Link>
+            ))}
+          </nav>
 
-        <button
-          ref={toggleRef}
-          type="button"
-          aria-label={mobileOpen ? "Close menu" : "Open menu"}
-          aria-expanded={mobileOpen}
-          className="flex h-9 w-9 items-center justify-center rounded-md md:hidden"
-          onClick={() => setMobileOpen((v) => !v)}
-        >
-          <span className="sr-only">Menu</span>
-          <span className="flex flex-col gap-1.5">
-            <span className="block h-0.5 w-5 bg-zinc-900" />
-            <span className="block h-0.5 w-5 bg-zinc-900" />
-            <span className="block h-0.5 w-5 bg-zinc-900" />
-          </span>
-        </button>
+          <div className="hidden shrink-0 items-center gap-4 md:flex">
+            <Link href="/dashboard/login" className="text-[0.8125rem] text-brand-lift hover:text-brand-deep">
+              Dashboard
+            </Link>
+            <Link href="/signup" className={buttonClass()}>
+              Get API key
+            </Link>
+          </div>
+
+          <button
+            ref={toggleRef}
+            type="button"
+            aria-expanded={mobileOpen}
+            className="-mr-2 flex h-11 w-16 items-center justify-end text-[0.8125rem] text-brand-deep md:hidden"
+            onClick={() => setMobileOpen((v) => !v)}
+          >
+            {mobileOpen ? "[close]" : "[menu]"}
+          </button>
+        </div>
       </div>
 
       {mobileOpen ? (
@@ -99,17 +113,17 @@ export function SiteHeader() {
         // does not move when you scroll, so on any phone in landscape (320-430px
         // tall) the bottom of the drawer — Dashboard and the primary "Get API
         // key" CTA — was permanently off-screen and physically untappable.
-        // Capping the drawer at the space below the 4rem bar and letting it
-        // scroll internally makes every item reachable at any viewport height.
+        // Capping the drawer at the space below the bar and letting it scroll
+        // internally makes every item reachable at any viewport height.
         <nav
           aria-label="Mobile navigation"
-          className="flex max-h-[calc(100dvh-4rem)] flex-col gap-1 overflow-y-auto overscroll-contain border-t border-zinc-200 bg-white px-5 py-4 md:hidden"
+          className="flex max-h-[calc(100dvh-3.5rem)] flex-col overflow-y-auto overscroll-contain border-t border-hair bg-paper px-5 py-3 md:hidden"
         >
-          {NAV_ITEMS.map((item) => (
+          {[...NAV_ITEMS, ...NAV_SECONDARY].map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="rounded-md px-2 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+              className="border-b border-hair py-3 text-sm text-brand hover:text-brand-deep"
               onClick={() => setMobileOpen(false)}
             >
               {item.label}
@@ -117,14 +131,14 @@ export function SiteHeader() {
           ))}
           <Link
             href="/dashboard/login"
-            className="rounded-md px-2 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+            className="border-b border-hair py-3 text-sm text-brand hover:text-brand-deep"
             onClick={() => setMobileOpen(false)}
           >
             Dashboard
           </Link>
           <Link
             href="/signup"
-            className={buttonClass({ className: "mt-2 w-full" })}
+            className={buttonClass({ className: "mt-4 w-full" })}
             onClick={() => setMobileOpen(false)}
           >
             Get API key

@@ -7,7 +7,8 @@
    静的な mask-image のフェードは採らない。右端まで送った時に最後の文字を薄く
    消してしまう（Soroi で同じ判断をしている）。background-attachment: local の
    カバー2枚 + scroll の影2枚なら、JS 無しでスクロール位置に連動し、端に達すると
-   影が消える。地色（zinc-900 #18181b）と一致させないと帯が見える。
+   影が消える。地色（brand-deep #233456・2026-08-13 に zinc-900 から変更）と
+   一致させないと帯が見える。
 
    **なぜ globals.css ではなく CSS Module なのか（2026-08-12 実測）**:
    最初はこの規則を globals.css に置いた。ローカルの `next build` では配信CSSに
@@ -20,8 +21,8 @@
    新しいファイルにはキャッシュ項目が存在しないので、この経路なら確実に配信される。 */
 .scroll {
   background-image:
-    linear-gradient(to right, #18181b, rgba(24, 24, 27, 0)),
-    linear-gradient(to left, #18181b, rgba(24, 24, 27, 0)),
+    linear-gradient(to right, #233456, rgba(35, 52, 86, 0)),
+    linear-gradient(to left, #233456, rgba(35, 52, 86, 0)),
     radial-gradient(farthest-side at 0 50%, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0)),
     radial-gradient(farthest-side at 100% 50%, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0));
   background-position: 0 0, 100% 0, 0 0, 100% 0;

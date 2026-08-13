@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { headers } from "next/headers";
 import Script from "next/script";
 import "./globals.css";
@@ -9,44 +9,81 @@ import { SiteChrome } from "@/components/site/SiteChrome";
 // 合流Plausibleサイト(sharoushi-agent.com)へ計装(未計装だった6サイトの1つ)。
 const PLAUSIBLE_DOMAIN = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN;
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+/* 書体は self-host（Google Fonts / OFL・2026-08-13 承認ブランド）。
+   craft-floor は「approved lettering に合う face を調達して self-host する。
+   一番近い既存フォントで済ませるのは失敗であってフォールバックではない」と
+   している。ここは承認ブランドが名指しした2書体そのものを配る。
+   TTF から woff2 へ変換して src/fonts/ に置いてある（martian 45KB→17KB、
+   fragment 109KB→40KB）。display:"swap" は本文が Fragment に切り替わるまで
+   等幅フォールバックで読める状態を保つため。 */
+const martianMono = localFont({
+  variable: "--font-martian",
+  display: "swap",
+  fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+  src: [
+    { path: "../fonts/martian-400.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/martian-600.woff2", weight: "600", style: "normal" },
+    { path: "../fonts/martian-700.woff2", weight: "700", style: "normal" },
+  ],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const fragmentMono = localFont({
+  variable: "--font-fragment",
+  display: "swap",
+  fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+  src: [{ path: "../fonts/fragment-400.woff2", weight: "400", style: "normal" }],
 });
 
 const SITE_URL = "https://agent-trust-tawny.vercel.app";
-const SITE_TITLE = "Vouch — Trust layer for agent commerce";
-const SITE_DESCRIPTION = "ERC-8004 agent trust scores on Base for x402 API providers.";
+const SITE_TITLE = "vet402 — Independent Verification of the x402 Agent-Payment Economy";
+const SITE_DESCRIPTION =
+  "vet402 buys what x402 endpoints actually sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence.";
+
+/* 方向性の契約。view-source で読める位置に置いてある。
+   これを崩す変更（SaaS 標準のカード羅列・グラデ・影・kicker への退行）は、
+   実装の好みの問題ではなく契約違反になる。 */
+const DIRECTION_CONTRACT = `<!--
+  vet402 — DIRECTION CONTRACT (pinned 2026-08-13, approved by the owner)
+
+  THESIS   This site is a publication of a measurement body, not a product
+           landing page. It is typeset in the grammar of an IETF RFC.
+  WORLD    Paper white / ground #eef0f3. Ink is one navy scale:
+           #233456 / #3e537c / #55688c, with #8f9cb2 for rules only.
+           Cyan is a single point per screen, and only ever on a fact.
+           Martian Mono (display) + Fragment Mono (body). No gradients,
+           no glass, no card grids, no eyebrows, no invented colors.
+  TRUTH    No claim of a measurement that has not been made. Facts only:
+           pass / fail / unverified / settled. Never fraud, never scam.
+  SOURCE   output/0813/vet402_lp_design_brief.md
+           output/0813/brand_vet402/vet402_rfc_plaintext.png
+-->`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: SITE_TITLE,
+  title: {
+    default: SITE_TITLE,
+    template: "%s | vet402",
+  },
   description: SITE_DESCRIPTION,
+  applicationName: "vet402",
   // GSC所有権確認用のmetaタグ。GOOGLE_SITE_VERIFICATION(Vercel env)が未設定なら
   // Next.jsは何も出力しない(非破壊)。GSCプロパティ追加時のトークンをVercel環境変数
   // に入れて再デプロイすれば <meta name="google-site-verification"> が出力され確認が
   // 通る。metaタグはCSP(nonce)の影響を受けない。2026-07-23 IndexNow横展開に合わせて配線。
   verification: { google: process.env.GOOGLE_SITE_VERIFICATION || "P4SSxlBKJYSC0NYhh7xeStZ4MPg8_TnMm2HNQfZhl28" },
   // 2026-07-24 growth-hacker: OGP/Twitterカードが未設定でX/Slack等での共有時に
-  // タイトル・説明文すら出ない状態だったため追加。Verilotの先例(commit参照)に
-  // ならいテキストのみ(og:image無し) — 未承認のAI生成テキスト入り画像は
-  // 公開に出さない方針(feedback_no_ai_text_images_public)のため、ブランド画像
-  // 承認が下りるまでは画像を追加しない。
+  // タイトル・説明文すら出ない状態だったため追加。
+  // 2026-08-13: og:image は src/app/opengraph-image.png（承認済みブランドアセットの
+  // RFC 第1ページ組版）を Next.js のファイル規約が自動で配線する。ここで images を
+  // 書くとその自動配線を上書きしてしまうので書かない。
   openGraph: {
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
     url: SITE_URL,
     type: "website",
-    siteName: "Vouch",
+    siteName: "vet402",
   },
   twitter: {
-    // summary_large_image: og画像(app/opengraph-image.tsx・コード描画の製品UI)を
-    // 2026-08-05に追加したため、大判カードで表示させる。
     card: "summary_large_image",
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
@@ -68,7 +105,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${martianMono.variable} ${fragmentMono.variable} h-full antialiased`}
     >
       <head>
         {PLAUSIBLE_DOMAIN ? (
@@ -81,7 +118,10 @@ export default async function RootLayout({
           />
         ) : null}
       </head>
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col bg-ground">
+        {/* React は JSX コメントを出力しないので、契約は hidden の器に入れて
+            そのまま HTML コメントとして配る（描画への影響はゼロ）。 */}
+        <div hidden aria-hidden="true" dangerouslySetInnerHTML={{ __html: DIRECTION_CONTRACT }} />
         <SiteChrome>{children}</SiteChrome>
       </body>
     </html>

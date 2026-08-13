@@ -51,7 +51,7 @@ export default function DashboardIntegrationsPage() {
         <h3 className="text-base font-semibold">x402 trust gate</h3>
         <p className="text-sm text-zinc-600">
           Express sample that blocks <code>BLOCK</code> payers and optionally writes settlements
-          back to Vouch.
+          back to vet402.
         </p>
         <p className="text-sm text-zinc-600">
           <code>examples/x402-trust-gate</code> · guide: <code>docs/x402-integration.md</code>

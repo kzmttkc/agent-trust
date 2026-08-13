@@ -78,7 +78,9 @@ export default function CodeBlock({
         // min-h-12: 1行だけのサンプル（<pre> は 40px）だと 44px のコピーボタンが
         // 下へはみ出す。当たり判定 44px（WCAG 2.5.8）を削らずに収めるため、
         // 枠の高さを top-1 + 44 = 48px 以上にしておく。
-        className={`${styles.scroll} min-h-12 overflow-x-auto rounded-lg bg-zinc-900 py-3 pl-3 pr-14 text-xs leading-relaxed text-zinc-100 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus`}
+        // 2026-08-13 vet402: 地色を zinc-900 から brand-deep (#233456) へ。
+        // 紙面に落ちる黒い箱は世界に無い。#eef0f3 on #233456 = 10.4:1。
+        className={`${styles.scroll} min-h-12 overflow-x-auto rounded-[2px] bg-brand-deep py-3 pl-3 pr-14 text-xs leading-relaxed text-ground focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-focus`}
       >
         <code>{code}</code>
       </pre>
@@ -86,7 +88,7 @@ export default function CodeBlock({
         type="button"
         onClick={copy}
         aria-label={`Copy code: ${label}`}
-        className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-md text-zinc-300 transition-[background-color,color] hover:bg-zinc-800 hover:text-white"
+        className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-[2px] text-brand-mist transition-[background-color,color] hover:bg-brand hover:text-white"
       >
         {state === "idle" ? (
           <svg

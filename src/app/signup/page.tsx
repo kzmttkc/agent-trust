@@ -85,62 +85,96 @@ export default function SignupPage() {
   ${base}/wallets/0x1234567890123456789012345678901234567890/score`;
 
     return (
-      <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-6 p-8">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold">Your API key</h1>
-          <p className="text-sm text-zinc-600">
-            Copy this key now. It will not be shown again. You are signed in to the dashboard.
-          </p>
-        </div>
-        <code className="block break-all rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs">
-          {apiKey}
-        </code>
+      <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+        <article className="sheet">
+          <div className="doc-head">
+            <div className="doc-head-col">
+              <span>Access granted</span>
+              <span>
+                {/* この頁のシアン1点。1回しか出ないという事実。 */}
+                Secret: <span className="text-signal">shown once</span>
+              </span>
+            </div>
+            <div className="doc-head-col">
+              <span>vet402</span>
+              <span>Signed in</span>
+            </div>
+          </div>
 
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-zinc-700">Try your first lookup</p>
-          <p className="text-sm text-zinc-600">
+          <h1 className="doc-title mt-10">Your API key</h1>
+          <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+          <p className="doc-p mt-8">
+            Copy this key now. <strong>It will not be shown again.</strong> You are signed in to the
+            dashboard.
+          </p>
+          <code className="mt-4 block break-all border border-dashed border-brand-lift bg-paper px-4 py-3 text-[0.8125rem] text-brand-deep">
+            {apiKey}
+          </code>
+
+          <h2 className="sec-head">
+            <span className="sec-no">1.</span>
+            <span>Try your first lookup</span>
+          </h2>
+          <p className="doc-p">
             Score any wallet address (replace the placeholder below with a real one):
           </p>
-          <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-900 p-4 text-xs text-zinc-100">
+          <pre className="mt-4 overflow-x-auto rounded-[2px] bg-brand-deep p-4 text-xs leading-relaxed text-ground">
             <code>{curlExample}</code>
           </pre>
-          <p className="text-sm text-zinc-600">
+          <p className="doc-p">
             Prefer the browser? Open any public{" "}
-            <Link href="/payee/0xd8da6bf26964af9d7eed9e03e53415d37aa96045" className="underline">
+            <Link href="/payee" className="doc-link">
               payee profile
             </Link>{" "}
             to see a live score, or read the{" "}
-            <Link href="/docs/api" className="underline">
+            <Link href="/docs/api" className="doc-link">
               API reference
             </Link>
             .
           </p>
-        </div>
+          <div className="mt-8">
 
-        {/* Plain link (not a router push) so this works with JS disabled too. */}
-        <Link
-          href="/dashboard"
-          className={buttonClass()}
-        >
-          Go to dashboard
-        </Link>
+          {/* Plain link (not a router push) so this works with JS disabled too. */}
+          <Link href="/dashboard" className={buttonClass({ size: "md" })}>
+            Go to dashboard
+          </Link>
+          </div>
+        </article>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-6 p-8">
-      <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
-        {/* 2026-07-27 growth施策(週次): 見出しコピーのみ変更(フォーム項目・デザインは不変)。
-            抽象的な製品説明から具体的なユースケース訴求へ。 */}
-        <h1 className="text-3xl font-semibold">
-          Know if the other side of an x402 payment can be trusted — in one API call, before you pay.
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <article className="sheet">
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>Access request</span>
+            <span>
+              {/* この頁のシアン1点。無料枠という事実。 */}
+              Tier: <span className="text-signal">Free — 1,000 lookups / month</span>
+            </span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>No card required</span>
+          </div>
+        </div>
+
+        {/* 2026-07-27 growth施策(週次): 見出しコピーは 2026-07-27 のもののまま。
+            2026-08-13 の改装では組版だけを直し、文言には触れていない
+            （抽象的な製品説明から具体的なユースケース訴求へ、という判断を保つ）。
+            eyebrow の "Vouch" は削除した — craft-floor が kicker/eyebrow を
+            明示的に禁じており、ワードマークは走り出しに既に在る。 */}
+        <h1 className="doc-title mt-10 max-w-[42ch]">
+          Know if the other side of an x402 payment can be trusted — in one API call, before you
+          pay.
         </h1>
-        <p className="text-sm text-zinc-600">
+        <p className="mx-auto mt-3 max-w-[56ch] text-center text-brand-lift">
           Get an API key instantly. 1,000 score lookups per month on the Free plan.
         </p>
-      </div>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
 
       {/* 2026-08-06 (UX audit item 7): this form now submits with or without
           JavaScript. The Server Action is the form's action, the inputs carry
@@ -148,7 +182,7 @@ export default function SignupPage() {
           string), so a no-JS user gets their key on the next render instead of a
           silently wiped form. */}
       <noscript>
-        <p className="rounded-md border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+        <p className="mt-8 border border-dashed border-brand-lift px-4 py-3 text-[0.8125rem] text-brand-deep">
           JavaScript is off — that is fine. Submitting will reload this page with your new API key
           shown once. Copy it before navigating away.
         </p>
@@ -157,44 +191,45 @@ export default function SignupPage() {
       <form
         action={formAction}
         onSubmit={() => track("signup_started")}
-        className="space-y-4 rounded-xl border border-zinc-200 bg-white p-6"
+        className="mt-10 space-y-5 border-t border-brand-deep pt-8"
       >
-        {/* 2026-08-12: 入力欄の枠線は border-zinc-500 (#71717A・白地 4.83:1)。
+        {/* 2026-08-12: 入力欄の枠線は白地 3:1 を満たす階調でなければならない。
             それまでの zinc-300 (#D4D4D8) は白地 1.48:1 で、WCAG 2.2 の 1.4.11
             （非テキストコントラスト 3:1）を満たしていなかった。この枠線が入力欄の
-            唯一の境界表現なので免除されない。zinc は 400 が 2.56:1 で不足のため、
-            3:1 を満たす最も薄い階調が 500 になる（brand-mist #8f9cb2 も 2.78:1 で不可）。
-            同じ理由で lookup / lists / login の入力欄も同値に揃えてある。 */}
-        <label className="block space-y-1 text-sm">
-          <span className="font-medium">Email</span>
+            唯一の境界表現なので免除されない。
+            2026-08-13 vet402: 紺の階調へ移して brand-lift (#55688c・白地 5.61:1)。
+            brand-mist (#8f9cb2) は 2.78:1 なので枠線には使えない。
+            tests/contrast-tokens.test.ts が入力欄の弱い枠線を静的に禁じている。 */}
+        <label className="block space-y-2 text-sm">
+          <span className="doc-caption block">Email</span>
           {/* autoComplete (WCAG 1.3.5 Identify Input Purpose) — lets the browser
               and assistive tech fill known values instead of retyping them. */}
           <input
             type="email"
             name="email"
             autoComplete="email"
-            className="w-full rounded-md border border-zinc-500 px-3 py-2"
+            className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
             required
           />
         </label>
 
-        <label className="block space-y-1 text-sm">
-          <span className="font-medium">Name (optional)</span>
+        <label className="block space-y-2 text-sm">
+          <span className="doc-caption block">Name (optional)</span>
           <input
             name="name"
             autoComplete="name"
-            className="w-full rounded-md border border-zinc-500 px-3 py-2"
+            className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
           />
         </label>
 
         {inviteRequired && (
-          <label className="block space-y-1 text-sm">
-            <span className="font-medium">Invite code</span>
+          <label className="block space-y-2 text-sm">
+            <span className="doc-caption block">Invite code</span>
             <input
               name="inviteCode"
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
-              className="w-full rounded-md border border-zinc-500 px-3 py-2"
+              className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
               required
             />
           </label>
@@ -207,7 +242,7 @@ export default function SignupPage() {
             to the page the user actually asked for. */}
         <label
           htmlFor="accept-terms"
-          className="flex cursor-pointer items-start gap-2 text-sm text-zinc-600"
+          className="flex cursor-pointer items-start gap-3 text-[0.8125rem] text-brand"
         >
           <input
             id="accept-terms"
@@ -215,16 +250,16 @@ export default function SignupPage() {
             type="checkbox"
             checked={acceptedTerms}
             onChange={(e) => setAcceptedTerms(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-500"
+            className="mt-0.5 h-4 w-4 shrink-0 rounded-[2px] border-brand-lift accent-brand-deep"
             required
           />
           <span>
             I have read and agree to the{" "}
-            <Link href="/legal/terms" className="underline" onClick={(e) => e.stopPropagation()}>
+            <Link href="/legal/terms" className="doc-link" onClick={(e) => e.stopPropagation()}>
               Terms of Service
             </Link>{" "}
             and{" "}
-            <Link href="/legal/privacy" className="underline" onClick={(e) => e.stopPropagation()}>
+            <Link href="/legal/privacy" className="doc-link" onClick={(e) => e.stopPropagation()}>
               Privacy Policy
             </Link>
             .
@@ -232,24 +267,25 @@ export default function SignupPage() {
         </label>
 
         {state.status === "error" && state.error && (
-          <p className="text-sm text-red-600">{state.error.replaceAll("_", " ")}</p>
+          <p role="alert" className="border-l-[3px] border-red-700 bg-red-50 px-4 py-3 text-[0.8125rem] text-red-800">{state.error.replaceAll("_", " ")}</p>
         )}
 
         <button
           type="submit"
           disabled={pending || !acceptedTerms}
-          className={buttonClass({ className: "w-full" })}
+          className={buttonClass({ size: "md", className: "w-full" })}
         >
           {pending ? "Creating..." : "Create account"}
         </button>
       </form>
 
-      <p className="text-center text-sm text-zinc-600">
-        Already have a key?{" "}
-        <Link href="/dashboard/login" className="font-medium text-zinc-900 underline">
-          Sign in
-        </Link>
-      </p>
+      <p className="mt-8 text-center text-[0.8125rem] text-brand">
+          Already have a key?{" "}
+          <Link href="/dashboard/login" className="doc-link">
+            Sign in
+          </Link>
+        </p>
+      </article>
     </main>
   );
 }

@@ -208,7 +208,7 @@ export default function ApiDocsPage() {
     // screen) and the longest response example needed 4.5 screen-widths of
     // horizontal scrubbing. The LP already uses the px-5/md:px-8 pattern; docs
     // was the outlier.
-    <main className="mx-auto max-w-3xl space-y-10 p-4 md:p-8">
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       {/* 2026-08-06 growth: docs_view marks a visitor doing developer-grade
           evaluation — for an API product this is the aha-stage event in
           growth_ledger.py (the true value moment, a scored API call, happens
@@ -219,31 +219,52 @@ export default function ApiDocsPage() {
           「Webhooksの署名検証」を探す読者はスクロールし続ける以外の手段が無かった
           （見出しジャンプはスクリーンリーダー利用者にしか無い）。JSを足さずに
           済ませたいのでネイティブのアンカーだけで組む。header が sticky top-0 /
-          h-16 なので、この帯は top-16、飛び先は scroll-mt-32（帯2本ぶん）。 */}
+          h-14 なので、この帯は top-14、飛び先は scroll-mt-32（帯2本ぶん）。 */}
       <DocsToc items={TOC} />
 
-      <div className="space-y-3">
-        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
-        <h1 className="text-3xl font-semibold tracking-tight">API reference</h1>
-        <p className="text-zinc-600">
-          Authenticate with <code className="rounded bg-zinc-100 px-1 text-zinc-700">Authorization: Bearer</code>{" "}
-          API key. Base URL: <code className="rounded bg-zinc-100 px-1 text-zinc-700">https://agent-trust-tawny.vercel.app/api/v1</code>
+      <article className="sheet mt-6 space-y-10">
+        <div>
+          <div className="doc-head">
+            <div className="doc-head-col">
+              <span>Independent Measurement</span>
+              <span>Interface: REST v1</span>
+              <span>
+                {/* この頁のシアン1点。認証の形という事実。 */}
+                Auth: <span className="text-signal">Bearer API key</span>
+              </span>
+            </div>
+            <div className="doc-head-col">
+              <span>vet402</span>
+              <span>x402 Economy</span>
+              <span>August 2026</span>
+            </div>
+          </div>
+
+          <h1 className="doc-title mt-10">API reference</h1>
+          <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+        </div>
+
+        <div className="space-y-3">
+        <p className="text-brand">
+          Authenticate with <code className="text-brand-deep">Authorization: Bearer</code>{" "}
+          API key. Base URL:{" "}
+          <code className="break-all text-brand-deep">https://agent-trust-tawny.vercel.app/api/v1</code>
           {" "}(custom domain not yet registered).
         </p>
         {/* 2026-08-12 FIX-4: 発行されるキーの形が docs のどこにも書いておらず、
             LP の MCP 例だけが `vk_...` という実在しない接頭辞を載せていた
             （実物は src/lib/db/api-keys.ts の `vouch_live_<48hex>`）。
             例を直すだけでなく、正しい形をここに1行置いて典拠にする。 */}
-        <p className="text-sm text-zinc-600">
+        <p className="text-sm text-brand">
           Keys look like{" "}
-          <code className="rounded bg-zinc-100 px-1 text-zinc-700">vouch_live_…</code> — send them
+          <code className="text-brand-deep">vouch_live_…</code> — send them
           as{" "}
-          <code className="rounded bg-zinc-100 px-1 text-zinc-700">
+          <code className="text-brand-deep">
             Authorization: Bearer vouch_live_…
           </code>
           .
         </p>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-brand-lift">
           Full machine-readable schema:{" "}
           {/* 2026-08-06 growth: openapi_click — pulling the machine-readable
               schema signals codegen/tooling-level integration intent, deeper
@@ -253,7 +274,7 @@ export default function ApiDocsPage() {
             event="openapi_click"
             className="underline"
           >
-            <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/openapi.yaml</code>
+            <code className="text-brand-deep">docs/openapi.yaml</code>
           </TrackedLink>{" "}
           on GitHub.
         </p>
@@ -264,28 +285,28 @@ export default function ApiDocsPage() {
           deployment. Values are read from the code (auth.ts PLAN_LIMITS,
           ip-rate-limit call sites), not asserted. */}
       <section id="rate-limits" className="scroll-mt-32 space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">Rate limits</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="sec-head">Rate limits</h2>
+        <p className="text-sm text-brand">
           Scoring is synchronous, so plan for both the monthly quota and the
           burst behaviour below.
         </p>
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
-          <table className="w-full text-left text-sm">
+        <div className="table-scroll">
+          <table className="fact-table">
             <caption className="sr-only">Monthly request quota by plan</caption>
-            <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500">
+            <thead>
               <tr>
-                <th scope="col" className="px-4 py-2">Plan</th>
-                <th scope="col" className="px-4 py-2">Monthly requests</th>
+                <th scope="col">Plan</th>
+                <th scope="col" className="num">Monthly requests</th>
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-zinc-100"><td className="px-4 py-2 text-zinc-700">Free</td><td className="px-4 py-2 font-mono text-zinc-900">1,000</td></tr>
-              <tr className="border-b border-zinc-100"><td className="px-4 py-2 text-zinc-700">Pro</td><td className="px-4 py-2 font-mono text-zinc-900">50,000</td></tr>
-              <tr className="last:border-0"><td className="px-4 py-2 text-zinc-700">Scale</td><td className="px-4 py-2 font-mono text-zinc-900">500,000</td></tr>
+              <tr><td className="text-brand-deep">Free</td><td className="num text-brand-deep">1,000</td></tr>
+              <tr><td className="text-brand-deep">Pro</td><td className="num text-brand-deep">50,000</td></tr>
+              <tr><td className="text-brand-deep">Scale</td><td className="num text-brand-deep">500,000</td></tr>
             </tbody>
           </table>
         </div>
-        <ul className="list-disc space-y-2 pl-5 text-sm text-zinc-600">
+        <ul className="list-disc space-y-2 pl-5 text-sm text-brand">
           <li>
             <strong>Quota is per calendar month (UTC)</strong> and shared across
             all keys on an account. Each <code>/score</code> call is 1 unit; a{" "}
@@ -318,7 +339,7 @@ export default function ApiDocsPage() {
           <div
             key={ep.path}
             id={endpointId(ep)}
-            className="scroll-mt-32 space-y-3 rounded-lg border border-zinc-200 bg-white px-4 py-4 text-sm"
+            className="scroll-mt-32 space-y-3 border-t border-hair pt-6 text-[0.8125rem] first:border-t-brand-deep"
           >
             <div>
               {/* 2026-08-06 a11y (screen-reader persona audit): these endpoint
@@ -328,15 +349,16 @@ export default function ApiDocsPage() {
                   headings semantically, so they are <h2> now — Tailwind's
                   preflight keeps font-size/weight inherited, so the rendering
                   is byte-identical to the old <p>. */}
-              <h2 className="font-mono text-zinc-900">
-                <span className="font-semibold text-zinc-500">{ep.method}</span> {ep.path}
+              <h2 className="break-all font-[family-name:var(--font-display)] font-semibold text-brand-deep">
+                <span className="marker marker-plan mr-2 align-middle">{ep.method}</span>
+                {ep.path}
               </h2>
-              <p className="mt-1 text-zinc-600">{ep.note}</p>
+              <p className="mt-1 text-brand">{ep.note}</p>
             </div>
 
             {ep.request && (
               <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
                   Request body
                 </p>
                 <CodeBlock
@@ -347,7 +369,7 @@ export default function ApiDocsPage() {
             )}
 
             <div>
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
                 Response
               </p>
               <CodeBlock code={ep.response} label={`Response for ${ep.method} ${ep.path}`} />
@@ -360,15 +382,15 @@ export default function ApiDocsPage() {
         {/* 2026-08-06 N-21: explainability. Integrators kept asking "why this
             number" — the breakdown answers it in the response itself, so a
             compliance log can record the arithmetic, not just the verdict. */}
-        <h2 className="text-lg font-semibold tracking-tight">Score breakdown</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="sec-head">Score breakdown</h2>
+        <p className="text-sm text-brand">
           Every scored verdict (agent and wallet endpoints, and each element of a
-          batch) carries a <code className="rounded bg-zinc-100 px-1 text-zinc-700">breakdown</code>{" "}
+          batch) carries a <code className="text-brand-deep">breakdown</code>{" "}
           object that decomposes the chain score into its four weighted
           components. It is derived from the same numbers the verdict used, so it
-          can never disagree with <code className="rounded bg-zinc-100 px-1 text-zinc-700">trustScore</code>.
+          can never disagree with <code className="text-brand-deep">trustScore</code>.
         </p>
-        <ul className="list-disc space-y-2 pl-5 text-sm text-zinc-600">
+        <ul className="list-disc space-y-2 pl-5 text-sm text-brand">
           <li>
             <strong>components</strong> — each of <code>identity</code>,{" "}
             <code>reputation</code>, <code>wallet</code>, <code>x402</code> reports
@@ -397,10 +419,10 @@ export default function ApiDocsPage() {
             explanation stays separable from policy.
           </li>
         </ul>
-        <p className="text-sm text-zinc-600">
+        <p className="text-sm text-brand">
           Hard-blocked verdicts (wallet mismatch, unregistered agent) omit{" "}
-          <code className="rounded bg-zinc-100 px-1 text-zinc-700">breakdown</code> — no weighting
-          ran — and carry a <code className="rounded bg-zinc-100 px-1 text-zinc-700">blockReason</code>{" "}
+          <code className="text-brand-deep">breakdown</code> — no weighting
+          ran — and carry a <code className="text-brand-deep">blockReason</code>{" "}
           instead. Treat the field as optional.
         </p>
       </section>
@@ -411,57 +433,57 @@ export default function ApiDocsPage() {
             the payload envelope, or signature verification — the receiver could
             not prove a "ALLOW→BLOCK" notice was really from us. This section is
             written from src/lib/webhooks.ts, not from memory. */}
-        <h2 className="text-lg font-semibold tracking-tight">Webhooks</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="sec-head">Webhooks</h2>
+        <p className="text-sm text-brand">
           Vouch is otherwise a pull API. Webhooks turn it into a monitoring
           service: register an endpoint once and we POST you a signed event when
           something you care about changes — most importantly a watched target
           whose verdict moved (e.g. an <code>ALLOW</code> you gated a payment on
           becoming a <code>BLOCK</code>). Register with{" "}
-          <code className="rounded bg-zinc-100 px-1 text-zinc-700">POST /api/v1/webhooks</code>{" "}
+          <code className="text-brand-deep">POST /api/v1/webhooks</code>{" "}
           (above); up to 5 endpoints per key.
         </p>
 
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900">Events</h3>
-          <div className="mt-2 overflow-x-auto rounded-lg border border-zinc-200 bg-white">
-            <table className="w-full text-left text-sm">
+          <h3 className="sub-head">Events</h3>
+          <div className="table-scroll">
+            <table className="fact-table">
               <caption className="sr-only">Webhook event types and their payloads</caption>
-              <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500">
+              <thead>
                 <tr>
-                  <th scope="col" className="px-4 py-2">Event</th>
-                  <th scope="col" className="px-4 py-2">Fires when</th>
-                  <th scope="col" className="px-4 py-2"><code>data</code> fields</th>
+                  <th scope="col">Event</th>
+                  <th scope="col">Fires when</th>
+                  <th scope="col"><code>data</code> fields</th>
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-zinc-100">
-                  <td className="px-4 py-2 font-mono text-zinc-900">watch.verdict_changed</td>
-                  <td className="px-4 py-2 text-zinc-600">A watchlist target&apos;s recommendation changes on a re-scan (daily cron). Verdict changes only — not score jitter.</td>
-                  <td className="px-4 py-2 font-mono text-xs text-zinc-600">watchId, targetType, target, chainId, previous&#123;score,recommendation&#125;, current&#123;score,recommendation&#125;</td>
+                <tr>
+                  <td className="text-brand-deep">watch.verdict_changed</td>
+                  <td className="text-brand">A watchlist target&apos;s recommendation changes on a re-scan (daily cron). Verdict changes only — not score jitter.</td>
+                  <td className="break-all text-[0.6875rem] text-brand">watchId, targetType, target, chainId, previous&#123;score,recommendation&#125;, current&#123;score,recommendation&#125;</td>
                 </tr>
-                <tr className="border-b border-zinc-100">
-                  <td className="px-4 py-2 font-mono text-zinc-900">outcome.recorded</td>
-                  <td className="px-4 py-2 text-zinc-600">An outcome (auto-detected or partner-reported) lands on a verdict you requested.</td>
-                  <td className="px-4 py-2 font-mono text-xs text-zinc-600">trustEventId, outcomeType, source, wallet, agentId</td>
+                <tr>
+                  <td className="text-brand-deep">outcome.recorded</td>
+                  <td className="text-brand">An outcome (auto-detected or partner-reported) lands on a verdict you requested.</td>
+                  <td className="break-all text-[0.6875rem] text-brand">trustEventId, outcomeType, source, wallet, agentId</td>
                 </tr>
-                <tr className="last:border-0">
-                  <td className="px-4 py-2 font-mono text-zinc-900">list.changed</td>
-                  <td className="px-4 py-2 text-zinc-600">Your own manual whitelist/blacklist changes (also on import) — a team audit trail.</td>
-                  <td className="px-4 py-2 font-mono text-xs text-zinc-600">action, wallet, listType</td>
+                <tr>
+                  <td className="text-brand-deep">list.changed</td>
+                  <td className="text-brand">Your own manual whitelist/blacklist changes (also on import) — a team audit trail.</td>
+                  <td className="break-all text-[0.6875rem] text-brand">action, wallet, listType</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p className="mt-2 text-sm text-zinc-600">
+          <p className="mt-2 text-sm text-brand">
             A score is never pushed — scores are computed on demand and pushing a
             cached one would invite treating a stale number as fresh.
           </p>
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900">Delivery payload</h3>
-          <p className="mt-1 text-sm text-zinc-600">
+          <h3 className="sub-head">Delivery payload</h3>
+          <p className="mt-1 text-sm text-brand">
             Every delivery is a JSON POST with this envelope. <code>id</code> is
             unique per event — dedupe on it (see idempotency below).
           </p>
@@ -490,8 +512,8 @@ User-Agent: vouch-webhooks/1
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900">Verifying the signature</h3>
-          <p className="mt-1 text-sm text-zinc-600">
+          <h3 className="sub-head">Verifying the signature</h3>
+          <p className="mt-1 text-sm text-brand">
             The <code>Vouch-Signature</code> header is{" "}
             <code>t=&lt;unix seconds&gt;,v1=&lt;hex&gt;</code>, where{" "}
             <code>v1</code> is <code>HMAC-SHA256(secret, `${"{"}t{"}"}.${"{"}rawBody{"}"}`)</code>{" "}
@@ -522,8 +544,8 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
         </div>
 
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900">Delivery, retries &amp; idempotency</h3>
-          <ul className="mt-2 list-disc space-y-2 pl-5 text-sm text-zinc-600">
+          <h3 className="sub-head">Delivery, retries &amp; idempotency</h3>
+          <ul className="mt-2 list-disc space-y-2 pl-5 text-sm text-brand">
             <li>
               <strong>At-most-once, no retry.</strong> Each event is delivered
               once with a 5-second timeout. A non-2xx response or timeout is not
@@ -559,13 +581,13 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
             Base RPC, daily deep health probe), not an aspirational number —
             same honesty discipline as the /accuracy page. Revise the target
             when the operating history and infrastructure justify a commitment. */}
-        <h2 className="text-lg font-semibold tracking-tight">Availability</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="sec-head">Availability</h2>
+        <p className="text-sm text-brand">
           Vouch is in closed beta, run by a single operator. We publish our real
           operating posture rather than a contractual uptime figure we can&apos;t
           yet stand behind:
         </p>
-        <ul className="list-disc space-y-2 pl-5 text-sm text-zinc-600">
+        <ul className="list-disc space-y-2 pl-5 text-sm text-brand">
           <li>
             <strong>No SLA credits during beta.</strong> Service is best-effort,
             with no financial uptime guarantee. When we commit to a numeric target
@@ -604,50 +626,54 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
       </section>
 
       <section id="error-codes" className="scroll-mt-32 space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">Error codes</h2>
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
-          <table className="w-full text-left text-sm">
+        <h2 className="sec-head">Error codes</h2>
+        <div className="table-scroll">
+          <table className="fact-table">
             {/* 2026-08-06 a11y: caption + scope="col" bring this table up to the
                 same standard /accuracy and /leaderboard already meet, so a
                 screen reader announces the column a cell belongs to. */}
             <caption className="sr-only">HTTP error codes returned by the Vouch API</caption>
-            <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500">
+            <thead>
               <tr>
-                <th scope="col" className="px-4 py-2">Status</th>
-                <th scope="col" className="px-4 py-2">Meaning</th>
-                <th scope="col" className="px-4 py-2">Detail</th>
+                <th scope="col">Status</th>
+                <th scope="col">Meaning</th>
+                <th scope="col">Detail</th>
               </tr>
             </thead>
             <tbody>
               {errorCodes.map((e) => (
-                <tr key={e.status} className="border-b border-zinc-100 last:border-0">
-                  <td className="px-4 py-2 font-mono text-zinc-900">{e.status}</td>
-                  <td className="px-4 py-2 text-zinc-700">{e.meaning}</td>
-                  <td className="px-4 py-2 text-zinc-600">{e.detail}</td>
+                <tr key={e.status}>
+                  <td className="text-brand-deep">{e.status}</td>
+                  <td className="text-brand-deep">{e.meaning}</td>
+                  <td className="text-brand">{e.detail}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="text-sm text-zinc-600">
-          Error bodies are shaped as <code className="rounded bg-zinc-100 px-1 text-zinc-700">{`{ "error": string, "details"?: object }`}</code>.
+        <p className="text-sm text-brand">
+          Error bodies are shaped as <code className="text-brand-deep">{`{ "error": string, "details"?: object }`}</code>.
         </p>
       </section>
 
-      <div className="flex flex-wrap gap-3 text-sm">
-        <Link href="/" className="underline">
-          Home
-        </Link>
-        <Link href="/faq" className="underline">
-          FAQ
-        </Link>
-        <Link href="/dashboard" className="underline">
-          Dashboard
-        </Link>
-        <Link href="/dashboard/integrations" className="underline">
-          Integrations
-        </Link>
-      </div>
+        <p className="text-[0.8125rem]">
+          <Link href="/" className="doc-link">
+            The memo
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
+          <Link href="/faq" className="doc-link">
+            FAQ
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
+          <Link href="/dashboard" className="doc-link">
+            Dashboard
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
+          <Link href="/dashboard/integrations" className="doc-link">
+            Integrations
+          </Link>
+        </p>
+      </article>
     </main>
   );
 }

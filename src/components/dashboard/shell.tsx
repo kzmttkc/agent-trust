@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Wordmark } from "@/components/site/Wordmark";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { dashboardLogout } from "@/lib/dashboard/client";
@@ -122,8 +123,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
-            <h1 className="text-lg font-semibold">Developer Dashboard</h1>
+            {/* 2026-08-13: eyebrow をやめて実物のワードマークにした。
+                craft-floor が見出しの上の kicker を明示的に禁じており、
+                ここは製品名を出す唯一の場所なので識別体そのものを置く。 */}
+            <Wordmark className="text-[1.0625rem] leading-none" />
+            <h1 className="mt-1 font-[family-name:var(--font-display)] text-base font-semibold text-brand-deep">
+              Developer Dashboard
+            </h1>
           </div>
           <button
             type="button"

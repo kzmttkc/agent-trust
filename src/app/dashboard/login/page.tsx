@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Wordmark } from "@/components/site/Wordmark";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
@@ -83,11 +84,8 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
           {/* 2026-08-12 FIX-8: このページは <nav> も <footer> も無く、リンクは
               /signup の1本だけ。「Vouch」も非リンクだったので、キーを持たない
               訪問者はブラウザバック以外にサイトへ戻る手段が無かった。 */}
-          <Link
-            href="/"
-            className="text-xs font-medium uppercase tracking-wide text-zinc-500 underline-offset-4 hover:text-brand-deep hover:underline"
-          >
-            Vouch
+          <Link href="/" className="inline-block">
+            <Wordmark className="text-[1.0625rem] leading-none" />
           </Link>
           <h1 className="mt-1 text-2xl font-semibold text-zinc-900">Dashboard sign in</h1>
           <p className="mt-2 text-sm text-zinc-600">

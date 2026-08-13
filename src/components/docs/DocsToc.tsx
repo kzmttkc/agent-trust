@@ -27,7 +27,7 @@ export type TocItem = { href: string; label: string; children?: TocItem[] };
  *     rootMargin の隙間に入って「どこもハイライトされない」状態を作らないため。
  *   - リンクは py-1.5（>= 24px）で 2.5.8 を満たす。
  */
-const HEADER_OFFSET = 140; // sticky header 64 + この目次帯ぶんの余裕
+const HEADER_OFFSET = 128; // sticky header 56 + この目次帯ぶんの余裕（2026-08-13 に h-16 → h-14）
 
 function flatten(items: TocItem[]): TocItem[] {
   return items.flatMap((i) => [i, ...(i.children ?? [])]);
@@ -76,9 +76,13 @@ export default function DocsToc({ items }: { items: TocItem[] }) {
 
   const linkClass = (href: string, indented: boolean) =>
     [
-      "block rounded px-2 py-1.5 underline-offset-4 hover:underline",
-      indented ? "pl-5 font-mono text-[11px]" : "",
-      href === activeHref ? "bg-zinc-100 font-semibold text-brand-deep" : "text-brand",
+      "block rounded-[2px] px-2 py-1.5 underline-offset-4 hover:underline",
+      indented ? "pl-5 text-[11px]" : "",
+      // 現在地は地色ではなく「左の1本罫＋紺のインク」で示す。紙面に灰色の
+      // 塗りブロックが乗るとこの世界の文法から外れる。
+      href === activeHref
+        ? "border-l-2 border-brand-deep bg-ground text-brand-deep"
+        : "border-l-2 border-transparent text-brand",
     ]
       .filter(Boolean)
       .join(" ");
@@ -86,10 +90,10 @@ export default function DocsToc({ items }: { items: TocItem[] }) {
   return (
     <nav
       aria-label="On this page"
-      className="sticky top-16 z-30 -mx-4 border-b border-zinc-200 bg-white/95 px-4 py-2 backdrop-blur md:-mx-8 md:px-8"
+      className="sticky top-14 z-30 border-b border-hair bg-ground/95 px-4 py-2 backdrop-blur sm:px-6 md:px-8"
     >
       {/* モバイル: 開閉式の全項目リスト */}
-      <details ref={detailsRef} className="md:hidden">
+      <details ref={detailsRef} className="mx-auto w-full max-w-[var(--column)] px-[var(--sheet-pad)] md:hidden">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-1 text-xs text-brand">
           <span className="truncate">
             On this page
@@ -100,8 +104,8 @@ export default function DocsToc({ items }: { items: TocItem[] }) {
               </>
             ) : null}
           </span>
-          <span aria-hidden="true" className="shrink-0 text-zinc-500">
-            ▾
+          <span aria-hidden="true" className="shrink-0 text-brand-lift">
+            [+]
           </span>
         </summary>
         <ul className="mt-1 max-h-[60vh] overflow-y-auto pb-1 text-xs">
@@ -137,7 +141,7 @@ export default function DocsToc({ items }: { items: TocItem[] }) {
       </details>
 
       {/* デスクトップ: 従来の横一列（この幅では6項目が収まる） */}
-      <ul className="-mb-1 hidden gap-2 overflow-x-auto pb-1 text-xs whitespace-nowrap md:flex">
+      <ul className="mx-auto -mb-1 hidden w-full max-w-[var(--column)] gap-2 overflow-x-auto px-[var(--sheet-pad)] pb-1 text-xs whitespace-nowrap md:flex">
         {items.map((item) => (
           <li key={item.href}>
             <a

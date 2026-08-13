@@ -1,68 +1,103 @@
 import { headers } from "next/headers";
-import { ScorePreviewCard } from "@/components/site/ScorePreviewCard";
-import { EndpointCard, type EndpointCardProps } from "@/components/site/EndpointCard";
-import { TrustBadgeRow } from "@/components/site/TrustBadgeRow";
-import { PricingSection } from "@/components/site/PricingSection";
+import Link from "next/link";
 import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
+import { Mark402 } from "@/components/site/Mark402";
+import { PricingSection } from "@/components/site/PricingSection";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 import { buttonClass } from "@/components/ui/Button";
-import CodeBlock from "@/components/docs/CodeBlock";
+
+/**
+ * The front page is the memo.
+ *
+ * 2026-08-13 vet402 — direction contract pinned in src/app/layout.tsx and in
+ * output/0813/vet402_lp_design_brief.md. The first viewport reproduces the
+ * first page of an RFC: the split header block, the centred title, the
+ * tagline, the double rule, the mark, the abstract, and two ways in. Everything
+ * below is the body of the same document.
+ *
+ * Copy is the approved deck, verbatim except for typesetting breaks. Nothing on
+ * this page claims a measurement that has not been made: §4 lists only what is
+ * running today, §5 says out loud that the observatory is being built.
+ */
 
 const SITE_URL = "https://agent-trust-tawny.vercel.app";
 
-const ENDPOINTS: EndpointCardProps[] = [
+const HEAD_LEFT = [
+  { label: "Network Working Group", value: null },
+  { label: "Request for Verification", value: "402" },
+  { label: "Category", value: "Independent Measurement" },
+  { label: "Status", value: "Building in public", signal: true },
+];
+
+const HEAD_RIGHT = ["vet402", "x402 Economy", "August 2026", "Obsoletes: trust scores"];
+
+const CONTENTS = [
+  { no: "1.", title: "The problem this memo addresses", href: "#gap", kind: "background" },
+  { no: "2.", title: "Verification levels", href: "#methodology", kind: "method" },
+  { no: "3.", title: "What a verdict must carry", href: "#evidence", kind: "policy" },
+  { no: "4.", title: "Implemented and live", href: "#working", kind: "live" },
+  { no: "5.", title: "Status of this work", href: "#status", kind: "building" },
+  { no: "A.", title: "Access tiers", href: "#pricing", kind: "terms" },
+  { no: "B.", title: "References", href: "#references", kind: "sources" },
+];
+
+const LEVELS = [
   {
-    method: "GET",
-    path: "/api/v1/agents/:agentId/score",
-    note: "Score by ERC-8004 agent ID. Optionally verify against a registered wallet.",
+    level: "L0",
+    name: "Liveness",
+    question: "Does the endpoint answer correctly?",
+    how: "Probe, no purchase",
+    output: "pass / fail / unverified",
   },
   {
-    method: "GET",
-    path: "/api/v1/wallets/:address/score",
-    note: "Score by wallet address — the primary path for x402 middleware.",
+    level: "L1",
+    name: "Settle-through",
+    question: "Does payment settle and a response arrive?",
+    how: "Real purchase",
+    output: "n of m settled, latency",
   },
   {
-    method: "POST",
-    path: "/api/v1/scores/batch",
-    note: "Score up to 25 agents in a single request.",
+    level: "L2",
+    name: "Conformance",
+    question: "Does the response match the seller's own declaration?",
+    how: "Purchase + machine diff",
+    output: "conform / mismatch / undeclared",
   },
   {
-    method: "POST",
-    path: "/api/v1/payments/x402",
-    note: "Attest an x402 settlement after payment verification. Idempotent on txHash.",
-  },
-  {
-    method: "GET",
-    path: "/api/v1/agents/:agentId/history",
-    note: "Score history snapshots, so you can see drift over time.",
-    tag: "Pro+",
+    level: "L3",
+    name: "Quality",
+    question: "Is the content any good?",
+    how: "Published rubric",
+    output: "opinion — never mixed with L0–L2",
   },
 ];
 
 export default async function Home() {
   // 2026-07-25 CTO: ホームページのJSON-LDが0件だった非対称を解消(/faqのみ
-  // FAQPage実装済みという状態だった)。Organization+SoftwareApplicationを追加。
-  // 数値はsrc/lib/billing/plans.ts(課金の単一情報源)から引用し、架空の価格を書かない。
+  // FAQPage実装済みという状態だった)。数値はsrc/lib/billing/plans.ts(課金の
+  // 単一情報源)から引用し、架空の価格を書かない。
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   const organizationJsonLd = {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "Vouch",
+    name: "vet402",
     url: SITE_URL,
     description:
-      "ERC-8004 agent trust scores on Base for x402 API providers who need to know whether to accept payment from an agent before they take the money.",
-    sameAs: ["https://x.com/vouchtrust"],
+      "Independent verification of the x402 agent-payment economy. vet402 buys what x402 endpoints sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence.",
+    // 2026-08-13: ハンドルの移行完了に伴い @vouchtrust → @vet_402
+    // （@vet402 は取得不可だったため下線入り）。
+    sameAs: ["https://x.com/vet_402"],
   };
   const softwareApplicationJsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "Vouch",
+    name: "vet402",
     url: SITE_URL,
     applicationCategory: "DeveloperApplication",
     operatingSystem: "Web",
     description:
-      "Trust layer for agent commerce. Scores ERC-8004 agent IDs and wallet addresses on Base so x402 API providers can decide whether to accept a payment before completing the request.",
+      "Verification API for the x402 agent-payment economy. Prove control of a payee wallet, check a payee before paying it, and read the public accuracy ledger.",
     offers: [
       {
         "@type": "Offer",
@@ -89,7 +124,7 @@ export default async function Home() {
   };
 
   return (
-    <main className="bg-white">
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       {/* 2026-08-06 growth: lp_view opens the funnel (Verilot parity). Without
           it, CTA click-through rate has no denominator — the automatic
           pageview can't carry utm_source as a queryable prop. */}
@@ -106,255 +141,404 @@ export default async function Home() {
         suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
       />
-      {/* Hero */}
-      <section className="mx-auto max-w-6xl px-5 pt-16 pb-14 md:px-8 md:pt-24">
-        <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_400px]">
-          <div className="space-y-6">
-            <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
-            <h1 className="text-4xl font-semibold tracking-tight text-zinc-900 sm:text-5xl">
-              Trust layer for agent commerce
-            </h1>
-            <p className="max-w-xl text-lg text-zinc-600">
-              ERC-8004 trust scores on Base. Built for x402 API providers who need to know whether
-              to accept payment from an agent before they take the money.
-            </p>
 
-            {/* 2026-08-05 R&D (C-1): three same-weight CTAs told a first-time
-                visitor nothing about what to do next. One primary action;
-                the reference is a text link; Dashboard lives in the header
-                where returning users already look for it. */}
-            <div className="flex flex-wrap items-center gap-4 pt-2">
-              {/* transition-[background-color], not `transition`: Tailwind v4's
-                  `transition` includes outline-color, which made the focus ring
-                  fade in from white over 150ms against a zinc-900 button
-                  (1.00:1 contrast mid-transition). Same fix as SiteHeader. */}
-              {/* 2026-08-06 growth: lp_cta_click{position} tells us WHICH CTA
-                  converts (hero vs final vs pricing), which a plain /signup
-                  pageview can never attribute. */}
-              <TrackedLink
-                href="/signup"
-                event="lp_cta_click"
-                props={{ position: "hero" }}
-                className={buttonClass({ size: "md" })}
-              >
-                Get a free API key
-              </TrackedLink>
-              <TrackedLink
-                href="/docs/api"
-                event="docs_click"
-                props={{ position: "hero" }}
-                className="text-sm font-medium text-brand underline underline-offset-4 hover:text-brand-deep"
-              >
-                Read the API reference
-              </TrackedLink>
-            </div>
-
-            <p className="pt-2 text-sm text-zinc-500">
-              Channels: REST · MCP · x402 middleware · TypeScript SDK
-            </p>
-          </div>
-
-          <div className="flex justify-center lg:justify-end">
-            <ScorePreviewCard />
-          </div>
-        </div>
-      </section>
-
-      {/* Trust badges */}
-      <section className="border-y border-zinc-200 bg-zinc-50 px-5 py-8 md:px-8">
-        <TrustBadgeRow />
-      </section>
-
-      {/* Problem statement */}
-      <section className="mx-auto max-w-5xl px-5 py-16 md:px-8">
-        <div className="max-w-2xl">
-          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
-            Agents pay before you know who they are
-          </h2>
-          <p className="mt-3 text-zinc-600">
-            x402 lets an agent hit a paid endpoint, pay on-chain, and retry with proof of payment —
-            no account, no invoice, no human in the loop. That&rsquo;s what makes it fast. It&rsquo;s also
-            what makes it blind: by the time you see the request, the payment already happened.
-          </p>
-        </div>
-
-        <div className="mt-10 grid gap-6 sm:grid-cols-3">
-          <div className="space-y-2">
-            <p className="font-semibold text-zinc-900">No identity, no history</p>
-            <p className="text-sm text-zinc-600">
-              A wallet address alone tells you nothing about whether the agent behind it has ever
-              behaved well — or exists at all beyond a single transaction.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <p className="font-semibold text-zinc-900">Sybils are cheap</p>
-            <p className="text-sm text-zinc-600">
-              Spinning up a fresh wallet costs nothing. Without a reputation signal, every request
-              looks like the first one from a brand-new account.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <p className="font-semibold text-zinc-900">Manual review doesn&rsquo;t scale</p>
-            <p className="text-sm text-zinc-600">
-              Agent-to-agent traffic moves faster than a human can approve. You need a score you
-              can check in the request path, not a queue.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Endpoints */}
-      <section className="border-t border-zinc-200 bg-zinc-50 px-5 py-16 md:px-8">
-        <div className="mx-auto max-w-5xl">
-          <div className="max-w-2xl">
-            <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
-              Drop into the request shape you already have
-            </h2>
-            <p className="mt-3 text-zinc-600">
-              One call before you settle. Score by agent ID or wallet, batch up to 25 at once, and
-              attest x402 settlements as they land.
-            </p>
-          </div>
-
-          <div className="mt-8 grid gap-4 sm:grid-cols-2">
-            {ENDPOINTS.map((endpoint) => (
-              <EndpointCard key={endpoint.path} {...endpoint} />
+      <article className="sheet">
+        {/* ================= RFC first page ================= */}
+        <div className="doc-head">
+          <div className="doc-head-col">
+            {HEAD_LEFT.map((row) => (
+              <span key={row.label}>
+                {row.label}
+                {row.value ? ": " : ""}
+                {row.value ? (
+                  // シアンは1画面1箇所。この Status 値がその1点で、装飾ではなく
+                  // 「いまどの段階にあるか」という事実に充てている。
+                  // 色は #0e7490（白地 5.36:1）。ブランドシートの #0891b2 は
+                  // 白地 3.68:1 で本文サイズの文字には AA が足りない。
+                  <span className={row.signal ? "text-signal" : undefined}>{row.value}</span>
+                ) : null}
+              </span>
             ))}
           </div>
-
-          <p className="mt-6 text-sm text-zinc-500">
-            Full request/response payloads and error codes:{" "}
-            <TrackedLink href="/docs/api" event="docs_click" props={{ position: "endpoints" }} className="underline">
-              API reference
-            </TrackedLink>
-            . Docs also cover{" "}
-            <a
-              href="https://github.com/kzmttkc/agent-trust/blob/main/docs/quickstart.md"
-              className="underline"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/quickstart.md</code>
-            </a>
-            ,{" "}
-            <a
-              href="https://github.com/kzmttkc/agent-trust/blob/main/docs/mcp-setup.md"
-              className="underline"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/mcp-setup.md</code>
-            </a>
-            , and{" "}
-            <a
-              href="https://github.com/kzmttkc/agent-trust/blob/main/docs/x402-integration.md"
-              className="underline"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <code className="rounded bg-zinc-100 px-1 text-zinc-700">docs/x402-integration.md</code>
-            </a>
-            .
-          </p>
-        </div>
-      </section>
-
-      {/* Quickstart (2026-08-05 R&D, C-6): the fastest honest proof is running
-          it, and the MCP server means "running it" is one command in the
-          editor a developer already has open. Package name is the published
-          npm scope (@vouchscore). */}
-      <section className="mx-auto max-w-5xl px-5 py-16 md:px-8">
-        <div className="max-w-2xl">
-          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
-            Try it from your editor in about a minute
-          </h2>
-          <p className="mt-3 text-zinc-600">
-            The MCP server gives Claude Desktop, Claude Code, and Cursor five trust tools —
-            including <code className="rounded bg-zinc-100 px-1 text-sm text-zinc-700">check_payee_trust</code>,
-            which answers the question every spending agent should ask:{" "}
-            <em>should I pay this wallet?</em>
-          </p>
-        </div>
-        {/* 2026-08-06 (320px persona audit A-1): grid items default to
-            `min-width: auto`, so these two items could not shrink below the
-            min-content width of the unbreakable code inside them. The track
-            blew out to 543px on a 320px screen, the <pre> was laid out at that
-            full width, and because clientWidth === scrollWidth its
-            `overflow-x: auto` never engaged — the overflow escaped into the
-            document instead, giving the whole LP 243px of horizontal scroll and
-            cutting off the npm package name mid-string. `min-w-0` lets the item
-            shrink so the <pre> scrolls internally, exactly as /docs/api already
-            does. */}
-        <div className="mt-8 grid gap-6 lg:grid-cols-2">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-zinc-900">1. Add the MCP server</p>
-            {/* 2026-08-12 FIX-4: 接頭辞が `vk_...` だった。実際に発行されるキーは
-                `vouch_live_<48hex>`（src/lib/db/api-keys.ts）で、ダッシュボードの
-                placeholder も `vouch_live_...`。このページ唯一のコピペ資産に
-                実在しない形が入っていた。 */}
-            <CodeBlock
-              className="mt-2"
-              label="Claude Desktop MCP server configuration"
-              code={`{
-  "mcpServers": {
-    "vouch": {
-      "command": "npx",
-      "args": ["-y", "@vouchscore/mcp-server"],
-      "env": { "VOUCH_API_KEY": "vouch_live_..." }
-    }
-  }
-}`}
-            />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-zinc-900">2. Or call it straight from code</p>
-            <CodeBlock
-              className="mt-2"
-              label="Node.js SDK usage example"
-              code={`import { createVouchClient } from "@vouchscore/sdk";
-
-const vouch = createVouchClient({ apiKey: process.env.VOUCH_API_KEY });
-const score = await vouch.getWalletScore("0xPayer...");
-if (score.recommendation !== "ALLOW") {
-  // don't settle the x402 payment
-}`}
-            />
+          <div className="doc-head-col">
+            {HEAD_RIGHT.map((value) => (
+              <span key={value}>{value}</span>
+            ))}
           </div>
         </div>
-        <p className="mt-6 text-sm text-zinc-500">
-          Setup details:{" "}
-          <TrackedLink href="/docs/api" event="docs_click" props={{ position: "quickstart" }} className="underline">
-            docs
-          </TrackedLink>{" "}
-          — MCP tools, the Express middleware for x402 providers, and the AgentKit spend guard.
+
+        <h1 className="doc-title mt-10">
+          vet402 — Independent Verification of the x402 Agent-Payment Economy
+        </h1>
+        <p className="mx-auto mt-3 max-w-[52ch] text-center text-brand-lift">
+          We buy. We settle. We publish the measurements.
         </p>
-      </section>
 
-      {/* Pricing */}
-      <PricingSection />
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
 
-      {/* Final CTA */}
-      <section className="border-t border-zinc-200 px-5 py-16 md:px-8">
-        <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 text-center">
-          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
-            Start scoring agents in one request
-          </h2>
-          <p className="max-w-xl text-zinc-600">
-            Free tier covers 1,000 lookups a month — enough to wire it into your x402 flow and see
-            real scores before you commit to anything.
+        <div className="mt-8 flex justify-center">
+          <Mark402 animate className="h-auto w-[104px] sm:w-[132px]" />
+        </div>
+
+        <div className="mt-8 flex flex-col gap-1 sm:flex-row sm:gap-0">
+          <p className="shrink-0 text-brand-deep sm:w-[10ch]">Abstract</p>
+          <p className="min-w-0 max-w-[62ch] text-brand">
+            vet402 buys what x402 endpoints actually sell, verifies fulfillment against the
+            seller&rsquo;s own declaration, and publishes the results with evidence. Every verdict
+            will carry a transaction hash, a timestamp and reproduction steps.{" "}
+            <strong>Nothing on this site is an estimate.</strong>
           </p>
-          {/* transition-[background-color]: keeps outline-color out of the
-              transition so the focus ring appears instantly (see hero CTA). */}
+        </div>
+
+        {/* 2026-08-06 growth: lp_cta_click{position} tells us WHICH CTA converts
+            (hero vs final vs pricing), which a plain /signup pageview can never
+            attribute. */}
+        <div className="mt-8 flex flex-wrap gap-3 sm:pl-[10ch]">
           <TrackedLink
-            href="/signup"
+            href="#methodology"
             event="lp_cta_click"
-            props={{ position: "final" }}
-            className={buttonClass({ className: "mt-2" })}
+            props={{ position: "hero_method" }}
+            className={buttonClass({ size: "md", className: "w-full sm:w-auto" })}
           >
-            Get API key
+            Read the methodology
+          </TrackedLink>
+          <TrackedLink
+            href="/payee"
+            event="lp_cta_click"
+            props={{ position: "hero_verify" }}
+            className={buttonClass({
+              variant: "secondary",
+              size: "md",
+              // 縦に積まれる幅では、内容幅のままだと2本の右端が揃わず雑に見える。
+              className: "w-full sm:w-auto",
+            })}
+          >
+            Verify a payee now
           </TrackedLink>
         </div>
-      </section>
+
+        {/* ================= Table of contents ================= */}
+        <nav aria-label="Table of contents" className="mt-14">
+          <p className="doc-caption">Contents</p>
+          <div className="mt-4 border-t border-hair pt-2">
+            {CONTENTS.map((item) => (
+              <Link key={item.href} href={item.href} className="toc-row">
+                <span className="toc-no">{item.no}</span>
+                <span className="toc-label">{item.title}</span>
+                <span className="toc-lead" aria-hidden="true" />
+                <span className="toc-page">{item.kind}</span>
+              </Link>
+            ))}
+          </div>
+        </nav>
+
+        {/* ================= 1. The gap ================= */}
+        <h2 id="gap" className="sec-head scroll-mt-24">
+          <span className="sec-no">1.</span>
+          <span>The problem this memo addresses</span>
+        </h2>
+
+        <div className="mt-6 space-y-5">
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">1.1</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              x402 settles payments finally and irreversibly. Proof of payment exists on-chain.{" "}
+              <strong>Proof of delivery does not exist anywhere.</strong>
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">1.2</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              Registries can be written for cents: 98.7% of ERC-8004 reputation feedback has no
+              verifiable transaction behind it.{" "}
+              <a href="#ref-arxiv" className="ref-mark">
+                [ARXIV-2606]
+              </a>
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">1.3</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              Directory metrics can be manufactured: roughly half of observed x402 traffic is
+              self-dealing.{" "}
+              <a href="#ref-artemis" className="ref-mark">
+                [ARTEMIS-2026]
+              </a>
+            </p>
+          </div>
+        </div>
+
+        {/* ================= 2. Method ================= */}
+        <h2 id="methodology" className="sec-head scroll-mt-24">
+          <span className="sec-no">2.</span>
+          <span>Verification levels</span>
+        </h2>
+        <p className="doc-p">
+          Four levels, in order of what they cost us to run and what they prove. A result never
+          moves up a level: an L0 probe cannot report settlement, and an L3 opinion is never
+          folded into an L0&ndash;L2 fact.
+        </p>
+
+        {/* 表は sm 以上。320–639px では同じ配列を定義リストで積む（4列の散文表を
+            横スクロールさせると、この表で一番重要な Output 列が最初から画面外に
+            出る）。表示されない側は display:none なので支援技術にも二重に出ない。 */}
+        <div className="table-scroll hidden sm:block">
+          <table className="fact-table fact-table-fixed">
+            <caption className="sr-only">
+              vet402 verification levels: what each level asks, how it is run, and what it outputs
+            </caption>
+            <colgroup>
+              <col style={{ width: "17%" }} />
+              <col style={{ width: "31%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "30%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">Level</th>
+                <th scope="col">Question</th>
+                <th scope="col">How</th>
+                <th scope="col">Output</th>
+              </tr>
+            </thead>
+            <tbody>
+              {LEVELS.map((row) => (
+                <tr key={row.level}>
+                  <td>
+                    {row.level} {row.name}
+                  </td>
+                  <td>{row.question}</td>
+                  <td>{row.how}</td>
+                  <td className="text-brand-deep">{row.output}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <dl className="mt-6 sm:hidden">
+          {LEVELS.map((row) => (
+            <div key={row.level} className="border-t border-hair py-4 first:border-t-brand-deep">
+              <dt className="font-[family-name:var(--font-display)] font-semibold text-brand-deep">
+                {row.level} {row.name}
+              </dt>
+              <dd className="mt-2 space-y-1 text-[0.8125rem] text-brand">
+                <p>{row.question}</p>
+                <p className="text-brand-lift">How: {row.how}</p>
+                <p className="text-brand-deep">Output: {row.output}</p>
+              </dd>
+            </div>
+          ))}
+        </dl>
+
+        {/* ================= 3. Evidence rules ================= */}
+        <h2 id="evidence" className="sec-head scroll-mt-24">
+          <span className="sec-no">3.</span>
+          <span>What a verdict must carry</span>
+        </h2>
+
+        <div className="mt-6 space-y-5">
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">3.1</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              A failing verdict publishes with raw log, transaction hash, timestamp and reproduction
+              steps &mdash; <strong>or it does not publish.</strong>
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">3.2</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              Unverifiable is not a verdict. We say <strong>&ldquo;unverified&rdquo;</strong>, never
+              &ldquo;bad&rdquo;.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">3.3</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              Sellers can dispute any result and trigger a free re-verification. Corrections are
+              logged publicly.
+            </p>
+          </div>
+        </div>
+
+        {/* ================= 4. Working today ================= */}
+        <h2 id="working" className="sec-head scroll-mt-24">
+          <span className="sec-no">4.</span>
+          <span>Implemented and live</span>
+        </h2>
+        <p className="doc-p">
+          Everything in this section is running right now and can be checked without asking us.
+        </p>
+
+        <div className="mt-6 divide-y divide-hair border-t border-brand-deep">
+          <ItemRow
+            state="live"
+            title="Verified Payee"
+            body={
+              <>
+                Prove control of a wallet by signature, get a public verification page and an SVG
+                badge.
+              </>
+            }
+            action={{ label: "Verify a payee", href: "/payee", event: "lp_cta_click", position: "s4_payee" }}
+          />
+          <ItemRow
+            state="live"
+            title="Drop-in middleware, REST API and MCP tool"
+            body={
+              <>
+                An x402 middleware package, a REST API, and an MCP tool that answers the question a
+                spending agent should ask before it pays.
+              </>
+            }
+            action={{ label: "API reference", href: "/docs/api", event: "docs_click", position: "s4_docs" }}
+          />
+          <ItemRow
+            state="live"
+            title="Public accuracy ledger"
+            body={
+              <>
+                Every past verdict and its outcome, misfire rate included &mdash; published whether
+                or not the numbers flatter us.
+              </>
+            }
+            action={{ label: "Measured accuracy", href: "/accuracy", event: "docs_click", position: "s4_accuracy" }}
+          />
+        </div>
+
+        {/* ================= 5. The observatory ================= */}
+        <h2 id="status" className="sec-head scroll-mt-24">
+          <span className="sec-no">5.</span>
+          <span>Status of this work</span>
+        </h2>
+        <p className="doc-p">
+          Under construction, in the open. These are not measurements yet, and this page will not
+          describe them as though they were.
+        </p>
+
+        <div className="mt-6 divide-y divide-hair border-t border-brand-deep">
+          <ItemRow
+            state="building"
+            title="The observatory"
+            body={
+              <>
+                A continuous catalog of x402 endpoints across chains, probed daily, with delisting
+                alerts for claimed sellers.
+              </>
+            }
+          />
+          <ItemRow
+            state="building"
+            title="Writing to the empty registry"
+            body={
+              <>
+                Verification records will be written to the ERC-8004 Validation Registry &mdash; the
+                one registry that is still empty.
+              </>
+            }
+          />
+        </div>
+
+        <div className="dashbox mt-8 max-w-[64ch]">
+          <p className="doc-caption">Follow the build</p>
+          <p className="mt-3 text-brand">
+            <TrackedLink
+              href="https://x.com/vet_402"
+              event="follow_click"
+              props={{ channel: "x" }}
+              className="doc-link"
+            >
+              X @vet_402
+            </TrackedLink>
+            <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
+            <TrackedLink
+              href="https://github.com/kzmttkc/agent-trust"
+              event="follow_click"
+              props={{ channel: "github" }}
+              className="doc-link"
+            >
+              GitHub
+            </TrackedLink>
+          </p>
+        </div>
+
+        {/* ================= Appendix A. Access tiers ================= */}
+        <PricingSection />
+
+        {/* ================= Appendix B. References ================= */}
+        <h2 id="references" className="sec-head scroll-mt-24">
+          <span className="sec-no">B.</span>
+          <span>References</span>
+        </h2>
+        <dl className="mt-6 space-y-5 text-[0.8125rem]">
+          <div id="ref-arxiv" className="flex flex-col gap-1 sm:flex-row sm:gap-4">
+            <dt className="shrink-0 text-brand-deep sm:w-[16ch]">[ARXIV-2606]</dt>
+            <dd className="min-w-0 max-w-[58ch] text-brand">
+              98.7% of ERC-8004 reputation feedback has no verifiable transaction behind it.{" "}
+              <a
+                href="https://arxiv.org/abs/2606.26028"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="doc-link"
+              >
+                arXiv:2606.26028
+              </a>
+            </dd>
+          </div>
+          <div id="ref-artemis" className="flex flex-col gap-1 sm:flex-row sm:gap-4">
+            <dt className="shrink-0 text-brand-deep sm:w-[16ch]">[ARTEMIS-2026]</dt>
+            <dd className="min-w-0 max-w-[58ch] text-brand">
+              Roughly half of observed x402 traffic is self-dealing. Artemis, x402 activity
+              analysis, 2026.
+            </dd>
+          </div>
+        </dl>
+      </article>
     </main>
+  );
+}
+
+/**
+ * ItemRow — one entry in §4 / §5. The state marker is the whole point of the
+ * row: `live` means it runs today, `building` means it does not. Keeping the
+ * two states in one visual grammar is what stops §5 from reading as a claim.
+ */
+function ItemRow({
+  state,
+  title,
+  body,
+  action,
+}: {
+  state: "live" | "building";
+  title: string;
+  body: React.ReactNode;
+  action?: { label: string; href: string; event: string; position: string };
+}) {
+  return (
+    <div className="flex flex-col gap-2 py-5 sm:flex-row sm:gap-6">
+      <div className="shrink-0 sm:w-[14ch] sm:pt-0.5">
+        <span className={state === "live" ? "marker marker-live" : "marker marker-plan"}>
+          {state === "live" ? "implemented" : "building"}
+        </span>
+      </div>
+      <div className="min-w-0 max-w-[58ch]">
+        <p className="font-[family-name:var(--font-display)] font-semibold text-brand-deep">
+          {title}
+        </p>
+        <p className="mt-2 text-brand">{body}</p>
+        {action ? (
+          <p className="mt-3">
+            <TrackedLink
+              href={action.href}
+              event={action.event}
+              props={{ position: action.position }}
+              className="doc-link"
+            >
+              {action.label}
+            </TrackedLink>
+          </p>
+        ) : null}
+      </div>
+    </div>
   );
 }

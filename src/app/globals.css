@@ -23,65 +23,84 @@
    ビルド経路によって配信物が変わる状態そのものが危険なので、CSS 側で閉じておく。 */
 @source not "../../.claude";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================================
+   vet402 — RFC PLAINTEXT WORLD
+   ----------------------------------------------------------------------------
+   意匠の正典は output/0813/brand_vet402/vet402_rfc_plaintext.png（Takeshi 承認・
+   2026-08-13）。このサイトは製品LPではなく「検証機関の刊行物」として組む。
+   紙面 = 白/淡グレー地、文字 = KIZUNA 紺の4階調、罫線 = RFC 流のダブルルールと単線、
+   表 = 事実の表。装飾（グラデ・ガラス・多重の影）はゼロ。
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+   色は6系統だけ。新色を発明しない（assets/README.md「パレット」）。
+     Navy  #233456  白地 12.37:1  本文・見出し・罫線・マーク
+     Mid   #3e537c  白地  7.68:1  準本文
+     Slate #55688c  白地  5.61:1  メタ情報・キャプション・入力欄の枠線
+     Fog   #8f9cb2  白地  2.78:1  **文字に使わない**。罫線と地だけ
+     Cyan  #0891b2  白地  3.68:1  非テキストのみ（フォーカスリング・実測点マーカー）
+     White #ffffff / Ground #eef0f3 / Hair #dfe3e9
 
-/* ---- 2026-08-11 ブランド配色（CEO裁定・WORK_ORDERS「ブランド配色は裁定済み」）----
-   それまでの Vouch は zinc 単色でアクセント色ゼロだったが、これは意図した選択では
-   なく仕上げ残りだった。ベースは KIZUNA 公式ロゴ（assets/brand/ が正典）から採った
-   紺の4階調。値は Soroi の LP 実装（~/soroi/app/lp.css:25-46・2026-07-17 Takeshi承認）
-   と1文字も違わない同一値で、Vouch 向けに「それっぽい紺」を新しく発明していない。
+   シアンだけ注記が要る。ブランドシートは Status 値をシアン(#0891b2)の**文字**で
+   組んでいるが、これは白地 3.68:1 で WCAG AA（本文 4.5:1）を割る。文字として使う
+   シアンは同じ hue の1段暗い #0e7490（白地 5.36:1）にした。これは新色ではなく、
+   このリポに 2026-08-11 の CEO 裁定で既に入っている `--color-signal` そのものである。
+   #0891b2 は非テキスト（1.4.11 の 3:1 が要件）に限って使う。
+   ============================================================================ */
 
-   白に対するコントラスト（実測）:
-     brand-deep 12.37:1 / brand 7.68:1 / brand-lift 5.61:1 / brand-mist 2.78:1
-   白文字を載せてよいのは brand-lift まで。brand-mist は地・帯・罫線専用で文字を
-   載せない。
-
-   差し色のシアンは「意味のある要素」だけに限定する:
-     focus  = フォーカスリング。白地に 3.68:1、紺ボタン(#233456)上でも 3.36:1 で、
-              どちらの背景でも WCAG 2.2 のフォーカス可視性 3:1 を満たす。従来の
-              #18181b は紺ボタンの上ではほぼ見えなくなるため置き換えた。
-     signal = 「いまライブで動いている」ことを示すラベル用。白地に 5.36:1（AA）。
-   装飾目的の着色には使わない。 */
-/* 2026-08-11: 1つ前のデプロイ(5422250)は、新しいHTML（bg-brand-deep クラス付き）を
-   配信しながら CSS チャンクだけ変更前のものを返した（本番実測: 配信CSSに
-   `outline:2px solid #18181b` と `Arial,Helvetica,sans-serif` が残っており
-   brand-deep の定義が0件＝プライマリボタンが背景透明で描画される状態）。
-   Vercel のビルドログに "Restored build cache from previous deployment" があり、
-   Turbopack のビルドキャッシュが globals.css の変更を取りこぼしたのが原因。
-   このコメント自体が CSS の内容ハッシュを変えてチャンクを作り直させる。
-   同種の事故を疑うときは、HTMLだけでなく **配信されている .css の中身** を
-   見ること（HTMLが新しくてもCSSが古いことがある）。 */
 @theme {
+  /* ---- 紺の4階調（2026-08-11 裁定・値は Soroi の LP 実装と同一）---- */
   --color-brand-deep: #233456;
   --color-brand: #3e537c;
   --color-brand-lift: #55688c;
   --color-brand-mist: #8f9cb2;
   --color-focus: #0891b2;
   --color-signal: #0e7490;
+
+  /* ---- 紙面 ---- */
+  --color-paper: #ffffff;
+  --color-ground: #eef0f3;
+  --color-hair: #dfe3e9;
+
+  /* ---- 書体（layout.tsx の next/font/local が実体を配る）----
+     Fragment Mono は advance 0.618em、Martian Mono は 0.700em。1ch はそれぞれ
+     この値になるので、段幅を ch で書くと「何桁の紙面か」がそのまま寸法になる。 */
+  --font-sans: var(--font-fragment), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: var(--font-fragment), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: var(--font-martian), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* 2026-08-06 fix: this app has no dark-mode design (zero `dark:` variant
-   usages anywhere in src/, verified via grep). The block that used to sit
-   here flipped body background to near-black on `prefers-color-scheme:
-   dark` (leftover from the create-next-app boilerplate) while every page
-   keeps hardcoded light-mode text colors like text-zinc-900. Result: on
-   any OS with dark mode on, headings/labels/scores on /accuracy,
-   /leaderboard, /blog and /payee/:address (incl. the BLOCK/ALLOW verdict
-   label) rendered near-black text on a near-black background — unreadable,
-   and /payee/:address is a public, unauthenticated URL people use to
-   decide whether to pay a wallet. Forcing light mode site-wide until
-   dark mode is implemented deliberately (with `dark:` variants throughout)
-   is the safe fix; it doesn't remove any dark-mode UI because none exists. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+:root {
+  --background: #eef0f3;
+  --foreground: #233456;
+
+  /* RFC の紙面は72桁。craft-floor の本文 measure 65–75ch とも一致する。
+     段幅を px で決めずに桁で決めているので、字級を変えても行長は崩れない。 */
+  --measure: 72ch;
+  --sheet-pad: 3rem;
+  --rule: 1px;
+
+  /* 紙の外形（本文72桁 + 左右の余白）。走り出しヘッダ・目次帯・奥付を紙の本文列に
+     揃えるために配る。
+     ch を使わず 0.618em を直に書いているのは実測の結果:
+     ch は **その式が書かれた要素の font-size** で解決されるので、字級の違う要素に
+     同じ `calc(72ch + …)` を書くと別の幅になる。/docs/api の目次帯は text-xs(12px)
+     だったため 630px になり、763px の紙より 66px 内側で始まっていた（検分2回目の実測）。
+     0.618 は Fragment Mono の advance（618/1000 upm）そのもので、この書体における
+     1ch の定義値。本文の字級で一度だけ計算する。 */
+  --column-font: 0.9375rem;
+  --column: calc(72 * 0.618 * var(--column-font) + var(--sheet-pad) * 2);
+}
+
+@media (max-width: 640px) {
+  :root {
+    --sheet-pad: 1rem;
+    --column-font: 0.84375rem;
+  }
+}
 
 html {
   /* 2026-08-11: /docs/api に sticky 簡易目次を入れたので、アンカー移動が瞬間
@@ -89,16 +108,70 @@ html {
      下の prefers-reduced-motion ブロックが scroll-behavior:auto へ戻すため、
      動きを減らす設定の人には適用されない。 */
   scroll-behavior: smooth;
+  /* ヘッダは sticky なので、アンカー着地が見出しを隠さないようにする。 */
+  scroll-padding-top: 4.5rem;
+  /* ---- ブラウザが描く面もテーマに入れる（craft-floor「Browser surfaces」）---- */
+  color-scheme: light;
+  scrollbar-color: #8f9cb2 #eef0f3;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  /* 2026-08-11 fix: ここが `Arial, Helvetica, sans-serif` のままだったため、
-     layout.tsx が next/font で Geist を配信しているのに全ページが Arial で
-     描画されていた（本番で getComputedStyle(document.body).fontFamily を実測）。
-     Webフォントのバイトを払いながら一度も使っていない状態だった。 */
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 0.9375rem; /* 15px — ブランドシートの本文と同値 */
+  line-height: 1.7;
+  /* 事実の表で桁が揃うこと。Fragment Mono は等幅なので既に揃うが、フォールバック
+     （ui-monospace 等）へ落ちた時にも崩さないために明示する。 */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 等幅の 15px は 390px の画面では1行 34 桁しか入らず、文字が大きすぎて紙面に
+   見えない（実測・2026-08-13 の検分1回目）。13.5px で 40 桁まで戻る。
+   72 桁には届かないが、届かせようとすると本文が読めない大きさになる。 */
+@media (max-width: 640px) {
+  body {
+    font-size: 0.84375rem;
+    line-height: 1.72;
+  }
+}
+
+/* 等幅の紙面では1語が長いだけで紙からはみ出す。320px の内寸は 30 桁しかなく、
+   本文中の `GET /api/v1/agents/:agentId/score` のような 33 桁の識別子が
+   ページ全体を横スクロールさせていた（検分2回目の実測: /faq 333px・
+   /docs 330px）。break-word は「その1語だけで行に入らない時」しか折らないので、
+   通常の文には影響しない。 */
+p,
+li,
+dd,
+dt,
+td,
+th,
+figcaption {
+  overflow-wrap: break-word;
+}
+
+::selection {
+  background: #233456;
+  color: #ffffff;
+}
+
+/* WebKit のスクロールバーは scrollbar-color を見ないので別に塗る。 */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: #eef0f3;
+}
+::-webkit-scrollbar-thumb {
+  background: #8f9cb2;
+  border: 3px solid #eef0f3;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #55688c;
 }
 
 /* ---- 2026-08-05 R&D a11y baseline -------------------------------------
@@ -109,10 +182,25 @@ body {
 :focus-visible {
   /* 2026-08-11: #18181b（ほぼ黒）はプライマリボタンの紺地(#233456)の上で
      1.4:1 しかなく、キーボード操作の主要導線でリングが見えなかった。
-     シアン(#0891b2)は白地 3.68:1・紺地 3.36:1 でどちらでも 3:1 を満たす。 */
+     シアン(#0891b2)は白地 3.68:1・紺地 3.36:1 でどちらでも 3:1 を満たす。
+     これは非テキストなので 1.4.11 の 3:1 が適用され、4.5:1 は要らない。 */
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* 入力キャレットも既定の黒のままにしない。 */
+input,
+textarea,
+select {
+  caret-color: #0e7490;
+}
+
+/* 下線の位置は既定だと文字に食い込む。RFC の参照リンクは下線が識別子なので、
+   離して太さも揃える。 */
+a {
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: from-font;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -124,4 +212,336 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ============================================================================
+   組版の語彙。Tailwind のユーティリティに負ける必要があるので @layer components
+   に置く（レイヤ外に書くと utilities より強くなり、個別調整が効かなくなる）。
+   ============================================================================ */
+@layer components {
+  /* ---- 紙 ------------------------------------------------------------
+     ground の上に浮く1枚のシート。影は offset + blur を持つ実体のある影で、
+     ゼロオフセットの色付きハローではない（craft-floor「Depth」）。 */
+  .sheet {
+    width: 100%;
+    max-width: var(--column);
+    margin-inline: auto;
+    background: #ffffff;
+    border: var(--rule) solid #dfe3e9;
+    box-shadow: 0 2px 14px rgba(35, 52, 86, 0.1);
+    padding: 3rem var(--sheet-pad);
+  }
+
+  @media (max-width: 640px) {
+    .sheet {
+      padding-block: 2rem;
+    }
+  }
+
+  /* ---- RFC ヘッダ: 左右振り分けの2段 ---------------------------------
+     左と右は別々の縦積みで、desktop では space-between で振り分ける。
+     行ごとに左右をペアにする組み方（1行 = 左+右）は 640px 以下で破綻する:
+     "Category: Independent Measurement" と "August 2026" で 44 桁になり、
+     入る幅が無い。右列を各行の直下へ落とすと "vet402" が
+     "Network Working Group" の値に見えてしまう（検分1回目の実測）。
+     プレーンテキストの RFC が狭い端末で崩れる時と同じで、正しい退避は
+     「左ブロックの下に右ブロックを丸ごと置く」。 */
+  .doc-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1.5rem;
+    line-height: 1.7;
+  }
+  .doc-head-col > * {
+    display: block;
+  }
+  .doc-head-col:first-child {
+    color: #233456;
+  }
+  .doc-head-col:last-child {
+    color: #55688c;
+    text-align: right;
+  }
+  @media (max-width: 640px) {
+    .doc-head {
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+    .doc-head-col:last-child {
+      text-align: left;
+    }
+  }
+
+  /* ---- 罫線 ----------------------------------------------------------
+     ダブルルールは border-top と border-bottom を 4px の隙間で重ねた1本の帯。
+     見出しの下の単線とは役割が違い、ダブルは「表題の締め」にだけ使う。 */
+  .rule-double {
+    height: 5px;
+    border-top: 1px solid #233456;
+    border-bottom: 1px solid #233456;
+  }
+  .rule-single {
+    border-top: 1px solid #dfe3e9;
+  }
+  .rule-strong {
+    border-top: 1px solid #233456;
+  }
+
+  /* ---- 見出し --------------------------------------------------------
+     見出しの上の空きは下より広い（craft-floor「Spacing」）。 */
+  .doc-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+    color: #233456;
+    /* 上限 1.75rem = 28px。この書体の advance は 0.70em なので、表題の最長行
+       "vet402 — Independent Verification"（33桁）が 33 × 0.7 × 28 = 647px。
+       72桁の紙面の内寸 667px にちょうど収まり、承認された comp と同じ2行組みに
+       なる。30px だと 693px で入らず3行に割れた（検分1回目の実測）。 */
+    font-size: clamp(1.0625rem, 3.6vw, 1.75rem);
+    max-width: 100%;
+    margin-inline: auto;
+    text-align: center;
+    text-wrap: balance;
+  }
+  .sec-head {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1rem, 2.1vw, 1.1875rem);
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    color: #233456;
+    margin-top: 3.5rem;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid #233456;
+    display: flex;
+    gap: 0.85em;
+    align-items: baseline;
+  }
+  .sec-head > .sec-no {
+    flex: none;
+    font-weight: 700;
+  }
+  .sub-head {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: #233456;
+    margin-top: 1.75rem;
+  }
+
+  /* ---- 本文 ---------------------------------------------------------- */
+  .doc-p {
+    color: #3e537c;
+    margin-top: 1rem;
+    max-width: var(--measure);
+  }
+  .doc-p strong,
+  .doc-p b {
+    font-weight: 400;
+    color: #233456;
+    /* Fragment Mono は 400 しか無い。強調は色の階調で作る（太らせない）。 */
+  }
+  .doc-note {
+    color: #55688c;
+    font-size: 0.8125rem;
+    line-height: 1.65;
+  }
+
+  /* ---- キャプション（大文字 + 字間 0.22em。ブランドシート準拠）-------- */
+  .doc-caption {
+    font-size: 0.75rem;
+    line-height: 1;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #55688c;
+  }
+
+  /* ---- 事実の表 ------------------------------------------------------
+     RFC の表は罫線で閉じない。ヘッダの下に1本、行間にヘアラインだけ。 */
+  .fact-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    font-variant-numeric: tabular-nums;
+    text-align: left;
+  }
+  .fact-table th {
+    font-weight: 400;
+    color: #55688c;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+    padding: 0 1.25rem 0.5rem 0;
+    border-bottom: 1px solid #233456;
+    vertical-align: bottom;
+    white-space: nowrap;
+  }
+  .fact-table td {
+    padding: 0.6875rem 1.25rem 0.6875rem 0;
+    border-bottom: 1px solid #dfe3e9;
+    color: #3e537c;
+    vertical-align: top;
+  }
+  .fact-table th:last-child,
+  .fact-table td:last-child {
+    padding-right: 0;
+  }
+  .fact-table td:first-child {
+    color: #233456;
+    font-family: var(--font-display);
+    font-weight: 600;
+  }
+  /* 散文が入る表は列幅を固定する。auto レイアウトだと最長のセルが列幅を決め、
+     672px の紙面では「Question 列だけが広く、Output 列が1桁ずつ折り返す」
+     という配分になった（検分1回目の実測）。 */
+  .fact-table-fixed {
+    table-layout: fixed;
+  }
+  .fact-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 表は 320px でも紙面から溢れさせない。溢れる分は表自身の中で横スクロール
+     させ、ページ本体を横スクロールさせない（craft-floor「320px 責任」）。 */
+  .table-scroll {
+    overflow-x: auto;
+    margin-top: 1.5rem;
+  }
+
+  /* ---- 破線ボックス（マークと同じ文法の囲み）------------------------- */
+  .dashbox {
+    border: 1px dashed #8f9cb2;
+    padding: 1.25rem 1.5rem;
+    background: #ffffff;
+  }
+
+  /* ---- 目次（ドットリーダ）------------------------------------------
+     ドットは背景の repeating-linear-gradient で引く。文字の「.」を並べると
+     桁が揃わず、折返しでリーダだけの行ができる。 */
+  .toc-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.28rem 0;
+    color: #3e537c;
+    text-decoration: none;
+  }
+  .toc-row:hover .toc-label {
+    color: #233456;
+  }
+  .toc-no {
+    flex: none;
+    width: 3.5ch;
+    color: #55688c;
+  }
+  .toc-label {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: #3e537c;
+  }
+  .toc-lead {
+    flex: 1 1 auto;
+    align-self: flex-end;
+    height: 1px;
+    margin-bottom: 0.32em;
+    background-image: radial-gradient(circle, #8f9cb2 0.5px, transparent 0.6px);
+    background-size: 5px 1px;
+    background-repeat: repeat-x;
+    min-width: 1.5ch;
+  }
+  .toc-page {
+    flex: none;
+    color: #55688c;
+  }
+  /* 640px 以下ではリーダを引く余白が無い（見出しだけで1行を使い切る）。
+     ドットを残すと見出しが1桁ずつ折り返して読めなくなるので、リーダを畳んで
+     区分を見出しの下へ落とす。 */
+  @media (max-width: 640px) {
+    .toc-row {
+      display: grid;
+      grid-template-columns: 3.5ch 1fr;
+      column-gap: 0.5rem;
+      row-gap: 0.1rem;
+      padding: 0.45rem 0;
+    }
+    .toc-lead {
+      display: none;
+    }
+    .toc-page {
+      grid-column: 2;
+      font-size: 0.6875rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+  }
+
+  /* ---- 判定・状態のインラインマーカー -------------------------------- */
+  .marker {
+    display: inline-block;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 0.05em 0.45em;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  /* 稼働中 = 実線で囲われた紺。未着手 = 破線のスレート。
+     マークと同じ「破線はまだ引かれていない」という文法をそのまま状態表示に使う。
+     ここをシアンにしない理由: この頁のシアンは既にヘッダの Status 値1点に
+     使われている（1画面1箇所）。状態の区別は色相ではなく、罫線の実線／破線と
+     インクの階調で付ける。 */
+  .marker-live {
+    color: #233456;
+  }
+  .marker-plan {
+    color: #55688c;
+    border-style: dashed;
+  }
+
+  /* ---- リンク --------------------------------------------------------- */
+  .doc-link {
+    color: #233456;
+    text-decoration: underline;
+    text-decoration-color: #8f9cb2;
+    transition: text-decoration-color 120ms linear;
+  }
+  .doc-link:hover {
+    text-decoration-color: #233456;
+  }
+
+  /* ---- 参照マーカー [ARXIV-2606] ------------------------------------- */
+  .ref-mark {
+    color: #55688c;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .ref-mark:hover {
+    color: #233456;
+  }
+}
+
+/* ============================================================================
+   一度きりの動き。ヒーローのマークの破線が、周期ぶん滑って止まる。
+   終端は静止状態と同じ絵になるので「何かが現れる」動きではなく、既に見えている
+   ものが落ち着くだけになる（craft-floor「already-visible default」）。
+   prefers-reduced-motion では上のブロックが duration を潰すので発火しない。
+   ============================================================================ */
+@keyframes rule-settle {
+  from {
+    stroke-dashoffset: 132;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.mark-edge {
+  animation: rule-settle 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
