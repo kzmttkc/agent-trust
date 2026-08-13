@@ -71,10 +71,31 @@ export type PayeeProbe = {
   latencyMs: number;
 };
 
-let cached: { probe: PayeeProbe; expiresAt: number } | null = null;
+let cached: { probe: PayeeProbe; expiresAt: number; measuredAt: number } | null = null;
+let refreshing: Promise<PayeeProbe> | null = null;
+
+/**
+ * How stale a cached probe may be before a caller is made to WAIT for a fresh
+ * one. Between the TTL and this, callers get the last real measurement
+ * immediately and a refresh runs behind them.
+ *
+ * WHY (2026-08-13). Probing the payee path made /api/health take 21.5s,
+ * because the probe runs the real engine and the engine now waits up to 20s on
+ * a wallet Blockscout is struggling with. docs/api tells customers to point
+ * their uptime monitor at this endpoint, and monitors typically time out
+ * between 10s and 30s — so the fix for "health lies about being up" had
+ * started causing "health times out and is recorded as down". Both are wrong
+ * answers; this one was mine.
+ *
+ * Serving the last measurement is still honest: it is something that was
+ * actually measured, at most STALE_LIMIT_MS ago, rather than an assumption.
+ * Past that limit the endpoint blocks rather than vouch for an old reading.
+ */
+const STALE_LIMIT_MS = 10 * 60 * 1000;
 
 export function resetPayeeProbeCache(): void {
   cached = null;
+  refreshing = null;
 }
 
 function probeAddress(): Address {
@@ -88,6 +109,29 @@ export async function runPayeeProbe(): Promise<PayeeProbe> {
   const now = Date.now();
   if (cached && cached.expiresAt > now) return cached.probe;
 
+  // Expired but not ancient: answer with the last real measurement now and
+  // refresh behind the caller, so an uptime monitor is never held for the
+  // engine's full budget. One refresh at a time, never one per request.
+  if (cached && now - cached.measuredAt < STALE_LIMIT_MS) {
+    if (!refreshing) {
+      refreshing = measurePayeeProbe().finally(() => {
+        refreshing = null;
+      });
+      // The refresh must not surface as an unhandled rejection; measurePayeeProbe
+      // already converts failure into an `error` status, so this is belt-and-braces.
+      refreshing.catch(() => undefined);
+    }
+    return cached.probe;
+  }
+
+  // Nothing measured yet, or the last reading is too old to stand behind.
+  const pending = refreshing ?? (refreshing = measurePayeeProbe().finally(() => {
+    refreshing = null;
+  }));
+  return pending;
+}
+
+async function measurePayeeProbe(): Promise<PayeeProbe> {
   const startedAt = Date.now();
   let probe: PayeeProbe;
 
@@ -121,6 +165,7 @@ export async function runPayeeProbe(): Promise<PayeeProbe> {
 
   cached = {
     probe,
+    measuredAt: Date.now(),
     expiresAt: Date.now() + (probe.status === "error" ? PROBE_FAILURE_TTL_MS : PROBE_TTL_MS),
   };
   return probe;

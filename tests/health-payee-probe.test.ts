@@ -226,6 +226,31 @@ test("a quiet address would NOT have caught the outage — hence the busy defaul
   delete process.env.HEALTH_PAYEE_ADDRESS;
 });
 
+test("a repeat call is served from the last measurement, not re-run", async () => {
+  // 2026-08-13, self-inflicted: probing the payee path made /api/health take
+  // 21.5s, because the probe runs the real engine and the engine waits up to
+  // 20s on a wallet Blockscout is struggling with. docs/api points customers'
+  // uptime monitors here and those typically time out at 10-30s, so the fix
+  // for "health lies about being up" started causing "health is recorded as
+  // down because it never answered". A monitor cannot tell those apart.
+  upstream({});
+  const first = await runPayeeProbe();
+
+  // Upstream goes away entirely. A cached probe must still answer instantly
+  // rather than block on the dead upstream.
+  globalThis.fetch = (async () => {
+    await new Promise((r) => setTimeout(r, 5_000));
+    throw new Error("upstream vanished");
+  }) as typeof fetch;
+
+  const startedAt = Date.now();
+  const second = await runPayeeProbe();
+  const elapsed = Date.now() - startedAt;
+
+  assert.equal(second.status, first.status);
+  assert.ok(elapsed < 500, `a cached probe blocked for ${elapsed}ms`);
+});
+
 test("worstStatus reports the worse of the two sides, never the kinder one", () => {
   assert.equal(worstStatus(["ok", "ok"]), "ok");
   assert.equal(worstStatus(["ok", "degraded"]), "degraded");
