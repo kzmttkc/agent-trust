@@ -113,15 +113,37 @@ export function dampenReputationForSybil(reputationScore: number, flags: string[
 }
 
 /**
- * Weighted chain score. Missing x402 history scores near-neutral (50) so
- * wallets without settlement attestations are not harshly penalized while the
- * network is bootstrapping.
+ * x402 axis score. A wallet with ACTUAL settlement history is scored on it;
+ * a wallet with NONE gets a low floor, not a neutral 50.
+ *
+ * vet402 2026-08-13 (score-manipulation ruling, hole 1). x402 is the highest-
+ * weighted axis (0.40) precisely because a chain-confirmed, owner-signed USDC
+ * settlement is the hardest signal to fake. But `paymentCount <= 0` used to
+ * return a neutral 50 — a bootstrap courtesy that made sense at weight 0.10 and
+ * became a ~25-raw-point GIFT at 0.40. That gift was the "last push" that
+ * carried an agent with ZERO settlements (but a good old wallet + a forged
+ * reputation summary) over the ALLOW line: the evidence gate was cleared by the
+ * wallet, and the free x402=50 supplied the rest.
+ *
+ * The ruling: zero settlements must have no power to push a score UP to ALLOW.
+ * A no-settlement wallet is not "neutral" on the axis that measures real
+ * economic activity — it is empty. `X402_NO_HISTORY_SCORE` is set below 40 so
+ * the arithmetic guarantees it: even with identity, reputation and wallet all
+ * maxed at 100, a zero-settlement agent tops out at
+ * (100·.05 + 100·.10 + 100·.25 + 30·.40) / .80 = 65 → WARN, never ALLOW. It is
+ * not zero, so it is not a punitive BLOCK either — a real settlement history is
+ * what earns the axis, and its absence simply cannot manufacture ALLOW.
+ *
+ * A read FAILURE is a different thing and is handled by the caller (the
+ * `x402_unavailable` flag), not conflated with "there are none" here.
  */
+export const X402_NO_HISTORY_SCORE = 30;
+
 export function scoreX402Payments(params: {
   paymentCount: number;
   uniqueDays: number;
 }): number {
-  if (params.paymentCount <= 0) return 50;
+  if (params.paymentCount <= 0) return X402_NO_HISTORY_SCORE;
 
   let score = 55;
   if (params.paymentCount >= 20) score += 30;

@@ -1,7 +1,8 @@
 import { and, desc, eq, gte, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "./client";
 import { isMissingSchemaError } from "./pg-errors";
-import { trustEvents, verdictOutcomes } from "./schema";
+import { apiKeys, trustEvents, verdictOutcomes, x402Payments } from "./schema";
+import { BASE_USDC_ADDRESS } from "@/lib/chain/config";
 import { dispatchWebhookEvent } from "@/lib/webhooks";
 
 export type AutoOutcomeType =
@@ -259,8 +260,32 @@ export async function getTrustEventById(
 export type WalletOutcomeRow = {
   outcomeType: string;
   source: string;
+  /**
+   * The reporting partner key for source='partner:{id}' rows, null for auto
+   * rows. Carried so the payee scorer can ask whether that reporter is a
+   * verified counterparty of the subject wallet, and collapse many keys of one
+   * account to a single voice — see getNegativeReporterCorroboration and
+   * src/lib/scoring/outcome-adjustment.ts. Without it a lone unverified fraud
+   * report could BLOCK any wallet (vet402 2026-08-13, negative-poison).
+   */
+  apiKeyId: string | null;
   detectedAt: Date;
   evidence: unknown;
+};
+
+/**
+ * The corroboration facts the payee scorer needs to decide whether a NEGATIVE
+ * partner report is allowed to move a public score. Two independent bindings:
+ *
+ *  - verifiedCounterparties: reporter keys shown to control a wallet that
+ *    actually settled a score-eligible x402 payment TO the subject wallet. A
+ *    single such report is trusted — it is not self-attested.
+ *  - accountByReporter: reporter key → owning account (userId). Collapses the
+ *    independent-reporter count so one actor's many keys count once.
+ */
+export type NegativeReporterCorroboration = {
+  verifiedCounterparties: Set<string>;
+  accountByReporter: Map<string, string | null>;
 };
 
 /**
@@ -293,6 +318,7 @@ export async function getOutcomesForWallet(
       .select({
         outcomeType: verdictOutcomes.outcomeType,
         source: verdictOutcomes.source,
+        apiKeyId: verdictOutcomes.apiKeyId,
         detectedAt: verdictOutcomes.detectedAt,
         evidence: verdictOutcomes.evidence,
       })
@@ -324,6 +350,85 @@ export async function getOutcomesForWallet(
     }
     // Anything else is a read we did not complete. Never a silent [].
     throw new Error("outcome_history_unavailable", { cause: err });
+  }
+}
+
+/**
+ * For a set of reporter keys that filed a NEGATIVE outcome on `wallet`, gather
+ * the two facts the scorer needs to decide whether those reports may move the
+ * public score (vet402 2026-08-13, negative-poison):
+ *
+ *   1. Which reporters are VERIFIED COUNTERPARTIES — they control a wallet that
+ *      actually settled a score-eligible x402 payment TO the subject. Read from
+ *      x402_payments: payee = wallet, api_key_id = reporter, and the same
+ *      score-eligibility gate (USDC + amount- + ownership-verified) the payee
+ *      stats already use. ownership_verified is the load-bearing column: it
+ *      proves the reporter controls the PAYING wallet, so posting a stranger's
+ *      real transfer records a row but does not make that stranger a
+ *      counterparty of anyone.
+ *   2. Which ACCOUNT each reporter belongs to, so the multi-reporter path can
+ *      collapse one actor's many keys to a single voice.
+ *
+ * FAILURE DIRECTION. This is a NEW, dependent read on the scoring path. A
+ * missing table/column (migration lag) reads as "no corroboration available" —
+ * the safe direction here, since it only means an unverified negative stays
+ * uncorroborated (does not cap), never that a stranger gets BLOCKed. Any OTHER
+ * error throws, so the caller can treat it as an unread input and fail closed
+ * (degraded), exactly like getOutcomesForWallet — a corroboration we could not
+ * check must not silently promote OR silently drop a negative.
+ */
+export async function getNegativeReporterCorroboration(
+  wallet: string,
+  reporterKeyIds: string[],
+): Promise<NegativeReporterCorroboration> {
+  const empty: NegativeReporterCorroboration = {
+    verifiedCounterparties: new Set(),
+    accountByReporter: new Map(),
+  };
+  const db = getDb();
+  if (!db || reporterKeyIds.length === 0) return empty;
+
+  const uniqueKeyIds = [...new Set(reporterKeyIds)];
+
+  try {
+    const paidRows = await db
+      .select({ apiKeyId: x402Payments.apiKeyId })
+      .from(x402Payments)
+      .where(
+        and(
+          sql`lower(${x402Payments.payee}) = ${wallet.toLowerCase()}`,
+          inArray(x402Payments.apiKeyId, uniqueKeyIds),
+          eq(x402Payments.token, BASE_USDC_ADDRESS.toLowerCase()),
+          eq(x402Payments.amountVerified, true),
+          eq(x402Payments.ownershipVerified, true),
+        ),
+      );
+
+    const verifiedCounterparties = new Set<string>();
+    for (const row of paidRows) {
+      if (row.apiKeyId != null) verifiedCounterparties.add(row.apiKeyId);
+    }
+
+    const keyRows = await db
+      .select({ id: apiKeys.id, userId: apiKeys.userId })
+      .from(apiKeys)
+      .where(inArray(apiKeys.id, uniqueKeyIds));
+
+    const accountByReporter = new Map<string, string | null>();
+    for (const row of keyRows) {
+      accountByReporter.set(row.id, row.userId ?? null);
+    }
+
+    return { verifiedCounterparties, accountByReporter };
+  } catch (err) {
+    if (isMissingSchemaError(err)) {
+      console.error(
+        "outcome-writer: getNegativeReporterCorroboration hit a missing table/column; reading as no corroboration",
+        err,
+      );
+      return empty;
+    }
+    throw new Error("outcome_corroboration_unavailable", { cause: err });
   }
 }
 

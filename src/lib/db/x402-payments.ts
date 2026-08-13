@@ -1,9 +1,36 @@
-import { and, count, countDistinct, desc, eq, gte, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { getDb } from "./client";
 import { isMissingSchemaError } from "./pg-errors";
 import { BASE_USDC_ADDRESS } from "@/lib/chain/config";
 import { funderWallets, x402Payments } from "./schema";
 import { logServerError } from "@/lib/util/log";
+
+/**
+ * vet402 2026-08-13 (score-manipulation ruling, hole 2). A payer's own
+ * settlement history only counts as evidence of REAL economic activity when the
+ * money went somewhere independent, in a non-trivial amount. Two forgeries this
+ * closes, both demonstrated: (1) USDC DUST self-loops — 0.000001 USDC has a
+ * real Transfer log and an owner signature but is not a settlement; (2)
+ * SELF-DEALING — paying yourself (A→A) or another wallet you fund from the same
+ * source (A→B, both in one funding cluster) manufactures "20 settlements" out
+ * of one actor's own money.
+ *
+ * X402_MIN_SETTLEMENT_UNITS is in USDC base units (6 decimals). The default,
+ * 1_000 = 0.001 USDC (a tenth of a cent), is deliberately LOW so genuine x402
+ * micropayments still count — it only strips true dust, three orders of
+ * magnitude under the demonstrated 0.000001 loop. Env-tunable so the floor can
+ * be raised from production data without a deploy.
+ */
+const X402_MIN_SETTLEMENT_UNITS = (() => {
+  const raw = process.env.X402_MIN_SETTLEMENT_UNITS;
+  if (raw === undefined || raw === "") return 1_000n;
+  try {
+    const parsed = BigInt(raw);
+    return parsed >= 0n ? parsed : 1_000n;
+  } catch {
+    return 1_000n;
+  }
+})();
 
 /**
  * vet402 2026-08-13 — score-eligibility. A payment row moves a trust score
@@ -176,20 +203,46 @@ export async function getX402PaymentStats(wallet: string): Promise<X402PaymentSt
 
   const walletLower = wallet.toLowerCase();
   try {
+    // Score-eligible, non-dust, non-self settlements this wallet made as PAYER.
+    // The self-send and dust filters live in SQL; the funder-cluster
+    // independence check (which needs the payer's and each payee's funder) is a
+    // JS post-filter below, mirroring countDistinctFunders' two-step shape.
     const rows = await db
       .select({
-        paymentCount: count(),
-        uniqueDays: sql<number>`count(distinct date_trunc('day', ${settledAt}))`,
-        lastPaymentAt: sql<string | null>`max(${settledAt})`,
+        payee: x402Payments.payee,
+        day: sql<string | null>`date_trunc('day', ${settledAt})`,
+        settledAt: sql<string | null>`${settledAt}`,
       })
       .from(x402Payments)
-      .where(and(eq(x402Payments.wallet, walletLower), scoreEligible));
+      .where(
+        and(
+          eq(x402Payments.wallet, walletLower),
+          scoreEligible,
+          sql`${x402Payments.onchainAmount} IS NOT NULL`,
+          sql`(${x402Payments.onchainAmount})::numeric >= ${X402_MIN_SETTLEMENT_UNITS.toString()}`,
+          // Not a literal self-send. A NULL payee (unresolved recipient) is not
+          // provably independent, so it does not count as evidence either.
+          sql`${x402Payments.payee} IS NOT NULL`,
+          sql`lower(${x402Payments.payee}) <> ${walletLower}`,
+        ),
+      );
 
-    const row = rows[0];
+    const independentRows = await keepIndependentlyFundedRecipients(db, walletLower, rows);
+
+    const uniqueDays = new Set(
+      independentRows.map((r) => r.day).filter((d): d is string => d !== null),
+    ).size;
+    let lastPaymentAt: string | null = null;
+    for (const r of independentRows) {
+      if (r.settledAt && (lastPaymentAt === null || r.settledAt > lastPaymentAt)) {
+        lastPaymentAt = r.settledAt;
+      }
+    }
+
     return {
-      paymentCount: Number(row?.paymentCount ?? 0),
-      uniqueDays: Number(row?.uniqueDays ?? 0),
-      lastPaymentAt: row?.lastPaymentAt ?? null,
+      paymentCount: independentRows.length,
+      uniqueDays,
+      lastPaymentAt,
     };
   } catch (error) {
     // Deploy-ordering safety (vet402 2026-08-13). The score-eligibility filter
@@ -206,6 +259,87 @@ export async function getX402PaymentStats(wallet: string): Promise<X402PaymentSt
       new Error("block_timestamp/ownership_verified not migrated yet; reading as no eligible history"),
     );
     return empty;
+  }
+}
+
+/**
+ * vet402 2026-08-13 (hole 2) — keep only payments whose RECIPIENT is funded
+ * independently of the payer, so an actor cannot manufacture a settlement
+ * history by paying wallets it funds itself. A payee is dropped when it shares a
+ * funding source with the payer (the same funder_wallets collapse the payee
+ * engine uses on the receiving side). Unknown funders degrade PERMISSIVELY — a
+ * payee with no funder row counts as its own independent source — matching
+ * countDistinctFunders: the index is a sybil discount, never a correctness gate
+ * we fail a whole read on. The residual (a freshly funded cluster not yet
+ * indexed) is the same window the payer-side funding_cluster check has.
+ */
+/**
+ * Pure decision half of hole 2, unit-tested without a DB
+ * (tests/vet402-x402-self-dealing.test.ts). Keeps a payment only when its payee
+ * is funded independently of the payer:
+ *   - payee funder UNKNOWN  → its own source → kept (permissive degrade)
+ *   - payee funder ∈ payer's funders → same cluster → dropped
+ *   - otherwise → kept
+ * A row whose payee is null was already excluded upstream, but is dropped here
+ * too for safety (an unresolved recipient is not provable evidence).
+ */
+export function keepIndependentByFunder<T extends { payee: string | null }>(
+  payerFunders: Set<string>,
+  funderOfPayee: Map<string, string>,
+  rows: T[],
+): T[] {
+  return rows.filter((r) => {
+    const payee = r.payee?.toLowerCase();
+    if (!payee) return false;
+    const payeeFunder = funderOfPayee.get(payee);
+    if (payeeFunder === undefined) return true;
+    return !payerFunders.has(payeeFunder);
+  });
+}
+
+async function keepIndependentlyFundedRecipients<
+  T extends { payee: string | null },
+>(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  payerLower: string,
+  rows: T[],
+): Promise<T[]> {
+  if (rows.length === 0) return rows;
+
+  const payeeLowers = [
+    ...new Set(
+      rows
+        .map((r) => r.payee?.toLowerCase())
+        .filter((p): p is string => p !== undefined && p !== null),
+    ),
+  ];
+  if (payeeLowers.length === 0) return [];
+
+  try {
+    const payerFunderRows = await db
+      .select({ funder: funderWallets.funder })
+      .from(funderWallets)
+      .where(sql`lower(${funderWallets.wallet}) = ${payerLower}`);
+    const payerFunders = new Set(payerFunderRows.map((r) => r.funder.toLowerCase()));
+
+    const payeeFunderRows = await db
+      .select({ wallet: funderWallets.wallet, funder: funderWallets.funder })
+      .from(funderWallets)
+      .where(inArray(sql`lower(${funderWallets.wallet})`, payeeLowers));
+    const funderOfPayee = new Map<string, string>();
+    for (const r of payeeFunderRows) {
+      funderOfPayee.set(r.wallet.toLowerCase(), r.funder.toLowerCase());
+    }
+
+    return keepIndependentByFunder(payerFunders, funderOfPayee, rows);
+  } catch (error) {
+    // The funder index is an optimization, not a correctness gate. If it cannot
+    // be read (e.g. funder_wallets not migrated), fall back to the self-send +
+    // dust filtering already applied in SQL rather than failing the whole read.
+    if (!isMissingSchemaError(error)) {
+      logServerError("x402_independent_recipients", error);
+    }
+    return rows;
   }
 }
 

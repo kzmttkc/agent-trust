@@ -4,7 +4,17 @@ import { fetchErc20TransferWindow, fetchNativeTransferWindow } from "@/lib/chain
 import { getPublicClient, isValidAddress } from "@/lib/chain/client";
 import { BASE_USDC_ADDRESS, SCORE_THRESHOLDS } from "@/lib/chain/config";
 import { fetchWalletMetrics } from "@/lib/chain/wallet-metrics";
-import { getOutcomesForWallet, type WalletOutcomeRow } from "@/lib/db/outcome-writer";
+import {
+  getNegativeReporterCorroboration,
+  getOutcomesForWallet,
+  type WalletOutcomeRow,
+} from "@/lib/db/outcome-writer";
+import {
+  applyOutcomeAdjustment,
+  EMPTY_OUTCOME_TRUST,
+  NEGATIVE_OUTCOME_TYPES,
+  type OutcomeTrust,
+} from "./outcome-adjustment";
 import { getPayeeStats, type PayeeStats } from "@/lib/db/x402-payments";
 import { LruCache } from "@/lib/util/lru-cache";
 import { logServerError } from "@/lib/util/log";
@@ -111,6 +121,28 @@ const DEGRADED_SCORE_CEILING = SCORE_THRESHOLDS.warn - 1;
  * the merits. The legs that were not read are named in `signalsUnavailable`.
  */
 const PARTIAL_SCORE_CEILING = SCORE_THRESHOLDS.allow - 1;
+
+/**
+ * Ceiling for a payee with no real RECEIVING track record (dataDepth "thin").
+ *
+ * vet402 2026-08-13 (score-manipulation ruling, hole 3). The buyer-side twin of
+ * the seller-side evidence gate. A payee that has never been paid — or was only
+ * paid by a single funding cluster, or in unsigned dust that scores zero
+ * eligible receipts — still reached 84/ALLOW on wallet health alone: at "thin"
+ * depth walletHealth carries 0.45 and drain 0.40, and a clean old wallet with
+ * no outflow maxes both while the receiving axis sits at a neutral 50. So a
+ * scammer whose receiving wallet is simply an old, clean address bought ALLOW
+ * without ever having been a real counterparty to anyone.
+ *
+ * The ruling: ALLOW for a payee requires verifiable receiving evidence — real,
+ * owner-signed USDC settlements from INDEPENDENTLY funded payers (exactly what
+ * lifts a payee out of "thin" via determineDataDepth + independentPayerCount,
+ * which already collapses a single-funder sybil cluster to one). Absent that, a
+ * payee is capped one point under ALLOW: the best a payee with no track record
+ * can be told is WARN. It is a Math.min ceiling, never a floor — a thin payee
+ * whose wallet or drain signal looks bad still earns its own lower score.
+ */
+const PAYEE_THIN_SCORE_CEILING = SCORE_THRESHOLDS.allow - 1;
 
 export type DataDepth = "thin" | "moderate" | "rich";
 
@@ -495,31 +527,10 @@ const WEIGHTS_BY_DEPTH: Record<
   rich: { receiving: 0.5, walletHealth: 0.25, drain: 0.25 },
 };
 
-const NEGATIVE_OUTCOME_TYPES = new Set([
-  "rug_pull_outflow",
-  "confirmed_fraud",
-  "chargeback_dispute",
-]);
-const POSITIVE_OUTCOME_TYPES = new Set(["sustained_healthy_activity", "confirmed_legitimate"]);
-
-function applyOutcomeAdjustment(
-  score: number,
-  outcomes: WalletOutcomeRow[],
-): { score: number; types: string[]; adjustment: number } {
-  const types = [...new Set(outcomes.map((row) => row.outcomeType))];
-  const hasNegative = types.some((t) => NEGATIVE_OUTCOME_TYPES.has(t));
-  const hasPositive = types.some((t) => POSITIVE_OUTCOME_TYPES.has(t));
-
-  if (hasNegative) {
-    const capped = Math.min(score, 15);
-    return { score: capped, types, adjustment: capped - score };
-  }
-  if (hasPositive) {
-    const boosted = clamp(score + 8);
-    return { score: boosted, types, adjustment: boosted - score };
-  }
-  return { score, types, adjustment: 0 };
-}
+// Outcome-history scoring (which negatives may cap the public score, and which
+// are retained-but-uncorroborated) lives in ./outcome-adjustment.ts so the
+// decision is pure and unit-testable. NEGATIVE_OUTCOME_TYPES is imported for
+// the drain-signal flag labelling below.
 
 function clamp(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
@@ -640,22 +651,55 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
       drainScore * weights.drain,
   );
 
-  const { score: measuredScore, types: outcomeTypes, adjustment } = applyOutcomeAdjustment(
-    preOutcomeScore,
-    outcomes,
+  // A NEGATIVE partner report may cap this public score only if it is trusted:
+  // the reporter actually paid this wallet, or enough independent accounts
+  // agree (src/lib/scoring/outcome-adjustment.ts). Gathering those facts is a
+  // dependent DB read, so it runs only when a partner negative is actually
+  // present — the common path (no negatives, or auto-only) pays nothing. A
+  // failed corroboration read is an unread input: flagged `*_unavailable` so
+  // the fail-closed gate treats it as degraded, never as "promote" or "drop".
+  const partnerNegatives = outcomes.filter(
+    (o) => o.source.startsWith("partner:") && NEGATIVE_OUTCOME_TYPES.has(o.outcomeType),
   );
-
-  for (const type of outcomeTypes) {
-    flags.push(
-      NEGATIVE_OUTCOME_TYPES.has(type) ? `negative_outcome:${type}` : `positive_outcome:${type}`,
-    );
+  let outcomeTrust: OutcomeTrust = EMPTY_OUTCOME_TRUST;
+  if (partnerNegatives.length > 0) {
+    const reporterKeyIds = partnerNegatives
+      .map((o) => o.apiKeyId)
+      .filter((id): id is string => id !== null);
+    try {
+      outcomeTrust = await getNegativeReporterCorroboration(addrLower, reporterKeyIds);
+    } catch (error) {
+      logServerError("payee_outcome_corroboration", error);
+      flags.push("outcome_corroboration_unavailable");
+    }
   }
+
+  const {
+    score: measuredScore,
+    adjustment,
+    types: outcomeTypes,
+    trustedNegativeTypes,
+    uncorroboratedNegativeTypes,
+    positiveTypes,
+  } = applyOutcomeAdjustment(preOutcomeScore, outcomes, outcomeTrust);
+
+  for (const type of trustedNegativeTypes) flags.push(`negative_outcome:${type}`);
+  // Retained but not corroborated: disclosed so the reason a lone report did
+  // NOT move the score is legible, without being an `*_unavailable` degrade.
+  for (const type of uncorroboratedNegativeTypes) flags.push(`uncorroborated_negative:${type}`);
+  for (const type of positiveTypes) flags.push(`positive_outcome:${type}`);
   if (walletScore.isBurner) flags.push("new_burner_wallet");
   // vet402 2026-08-13: disclose when the payer-diversity bonus was collapsed
   // because several payers share a funder. A flag, not a hard penalty — the
   // deflated count already lowered the receiving score; this makes the reason
   // legible rather than a silent drop.
   if (payerFundingClusterDetected(stats)) flags.push("payer_funding_cluster");
+  // vet402 2026-08-13 (hole 3): a payee with no real receiving track record
+  // (thin depth) cannot be ALLOW on wallet health alone. This is already
+  // disclosed by `dataDepth: "thin"` on the result, so it is NOT added to
+  // `signals.flags` (which callers read as an anomaly/unavailable list); the
+  // capped score plus the thin depth say it without polluting that list.
+  const noReceivingEvidence = dataDepth === "thin";
 
   // ---- fail-closed gate ------------------------------------------------
   // The invariant verdict.ts documents for the seller-side engine, applied to
@@ -670,11 +714,19 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
   // partial view can never clear the gate, while a surviving leg that looks
   // bad still lands its own BLOCK on the merits.
   const partiallyMeasured = !degraded && signalsUnavailable.length > 0;
-  const ceiling = degraded
+  // The thin-depth cap is independent of the measurement ceilings above and
+  // applies even on a fully-read wallet: "we read everything, and what we read
+  // is a payee with no receiving history" is exactly the case it exists for. It
+  // never lifts a degraded/partial ceiling — Math.min takes the lowest.
+  const measurementCeiling = degraded
     ? DEGRADED_SCORE_CEILING
     : partiallyMeasured
       ? PARTIAL_SCORE_CEILING
       : 100;
+  const ceiling = Math.min(
+    measurementCeiling,
+    noReceivingEvidence ? PAYEE_THIN_SCORE_CEILING : 100,
+  );
   const score = Math.min(measuredScore, ceiling);
   // Stated, not inferred from the ceiling: if DEGRADED_SCORE_CEILING were ever
   // moved above the block line, the refusal must not quietly turn into a WARN.

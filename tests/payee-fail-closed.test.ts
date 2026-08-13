@@ -254,11 +254,18 @@ afterEach(() => {
 });
 
 test("a wallet we could fully read still gets a real verdict", async () => {
+  // vet402 2026-08-13 (hole 3): this wallet has a rich ON-CHAIN history but NO
+  // x402 RECEIVING history (the test DB is unset → getPayeeStats is empty →
+  // dataDepth "thin"). A payee with no receiving track record is now capped at
+  // WARN — it cannot be ALLOW on wallet health alone. The property this test
+  // pins is unchanged: a fully-read wallet gets a REAL (non-degraded) verdict,
+  // not a fail-closed refusal. The band it lands in is WARN, by the thin cap.
   const result = await score({});
   assert.equal(result.signals.flags.length, 0, "nothing should be unavailable here");
   assert.equal(result.degraded, false);
-  assert.equal(result.recommendation, "ALLOW");
-  assert.ok(result.score >= SCORE_THRESHOLDS.allow, `expected an ALLOW-grade score, got ${result.score}`);
+  assert.equal(result.dataDepth, "thin", "no x402 receiving history → thin");
+  assert.equal(result.recommendation, "WARN");
+  assert.equal(result.score, SCORE_THRESHOLDS.allow - 1, "capped one point under ALLOW by the thin-depth rule");
 });
 
 test("FAIL-CLOSED: an outflow check that never ran must not clear ALLOW", async () => {
@@ -396,7 +403,10 @@ test("a degraded verdict is never cached", async () => {
   resetBlockscoutRateGate();
   const recovered = await scorePayeeWallet(WALLET);
   assert.equal(recovered.degraded, false);
-  assert.equal(recovered.recommendation, "ALLOW");
+  // Recovers to a real (non-degraded) verdict. WARN, not ALLOW, because this
+  // wallet has no x402 receiving history (thin cap — hole 3). The point of the
+  // test is that the degraded BLOCK was not cached, which it was not.
+  assert.equal(recovered.recommendation, "WARN");
 });
 
 // ---- the two silent-[] paths that fed this engine ---------------------------
@@ -596,7 +606,10 @@ test("a partial reading is not cached either", async () => {
   invalidateWalletMetricsCache(WALLET);
   resetBlockscoutRateGate();
   const recovered = await scorePayeeWallet(WALLET);
-  assert.equal(recovered.recommendation, "ALLOW");
+  // WARN, not ALLOW: no x402 receiving history → thin cap (hole 3). The pinned
+  // property is that the partial (WARN) reading was not cached and recomputed
+  // to a fully-measured verdict — which it did (signalsUnavailable is empty).
+  assert.equal(recovered.recommendation, "WARN");
   assert.deepEqual(recovered.signalsUnavailable, []);
 });
 
@@ -661,11 +674,19 @@ test("SHAPE: a 200 that is not the paged shape is a failed read, not empty histo
   freshCaches();
   const empty = await scorePayeeWallet(WALLET);
   assert.deepEqual(empty.signalsUnavailable, [], "an empty list is a completed reading");
-  assert.notEqual(
-    empty.score,
-    drifted.score,
-    "shape drift and empty history must not produce the same verdict",
+  // Shape drift and empty history must not be conflated. vet402 2026-08-13
+  // (hole 3): this wallet has no x402 receiving history, so BOTH readings are
+  // now capped to WARN by the thin-depth rule — the raw scores coincide. The
+  // distinction that must survive is therefore the one that never depended on
+  // the cap: a failed read is DISCLOSED (signalsUnavailable ["usdc_drain"]),
+  // an empty-but-complete read is not ([]). That contrast is what a caller
+  // acts on, and it still holds.
+  assert.notDeepEqual(
+    empty.signalsUnavailable,
+    drifted.signalsUnavailable,
+    "a completed empty read must be distinguishable from a failed one",
   );
+  assert.deepEqual(drifted.signalsUnavailable, ["usdc_drain"]);
 });
 
 test("SHAPE: a foreign token in the response is dropped, not summed into the ratio", async () => {
@@ -689,7 +710,11 @@ test("SHAPE: a foreign token in the response is dropped, not summed into the rat
     assert.equal(result.signals.drainPattern.outgoingCount, 1, "the WETH transfer must be dropped");
     assert.equal(result.signals.drainPattern.drainRatio, 0.2);
     assert.equal(result.signals.drainPattern.detected, false);
-    assert.equal(result.recommendation, "ALLOW");
+    // The drain leg is clean (not detected); the verdict is WARN rather than
+    // ALLOW only because this wallet has no x402 receiving history (thin cap,
+    // hole 3). What this test pins is the dropped WETH transfer, unchanged.
+    assert.equal(result.recommendation, "WARN");
+    assert.equal(result.dataDepth, "thin");
   } finally {
     usdcTransfers.pop();
   }

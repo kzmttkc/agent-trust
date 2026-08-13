@@ -32,8 +32,9 @@ import {
   scoreReputation,
   scoreX402Payments,
   walletsMatch,
+  X402_NO_HISTORY_SCORE,
 } from "@/lib/scoring/helpers";
-import { SCORE_WEIGHTS } from "@/lib/chain/config";
+import { SCORE_THRESHOLDS, SCORE_WEIGHTS } from "@/lib/chain/config";
 import type { Address } from "viem";
 
 // ---- identity --------------------------------------------------------------
@@ -118,9 +119,20 @@ test("wallet: the score is clamped and rounded", () => {
 
 // ---- x402 ------------------------------------------------------------------
 
-test("x402: no settlement history is a neutral 50, never a penalty", () => {
-  assert.equal(scoreX402Payments({ paymentCount: 0, uniqueDays: 0 }), 50);
-  assert.equal(scoreX402Payments({ paymentCount: -1, uniqueDays: 5 }), 50);
+test("x402: no settlement history is a low floor, never the old neutral 50", () => {
+  // vet402 2026-08-13 (score-manipulation, hole 1): zero settlements used to
+  // return a neutral 50, which at weight 0.40 became a free push toward ALLOW.
+  // It now returns X402_NO_HISTORY_SCORE (30) — below 40, so that even with
+  // every other axis maxed a zero-settlement agent cannot reach ALLOW.
+  assert.equal(scoreX402Payments({ paymentCount: 0, uniqueDays: 0 }), X402_NO_HISTORY_SCORE);
+  assert.equal(scoreX402Payments({ paymentCount: -1, uniqueDays: 5 }), X402_NO_HISTORY_SCORE);
+  assert.ok(X402_NO_HISTORY_SCORE < 40, "must be below the WARN line so it cannot lift into ALLOW");
+});
+
+test("x402: a zero-settlement agent cannot reach ALLOW even with every other axis maxed", () => {
+  // The invariant the low floor exists to guarantee, stated end to end.
+  const maxed = computeWeightedScore(100, 100, 100, scoreX402Payments({ paymentCount: 0, uniqueDays: 0 }));
+  assert.ok(maxed < SCORE_THRESHOLDS.allow, `zero-settlement topped out at ${maxed}, must be below ALLOW`);
 });
 
 test("x402: any real history beats no history", () => {
