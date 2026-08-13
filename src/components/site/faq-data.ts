@@ -30,7 +30,7 @@ export const FAQS: FaqItem[] = [
   {
     question: "Is a vet402 score a guarantee or a credit assessment?",
     answer:
-      "No. Scores are informational signals derived from public on-chain data and ERC-8004 records. They do not constitute a guarantee, a credit assessment, KYC, or legal certification of any counterparty. Every API response includes this disclaimer directly in the payload so it travels with the data.",
+      "No. Scores are informational signals derived from public on-chain data and ERC-8004 records. They do not constitute a guarantee, a credit assessment, KYC, or legal certification of any counterparty. Every API response that carries a score or a published rate includes this disclaimer directly in the payload, so it travels with the data.",
   },
   {
     question: "Who is vet402 for — agents, or the providers agents pay?",

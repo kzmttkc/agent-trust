@@ -1,35 +1,55 @@
 openapi: 3.1.0
 info:
-  title: Vouch Trust API
-  version: 0.1.0
+  title: vet402 API
+  version: 1.0.0
   description: |
-    Agent trust scoring API for ERC-8004 agents on Base.
-    Returns a 0-100 trust score and ALLOW/WARN/BLOCK recommendation for x402 API gateways.
+    Independent verification for the x402 agent-payment economy. Scores payee
+    wallets and ERC-8004 agents on Base, returns a 0-100 score with an
+    ALLOW/WARN/BLOCK recommendation, and publishes what happened after those
+    verdicts.
 
     **Disclaimer:** Scores are informational only and do not constitute a guarantee,
-    credit assessment, or investment advice.
+    credit assessment, or investment advice. Every response that carries a score or
+    a published rate repeats this string in the payload, so the caveat travels with
+    the number.
 
-    **Rate limits:** a per-account monthly quota (Free 1,000 / Pro 50,000 /
-    Scale 500,000), shared across keys, reset at the UTC month boundary. Each
-    `/score` is 1 unit; a `/scores/batch` of N agents is N units. Scored
-    responses carry `X-RateLimit-Limit`, `X-RateLimit-Used`, and
+    **Rate limits.** Authenticated calls: a per-account monthly quota (Free 1,000
+    / Pro 50,000 / Scale 500,000), shared across keys, reset at the UTC month
+    boundary. Each `/score` is 1 unit; a `/scores/batch` of N agents is N units.
+    Scored responses carry `X-RateLimit-Limit`, `X-RateLimit-Used`, and
     `X-RateLimit-Remaining`. There is no per-second burst throttle on
     authenticated calls — you may spend the quota as fast as you like; a `429`
     with `Retry-After` means the monthly quota is exhausted. Separate IP-based
     abuse throttles (e.g. 60 auth-failures/min/IP) exist only to blunt
     key-guessing and scraping and are not hit by valid authenticated traffic.
 
+    Key-less calls are throttled per IP instead, and every response on those
+    paths carries `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`
+    (IETF draft names, distinct from the `X-RateLimit-*` monthly quota above);
+    a throttled one adds `Retry-After`.
+
+    **Unknown paths.** Any request under `/api/` that matches no route answers
+    `404` with a JSON body (`{"error":"not_found","path":…}`), never an HTML
+    page — a mistyped path is safe to feed to the same parser as every other
+    response.
+
   contact:
-    name: Vouch API Support
+    name: vet402 API Support
+    url: https://vet402.com/docs/api
   license:
     name: Proprietary
 
 servers:
-  - url: https://agent-trust-tawny.vercel.app/api/v1
+  - url: https://vet402.com
     description: Production
-    # Custom domain (e.g. api.vouch.dev) not yet registered.
-    # Replace this URL once one is acquired.
-  - url: http://localhost:3000/api/v1
+    # 2026-08-13: was https://agent-trust-tawny.vercel.app/api/v1 — our own
+    # former deployment host, which now 308s to vet402.com and which
+    # public/llms.txt explicitly asks machines not to cite or link. A client
+    # generated from that spec inherited the dead host. The base is now the
+    # site origin rather than `…/api/v1`, so the key-less paths that live
+    # outside the v1 prefix (/api/demo/score, /api/badge/…, /api/health) can be
+    # described here too; every path below is written in full from the root.
+  - url: http://localhost:3000
     description: Local development
 
 security:
@@ -40,15 +60,37 @@ tags:
     description: Trust score lookups
   - name: Payees
     description: Buyer-side screening of payment-receiving wallets
+  - name: Agents
+    description: ERC-8004 agent identity claims and passports
   - name: Settlements
     description: x402 payment attestations
   - name: Outcomes
     description: Result-label reporting for past trust score verdicts
+  - name: Accuracy
+    description: The public measurement ledger — what happened after the verdicts
+  - name: Watchlist
+    description: Standing watches on an agent or wallet, delivered as webhooks
+  - name: Webhooks
+    description: Webhook endpoint registration
+  - name: Badges
+    description: Embeddable SVG verification badges
   - name: System
     description: Health and metadata
 
+# Every public endpoint the product serves is below (2026-08-13 — the spec
+# previously carried 10 of them and called itself the "full machine-readable
+# schema", so a generated client could reach about half the product).
+#
+# Deliberately absent, and not an oversight:
+#   - /api/v1/guarantee/quote — gated behind GUARANTEE_UNDERWRITING_ENABLED and
+#     404s when off. A dormant financial product must not be discoverable or
+#     quotable, so it is not advertised until the business + legal decision
+#     lands. Document it in the same release that turns it on.
+#   - /api/admin/*, /api/cron/*, /api/billing/*, /api/dashboard/*, /api/signup —
+#     the site's own internals (admin token, cron secret, or dashboard session),
+#     not an interface anyone integrates against.
 paths:
-  /agents/{agentId}/score:
+  /api/v1/agents/{agentId}/score:
     get:
       operationId: getAgentScore
       tags: [Scores]
@@ -73,7 +115,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /wallets/{address}/score:
+  /api/v1/wallets/{address}/score:
     get:
       operationId: getWalletScore
       tags: [Scores]
@@ -97,18 +139,19 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /payees/{address}/score:
+  /api/v1/payees/{address}/score:
     get:
       operationId: getPayeeScore
       tags: [Payees]
       summary: Get trust score for a payee (payment-receiving wallet)
       description: |
-        Buyer-side counterpart to `/agents/{agentId}/score` and `/wallets/{address}/score`,
+        Buyer-side counterpart to `/api/v1/agents/{agentId}/score` and
+        `/api/v1/wallets/{address}/score`,
         which screen the caller of an x402 route. This endpoint screens the *recipient*:
         "should my agent pay this wallet?" before an x402 payment is sent.
 
         Combines the wallet's own settlement receiving history (payments attested via
-        `POST /payments/x402` where it was the payee), wallet-age/tx-count health, an
+        `POST /api/v1/payments/x402` where it was the payee), wallet-age/tx-count health, an
         exit-scam-shaped outflow check (received funds then drained them), and any prior
         `verdict_outcomes` labels naming this wallet.
 
@@ -131,16 +174,17 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /payees/verify:
+  /api/v1/payees/verify:
     get:
       operationId: previewPayeeVerifyMessage
       tags: [Payees]
       summary: Preview the canonical message to sign for payee verification
       description: |
         Returns the exact message a payee wallet must sign to register via
-        `POST /payees/verify`. No API key, no rate limit — it echoes input
-        and touches no store. Callers who prefer to build the message
-        themselves can do so: it is four lines, newline-joined, in the shape
+        `POST /api/v1/payees/verify`. No API key; throttled to 30 requests per
+        minute per IP like the other key-less paths (it echoes input and touches
+        no store, but it is still open to anyone). Callers who prefer to build
+        the message themselves can do so: it is four lines, newline-joined, in the shape
         `Vouch verified payee registration\nwallet: <lowercased address>\nname: <name>\nThis signature only proves control of the wallet above.`
       security: []
       parameters:
@@ -168,10 +212,11 @@ paths:
       tags: [Payees]
       summary: Register a verified payee by signing the canonical message
       description: |
-        Free, no API key. Sign the message from `GET /payees/verify` (or
+        Free, no API key. Sign the message from `GET /api/v1/payees/verify` (or
         build it yourself per that endpoint's description) with the payee
         wallet — a valid EIP-191 signature (EIP-6492 for smart accounts) is
-        the proof of control and is the only anti-abuse gate. Publishes a
+        the proof of control and is the main anti-abuse gate, backed by an
+        8-per-minute-per-IP write throttle. Publishes a
         public profile at `/payee/{wallet}` and an embeddable SVG badge at
         `/api/badge/{wallet}.svg`. Verification proves wallet control only;
         trust scores stay computed independently.
@@ -218,7 +263,7 @@ paths:
         "503":
           description: Store unavailable (schema not yet migrated, or DB unreachable).
 
-  /scores/batch:
+  /api/v1/scores/batch:
     post:
       operationId: batchScore
       tags: [Scores]
@@ -244,7 +289,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /payments/x402:
+  /api/v1/payments/x402:
     post:
       operationId: attestX402Payment
       tags: [Settlements]
@@ -287,7 +332,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /agents/{agentId}/history:
+  /api/v1/agents/{agentId}/history:
     get:
       operationId: getAgentScoreHistory
       tags: [Scores]
@@ -321,20 +366,20 @@ paths:
         "403":
           description: Plan upgrade required
 
-  /events/{trustEventId}/outcome:
+  /api/v1/events/{trustEventId}/outcome:
     post:
       operationId: reportVerdictOutcome
       tags: [Outcomes]
       summary: Report what actually happened after a trust score verdict
       description: |
-        Partner-reported result label for a past `/score` verdict — e.g. confirmed
+        Partner-reported result label for a past `…/score` verdict — e.g. confirmed
         fraud, a chargeback, or confirmation the agent was legitimate. Idempotent
         on `(trustEventId, outcomeType, caller's API key)`: reporting the same
         `outcomeType` again for the same event returns the existing row (`200`)
         instead of creating a duplicate.
 
-        This feeds Vouch's score-accuracy measurement; it does not affect the
-        reported agent's live trust score.
+        This feeds the public accuracy ledger at `GET /api/v1/accuracy`; it does
+        not affect the reported agent's live trust score.
 
         You may only report outcomes on **your own** verdicts. A `trustEventId`
         belonging to another API key is refused as `404` — the same answer as an
@@ -390,7 +435,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /webhooks:
+  /api/v1/webhooks:
     get:
       operationId: listWebhooks
       tags: [Webhooks]
@@ -464,7 +509,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
-  /webhooks/{id}:
+  /api/v1/webhooks/{id}:
     delete:
       operationId: deleteWebhook
       tags: [Webhooks]
@@ -483,6 +528,404 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           description: Not found (or not owned by this key — indistinguishable on purpose)
+
+  /api/v1/watchlist:
+    get:
+      operationId: listWatchlist
+      tags: [Watchlist]
+      summary: List this key's watches
+      description: |
+        Standing watches this key owns. A watch is re-scanned on a schedule and
+        a change in recommendation is delivered as a `watch.verdict_changed`
+        webhook — nothing is pushed here, and scores are never pushed at all.
+      responses:
+        "200":
+          description: The key's watches
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [watchlist]
+                properties:
+                  watchlist:
+                    type: array
+                    items: { $ref: "#/components/schemas/WatchlistEntry" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: Watchlist store unavailable
+    post:
+      operationId: addWatch
+      tags: [Watchlist]
+      summary: Watch an agent or wallet (max 50 per key)
+      description: |
+        Register a target to re-scan. Register a webhook subscribed to
+        `watch.verdict_changed` first, or the watch has nowhere to report to.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetType, target]
+              properties:
+                targetType:
+                  type: string
+                  enum: [agent, wallet]
+                target:
+                  type: string
+                  maxLength: 80
+                  description: >-
+                    Agent ID (decimal string) when targetType is `agent`; an EVM
+                    address when it is `wallet`. Validated per type — a malformed
+                    one is `invalid_agent_id` / `invalid_wallet_address` (400).
+                chainId:
+                  type: integer
+                  description: Optional chain selector; defaults to the Base mainnet id.
+      responses:
+        "201":
+          description: Watch created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, id]
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string, format: uuid }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Per-key watch limit reached (max 50)
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Watchlist store unavailable
+
+  /api/v1/watchlist/{id}:
+    delete:
+      operationId: deleteWatch
+      tags: [Watchlist]
+      summary: Remove a watch this key owns
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Not found (or not owned by this key — indistinguishable on purpose)
+        "503":
+          description: Watchlist store unavailable
+
+  /api/v1/accuracy:
+    get:
+      operationId: getAccuracyReport
+      tags: [Accuracy]
+      summary: The public accuracy ledger as JSON
+      description: |
+        What happened AFTER the verdicts vet402 issued, over a rolling 90-day
+        window: aggregate counts only — no wallet addresses, no agent ids, no
+        per-customer data. Key-less on purpose, because an accuracy number shown
+        selectively is marketing rather than measurement.
+
+        Two partitioned sets. The top-level figures are **external usage**:
+        verdicts API users requested, judged by what the wallet did next.
+        `operatorBenchmark` is a **self-seeded** controlled test against a fixed,
+        versioned set of publicly-labelled addresses; it is excluded from every
+        external figure at the SQL layer, so it cannot pad them.
+
+        `interpretation` carries, in machine-readable form, the same caveats the
+        human page prints next to these numbers — a "detection" counts BLOCK
+        *or* WARN, a 0% false-positive rate means "none were blocked" rather
+        than "all were passed", and a rate below the minimum sample is `null`
+        rather than a number computed from noise. Read the JSON alone and you
+        have the whole disclosure; you are not expected to parse the HTML.
+
+        Rates move as the sample grows: cite them with `generatedAt`.
+      security: []
+      responses:
+        "200":
+          description: Accuracy report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccuracyReport"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Report unavailable (outcome store unreachable)
+
+  /api/v1/agents/verify:
+    get:
+      operationId: previewAgentVerifyMessage
+      tags: [Agents]
+      summary: Preview the canonical message to sign for an agent passport
+      description: |
+        Returns the exact five-line message the agent's on-chain wallet must
+        sign to register a passport, with that wallet resolved from the
+        ERC-8004 registry so the signer sees the real lines before signing.
+        Key-less; 30 requests per minute per IP, because it does a chain read.
+      security: []
+      parameters:
+        - name: agentId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: name
+          in: query
+          required: true
+          schema: { type: string, maxLength: 80 }
+      responses:
+        "200":
+          description: Canonical message to sign, with the resolved wallet
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agentId, wallet, message]
+                properties:
+                  agentId: { type: string }
+                  wallet: { type: string }
+                  message: { type: string }
+        "400":
+          description: |
+            `invalid_agent_id`, `invalid_name`, or `agent_wallet_unbound` — the
+            last meaning the identity has no wallet bound on-chain, so no
+            signature could prove control of it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Chain unavailable — fail-closed, never a stored unverifiable claim.
+    post:
+      operationId: verifyAgent
+      tags: [Agents]
+      summary: Register an agent passport by signing the canonical message
+      description: |
+        Free, no API key. The on-chain wallet is resolved first, so the
+        signature means "this agent", not merely "some wallet". Two throttles
+        apply: 8 requests per minute per IP, and 4 per minute per agentId (a
+        valid signature proves control, but one agent may not re-register
+        without limit).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agentId, name, signature]
+              properties:
+                agentId: { type: string }
+                name: { type: string, maxLength: 80 }
+                url: { type: string, format: uri, description: "Must be https://" }
+                signature: { type: string, maxLength: 4000 }
+      responses:
+        "200":
+          description: Passport registered and published
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  agentId: { type: string }
+                  wallet: { type: string }
+                  passport: { type: string }
+                  profile: { type: string }
+                  badge: { type: string }
+        "400":
+          description: |
+            `invalid_request`, `invalid_agent_id`, `url_must_be_https`,
+            `agent_wallet_unbound`, or `signature_mismatch` (whose body also
+            carries `expectedMessage`, so a rejected signature is
+            self-diagnosing).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  expectedMessage:
+                    type: string
+                    description: Present only on signature_mismatch.
+        "429":
+          description: |
+            Throttled. `scope: "agent"` marks the per-agentId limit rather than
+            the per-IP one.
+        "503":
+          description: Chain or store unavailable.
+
+  /api/v1/agents/{agentId}/passport:
+    get:
+      operationId: getAgentPassport
+      tags: [Agents]
+      summary: Machine-readable agent passport
+      description: |
+        Key-less by design: a counterparty deciding whether to transact must be
+        able to pull and check this with zero onboarding. Returns the signed
+        identity claim, the verification material (`proof.message` and
+        `proof.signature`) so the reader can re-run `verifyMessage` and
+        cross-check the wallet against the registry without trusting this
+        server, and a best-effort live score with explicit freshness. An
+        unscorable agent still returns a valid passport with `score: null`.
+        20 requests per minute per IP.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Passport (verified or not — `verified` says which)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentPassport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/demo/score:
+    get:
+      operationId: getDemoScore
+      tags: [Scores]
+      summary: One fixed agent, scored live, with no key
+      description: |
+        Scores a single agent chosen server-side (`DEMO_AGENT_ID`) so anyone can
+        see a real computed verdict without an account. Nothing in the request
+        selects what gets scored — this is a demo, not a free lookup API.
+        10 requests per minute per IP.
+
+        It must never look better than the truth: when the score cannot be
+        computed it returns `live: false` rather than a stale or invented
+        number, and when a verdict was computed from an input it could not read
+        it is marked `degraded: true` (which the SDK and middleware treat as a
+        denial). A cached value is up to five minutes old and says so via
+        `cacheExpiresAt`.
+      security: []
+      responses:
+        "200":
+          description: |
+            A live verdict, or the explicit absence of one. Both shapes return
+            `200`; branch on `live`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoScoreResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/badge/{address}:
+    get:
+      operationId: getPayeeBadge
+      tags: [Badges]
+      summary: Embeddable SVG badge for a payee wallet
+      description: |
+        States only whether a signed claim exists ("Verified payee" /
+        "Unverified"). It deliberately carries no score: a cached score on a
+        third-party page would outlive its freshness window. A `.svg` suffix on
+        the address is accepted and is the conventional form. 60 requests per
+        minute per IP; legitimate embeds are served from the CDN and never
+        reach the limiter.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WalletAddress"
+      responses:
+        "200":
+          description: SVG badge
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/badge/agent/{agentId}:
+    get:
+      operationId: getAgentBadge
+      tags: [Badges]
+      summary: Embeddable SVG badge for an ERC-8004 agent
+      description: |
+        The agent counterpart of `/api/badge/{address}`, with the same rules: a
+        claim exists or it does not, no score in the badge, `.svg` suffix
+        accepted, 60 requests per minute per IP.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: SVG badge
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/health:
+    get:
+      operationId: getHealth
+      tags: [System]
+      summary: Liveness for uptime pollers
+      description: |
+        Anonymous callers get exactly one bit of detail — up, partly, or not —
+        and it comes from an actual probe of both scoring engines (seller-side
+        and buyer-side), not from a constant. Service metadata (version, chain)
+        is admin-only; it is fingerprinting material and is not returned here.
+
+        **`degraded` is not up: it returns 503.** A poller reads the status
+        code, so a half-down product must not look green. The body still
+        distinguishes `degraded` from `error` for a human reading the curl.
+
+        `?deep=1` returns per-check detail and requires the admin bearer token;
+        without it, it is `403`.
+      security: []
+      parameters:
+        - name: deep
+          in: query
+          required: false
+          description: Set to `1` for the admin-only detailed report.
+          schema: { type: string, enum: ["1"] }
+      responses:
+        "200":
+          description: Up
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+        "403":
+          description: Deep report requested without the admin token
+        "503":
+          description: Degraded or down
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [degraded, error] }
 
 components:
   securitySchemes:
@@ -849,6 +1292,281 @@ components:
                   agentId: { type: string }
                   error: { type: string }
 
+    WatchlistEntry:
+      type: object
+      required: [id, targetType, target, active]
+      properties:
+        id: { type: string, format: uuid }
+        targetType:
+          type: string
+          enum: [agent, wallet]
+        target: { type: string }
+        chainId:
+          type: integer
+          nullable: true
+        lastScore:
+          type: integer
+          nullable: true
+        lastRecommendation:
+          allOf: [{ $ref: "#/components/schemas/Recommendation" }]
+          nullable: true
+        lastCheckedAt:
+          type: string
+          format: date-time
+          nullable: true
+        active: { type: boolean }
+
+    BenchmarkSide:
+      type: object
+      description: >-
+        Counts for one half of the operator benchmark. Each labelled address is
+        counted once, using its most recent scan.
+      properties:
+        total: { type: integer }
+        detected:
+          type: integer
+          description: known-bad only — BLOCK or WARN. See interpretation.detectionRateCountsWarnAsDetection.
+        blocked: { type: integer }
+        warned: { type: integer }
+        missed:
+          type: integer
+          description: known-bad only — ALLOW, i.e. false negatives.
+        allowed:
+          type: integer
+          description: known-good only — ALLOW, i.e. true negatives.
+        detectionRate:
+          type: number
+          nullable: true
+          description: known-bad only. null below minSample.
+        missRate:
+          type: number
+          nullable: true
+          description: known-bad only. null below minSample.
+        falsePositiveRate:
+          type: number
+          nullable: true
+          description: known-good only — BLOCK on a known-good address. null below minSample.
+
+    AccuracyInterpretation:
+      type: object
+      description: >-
+        The caveats that qualify every rate in this document, in the same words
+        the human page at /accuracy prints beside them. Present so a machine
+        reader never has to parse the HTML to learn what a figure means.
+      required: [caveats, humanReadable]
+      properties:
+        detectionRateCountsWarnAsDetection:
+          type: boolean
+          description: >-
+            True: operatorBenchmark.knownBad.detectionRate counts a WARN as a
+            detection, so a caller that lets WARN through is not protected by it.
+        knownBadWarnOnly:
+          type: integer
+          description: How many known-bad addresses stopped at WARN rather than BLOCK.
+        falsePositiveRateCountsBlockOnly:
+          type: boolean
+          description: >-
+            True: operatorBenchmark.knownGood.falsePositiveRate counts only a
+            BLOCK on a known-good address, so 0% means "none were blocked", not
+            "all were passed".
+        knownGoodAllowed:
+          type: integer
+        knownGoodWarned:
+          type: integer
+        externalFiguresExcludeOperatorBenchmark:
+          type: boolean
+          description: True — the self-seeded benchmark is partitioned out at the query layer.
+        minSample:
+          type: integer
+          description: Below this many resolved verdicts a rate is null rather than a number.
+        caveats:
+          type: array
+          items: { type: string }
+          description: >-
+            Human-readable sentences, generated from the counts in this same
+            response rather than hard-coded, so they cannot go stale when the
+            sample changes.
+        humanReadable:
+          type: string
+          format: uri
+
+    AccuracyReport:
+      type: object
+      required:
+        - observedVerdicts
+        - resolvedVerdicts
+        - byRecommendation
+        - minSample
+        - windowDays
+        - generatedAt
+        - interpretation
+        - disclaimer
+      properties:
+        observedVerdicts:
+          type: integer
+          description: Distinct verdicts with any outcome recorded, including neutral-only.
+        resolvedVerdicts:
+          type: integer
+          description: Distinct verdicts whose outcome resolves to good or bad.
+        neutralOnlyVerdicts: { type: integer }
+        partnerReportedVerdicts: { type: integer }
+        byRecommendation:
+          type: array
+          items:
+            type: object
+            properties:
+              recommendation: { $ref: "#/components/schemas/Recommendation" }
+              resolved: { type: integer }
+              wentBad: { type: integer }
+              stayedGood: { type: integer }
+              adverseRate:
+                type: number
+                nullable: true
+        allowAdverseRate:
+          type: number
+          nullable: true
+          description: Of ALLOW verdicts with a known outcome, the share that went bad.
+        blockFalsePositiveRate:
+          type: number
+          nullable: true
+          description: Of BLOCK verdicts with a known outcome, the share later confirmed legitimate.
+        minSample: { type: integer }
+        methodologyVersion: { type: integer }
+        operatorBenchmark:
+          type: object
+          description: >-
+            Self-seeded controlled test against a fixed, versioned address set.
+            Excluded from every field above at the SQL layer.
+          properties:
+            knownBad: { $ref: "#/components/schemas/BenchmarkSide" }
+            knownGood: { $ref: "#/components/schemas/BenchmarkSide" }
+            scans: { type: integer }
+            lastScanAt:
+              type: string
+              format: date-time
+              nullable: true
+            minSample: { type: integer }
+            methodologyVersion: { type: integer }
+        windowDays: { type: integer }
+        generatedAt:
+          type: string
+          format: date-time
+          description: Quote this when citing a figure — the rates move as the sample grows.
+        interpretation:
+          $ref: "#/components/schemas/AccuracyInterpretation"
+        disclaimer: { type: string }
+
+    AgentPassport:
+      type: object
+      required: [agentId, verified, identity, score, disclaimer]
+      properties:
+        agentId: { type: string }
+        verified:
+          type: boolean
+          description: Whether a signed identity claim exists for this agent.
+        identity:
+          type: object
+          nullable: true
+          properties:
+            name: { type: string }
+            url:
+              type: string
+              nullable: true
+            wallet: { type: string }
+            verifiedAt:
+              type: string
+              format: date-time
+              nullable: true
+            proof:
+              type: object
+              description: >-
+                Everything a third party needs to re-verify control without
+                trusting this server: run verifyMessage(message, signature,
+                wallet), then confirm wallet == getAgentWallet(agentId) on-chain.
+              properties:
+                message: { type: string }
+                signature: { type: string }
+                scheme:
+                  type: string
+                  enum: [eip191-personal-sign]
+        score:
+          type: object
+          nullable: true
+          description: Best-effort. null when the agent could not be scored; the passport is still valid.
+          properties:
+            trustScore: { type: integer }
+            recommendation: { $ref: "#/components/schemas/Recommendation" }
+            x402:
+              type: object
+              properties:
+                paymentCount: { type: integer }
+                uniqueDays: { type: integer }
+            scoredAt:
+              type: string
+              format: date-time
+            cacheExpiresAt:
+              type: string
+              format: date-time
+        disclaimer: { type: string }
+
+    DemoScoreResponse:
+      oneOf:
+        - $ref: "#/components/schemas/DemoScoreLive"
+        - $ref: "#/components/schemas/DemoScoreUnavailable"
+      discriminator:
+        propertyName: live
+
+    DemoScoreLive:
+      type: object
+      required:
+        - live
+        - agentId
+        - trustScore
+        - recommendation
+        - scoredAt
+        - cacheExpiresAt
+        - disclaimer
+        - degraded
+      properties:
+        live:
+          type: boolean
+          enum: [true]
+        agentId: { type: string }
+        trustScore: { type: integer, minimum: 0, maximum: 100 }
+        recommendation: { $ref: "#/components/schemas/Recommendation" }
+        walletAgeDays: { type: integer }
+        x402PaymentCount: { type: integer }
+        sybilRisk:
+          type: string
+          enum: [low, medium, high]
+        registered: { type: boolean }
+        scoredAt:
+          type: string
+          format: date-time
+        cacheExpiresAt:
+          type: string
+          format: date-time
+          description: When this verdict stops being the current answer.
+        disclaimer: { type: string }
+        degraded:
+          type: boolean
+          description: >-
+            True when the verdict was computed with an input that could not be
+            read. Fail-closed: such a verdict is not cached and the SDK and
+            middleware deny on it.
+
+    DemoScoreUnavailable:
+      type: object
+      required: [live, reason]
+      properties:
+        live:
+          type: boolean
+          enum: [false]
+        reason:
+          type: string
+          enum: [unavailable, rate_limited]
+        disclaimer: { type: string }
+
     ErrorResponse:
       type: object
       properties:
@@ -871,6 +1589,22 @@ components:
             - plan_upgrade_required
             - scoring_unavailable
             - payment_ingest_unavailable
+            # Key-less verification, watchlist, accuracy and the JSON 404
+            # (2026-08-13: these paths were live but undocumented, so their
+            # codes were missing from an enum a generated client validates on).
+            - invalid_name
+            - invalid_id
+            - url_must_be_https
+            - agent_wallet_unbound
+            - signature_mismatch
+            - chain_unavailable
+            - store_unavailable
+            - accuracy_unavailable
+            - watchlist_unavailable
+            - limit_reached
+            - rate_limited
+            - not_found
+            - forbidden
         details:
           type: object
           description: Present for `invalid_request` — Zod validation error detail (flattened).
@@ -892,7 +1626,32 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     RateLimited:
-      description: Rate limit exceeded
+      description: |
+        Rate limit exceeded. On authenticated paths this means the monthly quota
+        is spent (`rate_limit_exceeded`); on key-less paths it is the per-IP
+        window (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the window resets.
+          schema: { type: integer }
+        RateLimit-Limit:
+          description: Key-less paths — ceiling for the current IP window.
+          schema: { type: integer }
+        RateLimit-Remaining:
+          description: Key-less paths — requests left in the current IP window.
+          schema: { type: integer }
+        RateLimit-Reset:
+          description: Key-less paths — unix epoch seconds when the window resets.
+          schema: { type: integer }
+        X-RateLimit-Limit:
+          description: Authenticated paths — monthly plan quota.
+          schema: { type: integer }
+        X-RateLimit-Used:
+          description: Authenticated paths — quota consumed this month.
+          schema: { type: integer }
+        X-RateLimit-Remaining:
+          description: Authenticated paths — quota left this month.
+          schema: { type: integer }
       content:
         application/json:
           schema:

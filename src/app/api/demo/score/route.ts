@@ -44,6 +44,10 @@ const RATE_WINDOW_MS = 60 * 1000;
 // against a timeout well under Vercel's function limit so a slow dependency
 // degrades to the documented failure response instead of hanging the page.
 const SCORE_TIMEOUT_MS = 8_000;
+// The engine's base disclaimer, for the response shapes that carry no verdict
+// to take one from. Kept identical to engine.ts's default string.
+const DISCLAIMER =
+  "Scores are informational only and do not constitute a guarantee, credit assessment, or investment advice.";
 
 type DemoPayload = {
   live: true;
@@ -55,6 +59,19 @@ type DemoPayload = {
   sybilRisk: string;
   registered: boolean;
   scoredAt: string;
+  // 2026-08-13 (machine-reader persona audit): `live: true` was the only
+  // freshness signal on a value measured at up to 5.5 minutes old, and the
+  // sibling key-less endpoint (/api/v1/agents/{id}/passport) has published
+  // scoredAt + cacheExpiresAt as a pair since it shipped. A machine could read
+  // when this was computed but not when it stops being the current answer.
+  // Taken from the engine's own result, not from this route's module cache, so
+  // no surface can claim a longer life for a verdict than the engine gives it
+  // (the rule tests/verdict-consistency.test.ts pins).
+  cacheExpiresAt: string;
+  // The per-verdict disclaimer the engine issued. /faq states as a
+  // machine-checkable fact that it travels in the payload; it did not travel
+  // here, on the one endpoint an anonymous machine is most likely to hit first.
+  disclaimer: string;
   // 2026-08-13: was computed below and used only to pick a Cache-Control, so
   // the one fact that changes how this number should be read never left the
   // server. A caller saw `78 / ALLOW` and `39 / BLOCK` in the same shape, with
@@ -78,21 +95,30 @@ function demoAgentId(): bigint {
 
 export async function GET(request: NextRequest) {
   const now = Date.now();
-  if (cached && cached.expiresAt > now) {
-    return NextResponse.json(cached.payload, {
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
-    });
-  }
 
+  // Limiter runs BEFORE the cache short-circuit (2026-08-13). A cache hit
+  // previously skipped it entirely, so the documented 10/min/IP was not applied
+  // to most traffic and — the reported defect — the response carried no
+  // RateLimit-* headers, leaving a machine unable to read its own budget.
   const ip = getClientIp(request) ?? "unknown";
   const limited = await consumeIpRateLimit(`demo-score:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
+  const rlHeaders = ipRateLimitHeaders(limited);
   if (!limited.allowed) {
     // 2026-08-06: emit the full RateLimit-* set (not just Retry-After) so the
     // key-less paths share one visible contract.
     return NextResponse.json(
       { live: false, reason: "rate_limited" },
-      { status: 429, headers: ipRateLimitHeaders(limited) },
+      { status: 429, headers: rlHeaders },
     );
+  }
+
+  if (cached && cached.expiresAt > now) {
+    return NextResponse.json(cached.payload, {
+      headers: {
+        ...rlHeaders,
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    });
   }
 
   try {
@@ -113,6 +139,8 @@ export async function GET(request: NextRequest) {
       sybilRisk: result.signals.sybil.risk,
       registered: result.signals.identity.registered,
       scoredAt: result.scoredAt,
+      cacheExpiresAt: result.cacheExpiresAt,
+      disclaimer: result.disclaimer,
       degraded,
     };
     // A degraded verdict (some input could not be read) is deliberately NOT
@@ -130,6 +158,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json(payload, {
       headers: {
+        ...rlHeaders,
         "Cache-Control": degraded
           ? "public, s-maxage=30"
           : "public, s-maxage=300, stale-while-revalidate=600",
@@ -138,8 +167,13 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     logServerError("demo_score", error);
     return NextResponse.json(
-      { live: false, reason: "unavailable" },
-      { status: 200, headers: { "Cache-Control": "public, s-maxage=60" } },
+      // A `{ live: false }` body is the absence of a verdict, so it carries no
+      // scoredAt/cacheExpiresAt to be stale about — but it still carries the
+      // disclaimer, because "it travels with the data" has to hold on the
+      // response a caller is most likely to log verbatim and least likely to
+      // re-read the docs for.
+      { live: false, reason: "unavailable", disclaimer: DISCLAIMER },
+      { status: 200, headers: { ...rlHeaders, "Cache-Control": "public, s-maxage=60" } },
     );
   }
 }

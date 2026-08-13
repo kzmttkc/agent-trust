@@ -33,16 +33,16 @@ Public per-subject pages: `https://vet402.com/payee/{address}` and `https://vet4
 
 ## API — no key required
 
-These are open paths, rate-limited per IP. Nothing below needs an account.
+These are open paths, rate-limited per IP. Nothing below needs an account. Every response carries `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`, so you can read your remaining budget off the wire instead of inferring it; a throttled response adds `Retry-After`. A path under `/api/` that matches no route answers `404` as JSON (`{"error":"not_found","path":...}`), never as an HTML page.
 
-- `GET /api/v1/accuracy` — the accuracy ledger as JSON (aggregate counts; same numbers /accuracy renders)
+- `GET /api/v1/accuracy` — the accuracy ledger as JSON. Aggregate counts, and the same numbers /accuracy renders **with the same caveats attached**: the `interpretation` object carries the notes that qualify each rate — that a benchmark "detection" counts BLOCK *or* WARN and how many known-bad addresses stopped at WARN, that a 0% false-positive rate means "none were blocked" rather than "all were passed" and how many known-good addresses only reached WARN, and that a rate below the minimum sample is `null` rather than a number. Reading the JSON alone is enough; you are not being asked to parse the HTML to learn what a figure means
 - `GET /api/v1/payees/verify?wallet={address}&name={name}` — returns the exact message a payee must sign. Read-only, writes nothing
 - `POST /api/v1/payees/verify` — publish a verified-payee page and badge by posting that signed message. Free, signature required
 - `GET /api/v1/agents/verify` / `POST /api/v1/agents/verify` — the same claim flow for an ERC-8004 agent identity
 - `GET /api/v1/agents/{agentId}/passport` — machine-readable agent passport
 - `GET /api/badge/{address}.svg` — SVG badge for a payee wallet (states only whether a signed claim exists; carries no score, because a cached score on a third-party page would outlive its freshness window)
 - `GET /api/badge/agent/{agentId}.svg` — the same badge for an agent
-- `GET /api/demo/score` — one fixed, publicly registered agent, scored live. Returns `live: false` rather than a stale or invented number when it cannot compute one, and `degraded: true` when the verdict was computed with an input it could not read
+- `GET /api/demo/score` — one fixed, publicly registered agent, scored live. Returns `live: false` rather than a stale or invented number when it cannot compute one, and `degraded: true` when the verdict was computed with an input it could not read. Freshness is explicit as `scoredAt` + `cacheExpiresAt`, the same pair the passport publishes — a cached value is up to five minutes old and says so
 - `GET /api/health` — service status
 
 Verification proves control of a wallet or an agent identity by signature. It is not an endorsement, and the score is computed independently of it.
@@ -61,7 +61,9 @@ Send `Authorization: Bearer <key>`. Quotas and burst limits: https://vet402.com/
 - `GET|POST /api/v1/watchlist`, `DELETE /api/v1/watchlist/{id}` — watch an agent or wallet; verdict changes arrive as a `watch.verdict_changed` webhook
 - `GET|POST /api/v1/webhooks`, `DELETE /api/v1/webhooks/{id}` — webhook subscriptions
 
-Full machine-readable schema: https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml
+Every response that carries a score or a published rate carries a `disclaimer` string in the payload, so the caveat travels with the number rather than living only on the web page.
+
+Full machine-readable schema (OpenAPI 3.1, covering every public endpoint listed above, key-less and keyed, with `https://vet402.com` as the only production server): https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml
 
 ## Packages
 
