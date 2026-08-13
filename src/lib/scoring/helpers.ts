@@ -37,6 +37,13 @@ export const SELF_ATTESTED_CEILING = SCORE_THRESHOLDS.allow - 1;
 export interface VerifiableEvidenceInputs {
   /** Score-eligible x402 settlements (USDC + amount-verified + owner-signed). */
   x402PaymentCount: number;
+  /**
+   * vet402 2026-08-14 — L1 delivery-verified observed purchases, the PREMIUM
+   * economic-activity signal. Optional so every existing caller keeps compiling;
+   * absent means "the observatory recorded none" (the common case today), which
+   * is exactly zero evidence from this source, never a free pass.
+   */
+  l1PurchaseCount?: number;
   /** Distinct clients that left ERC-8004 feedback in the recent window. */
   uniqueFeedbackClients: number;
   walletTxCount: number;
@@ -44,6 +51,9 @@ export interface VerifiableEvidenceInputs {
 }
 
 export function hasVerifiableEvidence(e: VerifiableEvidenceInputs): boolean {
+  // vet402 2026-08-14: a delivery-verified L1 purchase is the strongest evidence
+  // vet402 has — it observed the settlement AND confirmed the good was delivered.
+  if ((e.l1PurchaseCount ?? 0) > 0) return true;
   if (e.x402PaymentCount > 0) return true;
   if (e.uniqueFeedbackClients >= 3) return true;
   if (e.walletTxCount >= 20 && e.walletAgeDays >= 30) return true;
@@ -157,6 +167,109 @@ export function scoreX402Payments(params: {
   else if (params.uniqueDays >= 3) score += 3;
 
   return clamp(score);
+}
+
+/**
+ * L1 observed-purchase stats (see src/lib/db/observed-purchases.ts). Every field
+ * counts ONLY delivery-verified purchases to independent counterparties — the
+ * reader strips self-dealing, dust and funder-shared recipients before they get
+ * here, exactly as getX402PaymentStats does for the interim proxy.
+ */
+export type L1PurchaseStats = {
+  purchaseCount: number;
+  uniqueDays: number;
+  distinctCounterparties: number;
+};
+
+/**
+ * The PREMIUM economic-activity signal: vet402's own delivery-verified observed
+ * purchases. It starts well above the x402 curve because it is a strictly
+ * stronger fact — vet402 did not merely see a USDC settlement, it confirmed the
+ * purchased good/service was actually delivered to an independent seller. A
+ * single such purchase is already meaningful (75); breadth across distinct
+ * sellers and days lifts it toward 100.
+ */
+export function scoreL1Purchases(l1: L1PurchaseStats): number {
+  if (l1.purchaseCount <= 0) return X402_NO_HISTORY_SCORE;
+
+  let score = 75;
+  if (l1.purchaseCount >= 20) score += 10;
+  else if (l1.purchaseCount >= 10) score += 7;
+  else if (l1.purchaseCount >= 5) score += 5;
+  else if (l1.purchaseCount >= 2) score += 3;
+
+  if (l1.distinctCounterparties >= 10) score += 9;
+  else if (l1.distinctCounterparties >= 5) score += 6;
+  else if (l1.distinctCounterparties >= 2) score += 3;
+
+  if (l1.uniqueDays >= 14) score += 6;
+  else if (l1.uniqueDays >= 7) score += 4;
+  else if (l1.uniqueDays >= 3) score += 2;
+
+  return clamp(score);
+}
+
+/**
+ * Payee-side L1 receiving signal (vet402 2026-08-14). The seller twin of
+ * scoreL1Purchases: how many INDEPENDENT buyers vet402 confirmed received
+ * delivery from this address, over how many days. Premium receiving evidence —
+ * vet402 did not merely see USDC arrive, it confirmed real buyers got what they
+ * paid for — so it starts at the neutral 50 the x402 receiving axis uses and
+ * climbs from there. `distinctBuyers` is already funder-collapsed by the reader
+ * (getObservedDeliveryStats), so a single-funder sybil cluster cannot buy it.
+ */
+export function scoreL1Receiving(l1: {
+  deliveryCount: number;
+  uniqueDays: number;
+  distinctBuyers: number;
+}): number {
+  if (l1.deliveryCount <= 0) return 50;
+
+  let score = 55;
+  if (l1.deliveryCount >= 20) score += 18;
+  else if (l1.deliveryCount >= 10) score += 13;
+  else if (l1.deliveryCount >= 5) score += 9;
+  else if (l1.deliveryCount >= 2) score += 5;
+  else score += 2;
+
+  if (l1.distinctBuyers >= 10) score += 18;
+  else if (l1.distinctBuyers >= 5) score += 12;
+  else if (l1.distinctBuyers >= 2) score += 6;
+
+  if (l1.uniqueDays >= 14) score += 9;
+  else if (l1.uniqueDays >= 7) score += 6;
+  else if (l1.uniqueDays >= 3) score += 3;
+
+  return clamp(score);
+}
+
+/**
+ * vet402 2026-08-14 — the highest-weighted axis (0.40), broadened from "x402
+ * facilitator settlements only" to VERIFIABLE REAL ECONOMIC ACTIVITY, sourced
+ * strongest-first:
+ *
+ *   1. L1 delivery-verified observed purchases (PREMIUM). 0 rows today; the
+ *      intake is designed now (src/lib/db/observed-purchases.ts) so the moment
+ *      the observatory writes one, it becomes the strongest ALLOW basis a wallet
+ *      can have. When present it DOMINATES — a weak x402 history can never drag
+ *      a strong L1 score down (Math based on L1 alone, not a blend).
+ *   2. x402 owner-signed independent USDC settlements (INTERIM PROXY). The
+ *      2026-08-13 anti-manipulation ledger is reused verbatim (getX402PaymentStats
+ *      already strips self-sends, dust, unsigned rows and funder-shared payees).
+ *   3. Neither → X402_NO_HISTORY_SCORE (30). Because this axis carries 0.40, that
+ *      floor is what guarantees registration-only / self-attested / self-dealing-
+ *      only wallets top out at WARN no matter how good every other axis is
+ *      (see the arithmetic in the SCORE_WEIGHTS note in chain/config.ts). The
+ *      broadening adds ALLOW routes for REAL activity; it does not lower this
+ *      floor, so no fake gains a route it did not have.
+ */
+export function scoreEconomicActivity(inputs: {
+  l1: L1PurchaseStats;
+  x402: { paymentCount: number; uniqueDays: number };
+}): number {
+  if (inputs.l1.purchaseCount > 0) return scoreL1Purchases(inputs.l1);
+  if (inputs.x402.paymentCount > 0) return scoreX402Payments(inputs.x402);
+  return X402_NO_HISTORY_SCORE;
 }
 
 export function computeWeightedScore(

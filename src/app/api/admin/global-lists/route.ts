@@ -10,6 +10,10 @@ import { invalidateScoreCacheForListChange } from "@/lib/scoring/cache-invalidat
 const bodySchema = z.object({
   wallet: z.string(),
   listType: z.enum(["blacklist"]),
+  // vet402 2026-08-14 — a GLOBAL blacklist is public censorship, so it may not
+  // be applied without a stated reason. The reason is published verbatim in the
+  // operator-override transparency log (/operator-log). Non-blank, bounded.
+  reason: z.string().trim().min(1).max(500),
 });
 
 function authorizeAdmin(request: NextRequest): boolean {
@@ -50,6 +54,7 @@ export async function POST(request: NextRequest) {
     wallet: parsed.data.wallet,
     listType: "blacklist",
     global: true,
+    reason: parsed.data.reason,
   });
 
   await invalidateScoreCacheForListChange(parsed.data.wallet);

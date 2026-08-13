@@ -39,8 +39,20 @@ export type TrustSignals = {
   x402: {
     paymentCount: number;
     uniqueDays: number;
-    /** Internal 0–100 settlement component used in scoring. */
+    /**
+     * Internal 0–100 component the highest-weighted axis fed the weighting.
+     * vet402 2026-08-14: this axis is "verifiable economic activity", not x402
+     * settlements alone — `score` reflects the strongest of L1 observed purchases
+     * (below) and x402 settlements. Kept under `x402` for wire back-compat.
+     */
     score: number;
+    /**
+     * vet402 2026-08-14 — L1 delivery-verified observed purchases behind the axis
+     * score (the premium signal). Optional/back-compat; 0 today until the
+     * observatory writes its first row.
+     */
+    l1PurchaseCount?: number;
+    l1DistinctSellers?: number;
   };
   sybil: {
     risk: "low" | "medium" | "high";

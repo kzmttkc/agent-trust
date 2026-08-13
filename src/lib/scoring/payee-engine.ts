@@ -16,9 +16,13 @@ import {
   type OutcomeTrust,
 } from "./outcome-adjustment";
 import { getPayeeStats, type PayeeStats } from "@/lib/db/x402-payments";
+import {
+  getObservedDeliveryStats,
+  type ObservedDeliveryStats,
+} from "@/lib/db/observed-purchases";
 import { LruCache } from "@/lib/util/lru-cache";
 import { logServerError } from "@/lib/util/log";
-import { normalizeWalletScore } from "./helpers";
+import { normalizeWalletScore, scoreL1Receiving } from "./helpers";
 import { hasUnavailableInput, toRecommendation } from "./verdict";
 import type { Recommendation } from "./types";
 
@@ -152,6 +156,10 @@ export type PayeeSignals = {
     uniqueDays: number;
     distinctPayers: number;
     score: number;
+    /** vet402 2026-08-14 — L1 delivery-verified receipts behind the score (the
+     *  premium receiving signal). 0 until the observatory writes its first row. */
+    l1DeliveryCount?: number;
+    l1DistinctBuyers?: number;
   };
   walletHealth: {
     ageDays: number;
@@ -512,6 +520,27 @@ function determineDataDepth(stats: PayeeStats): DataDepth {
 }
 
 /**
+ * vet402 2026-08-14 — depth from L1 deliveries. The premium receiving twin of
+ * determineDataDepth: vet402-confirmed deliveries to INDEPENDENT (funder-
+ * collapsed) buyers. Thresholds mirror the x402 depth but on the strictly
+ * stronger delivery-verified fact, so a payee vet402 has watched actually
+ * deliver to real, independent buyers is not stuck at "thin" just because its
+ * counterparties never used the x402 facilitator endpoint.
+ */
+function l1DeliveryDepth(l1: ObservedDeliveryStats): DataDepth {
+  if (l1.deliveryCount >= 10 && l1.uniqueDays >= 7 && l1.distinctBuyers >= 3) return "rich";
+  if (l1.deliveryCount >= 3 && l1.distinctBuyers >= 2) return "moderate";
+  return "thin";
+}
+
+const DEPTH_RANK: Record<DataDepth, number> = { thin: 0, moderate: 1, rich: 2 };
+
+/** The stronger of the x402 and L1 receiving depths. */
+function combineDepth(a: DataDepth, b: DataDepth): DataDepth {
+  return DEPTH_RANK[a] >= DEPTH_RANK[b] ? a : b;
+}
+
+/**
  * Weights shift by data depth: a wallet with little/no receiving history
  * (thin) can't be judged much on that axis, so cold-start wallets lean on
  * wallet health and drain-pattern signals instead. A wallet with a deep,
@@ -565,12 +594,14 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
   // into whatever was left. Running them together makes the request cost the
   // SLOWEST read rather than all of them, which is what gives the v1 fallback
   // room to exist at all. Nothing about which failure means what changes here.
-  const [statsResult, metricsResult, drainResult, outcomesResult] = await Promise.allSettled([
-    getPayeeStats(addrLower),
-    fetchWalletMetrics(addr),
-    detectDrainPattern(addr),
-    getOutcomesForWallet(addrLower),
-  ]);
+  const [statsResult, metricsResult, drainResult, outcomesResult, l1Result] =
+    await Promise.allSettled([
+      getPayeeStats(addrLower),
+      fetchWalletMetrics(addr),
+      detectDrainPattern(addr),
+      getOutcomesForWallet(addrLower),
+      getObservedDeliveryStats(addrLower),
+    ]);
 
   // The payment-stats read has no fallback and never had one: it is the local
   // database, and a caller asking for a score cannot be answered without it.
@@ -640,9 +671,24 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
     ? rawWalletScore
     : { ...rawWalletScore, isBurner: false };
 
-  const receivingScore = scoreReceiving(stats);
+  // vet402 2026-08-14 — L1 deliveries are PREMIUM receiving evidence. A read
+  // failure here can only WITHHOLD a promotion (empty → no lift), so it degrades
+  // to empty rather than flagging unavailable: the safe direction is the same as
+  // on the buyer side.
+  const l1Delivery: ObservedDeliveryStats =
+    l1Result.status === "fulfilled"
+      ? l1Result.value
+      : ((logServerError("payee_l1_deliveries", l1Result.reason),
+        { deliveryCount: 0, uniqueDays: 0, distinctBuyers: 0 }) as ObservedDeliveryStats);
+
+  // The receiving axis takes the stronger of the x402 settlement record and the
+  // L1 delivery record; depth (which drives the weight distribution AND the
+  // no-receiving-evidence cap) is the stronger of the two as well, so an
+  // address vet402 has watched deliver to real independent buyers is judged on
+  // that track record instead of being capped as a payee with none.
+  const receivingScore = Math.max(scoreReceiving(stats), scoreL1Receiving(l1Delivery));
   const drainScore = scoreDrain(drainSignal);
-  const dataDepth = determineDataDepth(stats);
+  const dataDepth = combineDepth(determineDataDepth(stats), l1DeliveryDepth(l1Delivery));
   const weights = WEIGHTS_BY_DEPTH[dataDepth];
 
   const preOutcomeScore = clamp(
@@ -746,6 +792,8 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
         uniqueDays: stats.uniqueDays,
         distinctPayers: stats.distinctPayers,
         score: receivingScore,
+        l1DeliveryCount: l1Delivery.deliveryCount,
+        l1DistinctBuyers: l1Delivery.distinctBuyers,
       },
       walletHealth: {
         ageDays: walletMetrics?.ageDays ?? 0,

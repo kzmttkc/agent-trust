@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { ensureOwnerUserId } from "./api-keys";
 import { getDb } from "./client";
 import { dispatchWebhookEvent } from "@/lib/webhooks";
+import { recordOperatorOverride } from "./operator-overrides";
 import { apiKeys, customerLists } from "./schema";
 
 export type ListType = "whitelist" | "blacklist";
@@ -128,6 +129,13 @@ export async function addCustomerListEntry(params: {
   wallet: string;
   listType: ListType;
   global?: boolean;
+  /**
+   * vet402 2026-08-14 — required for a GLOBAL (operator-wide) act: it is written
+   * to the PUBLIC operator-override log (src/lib/db/operator-overrides.ts) so a
+   * global blacklist can never be a silent, reasonless censorship point. Ignored
+   * for customer-scoped list changes, which stay private to the customer.
+   */
+  reason?: string;
 }): Promise<CustomerListEntry> {
   const db = getDb();
   if (!db) throw new Error("DATABASE_URL is not configured");
@@ -170,6 +178,17 @@ export async function addCustomerListEntry(params: {
       wallet,
       listType: params.listType,
     }).catch(() => {});
+  } else if (params.listType === "blacklist") {
+    // vet402 2026-08-14 — a GLOBAL operator blacklist is an act of censorship on
+    // the whole network, so it is recorded in the PUBLIC operator-override log
+    // with its reason. AWAITED, not fire-and-forget: the public record and the
+    // enforcement must land together, or the "silent censorship" this closes
+    // would reappear as an enforced block with no public trace.
+    await recordOperatorOverride({
+      wallet,
+      action: "blacklist_added",
+      reason: params.reason?.trim() || "unspecified",
+    });
   }
 
   return {

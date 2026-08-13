@@ -134,6 +134,89 @@ export const customerLists = pgTable(
   ],
 );
 
+/**
+ * vet402 2026-08-14 — L1 observed purchases: the PREMIUM economic-activity
+ * signal. A row is vet402's own observatory recording that a wallet made a real
+ * purchase from an independent seller AND that the good/service was delivered.
+ * This is a strictly stronger fact than an x402 settlement row (which proves the
+ * money moved, not that anything was delivered), so it feeds the highest-weighted
+ * axis above the x402 curve (scoreEconomicActivity / scoreL1Purchases).
+ *
+ * WRITTEN ONLY BY THE TRUSTED OBSERVATORY (recordObservedPurchase), never by API
+ * scoring — the same trust boundary as funder_wallets and feedback_events. The
+ * table is empty today (0 rows); the intake exists so the first real observation
+ * becomes an ALLOW basis without a schema scramble later.
+ *
+ * SQL: scripts/sql/2026-08-14-observed-purchases.sql (readers tolerate a missing
+ * table via isMissingSchemaError, degrading to "no L1 history" — never a throw).
+ */
+export const observedPurchases = pgTable(
+  "observed_purchases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** The BUYER whose economic activity this evidences (the payer). */
+    wallet: text("wallet").notNull(),
+    /** The independent SELLER/counterparty. NULL = unresolved → never counts. */
+    counterparty: text("counterparty"),
+    /** USDC base units (6 decimals) the buyer actually paid, on-chain. */
+    amount: text("amount"),
+    /** The settlement tx; unique so a purchase is observed at most once. */
+    txHash: text("tx_hash").notNull(),
+    /** What was purchased, when the observatory can name it. */
+    resource: text("resource"),
+    /** On-chain block time — the authoritative day axis, like x402_payments. */
+    blockTimestamp: timestamp("block_timestamp", { withTimezone: true }),
+    /**
+     * TRUE only when the observatory confirmed the purchased good/service was
+     * actually delivered. A row counts toward economic-activity scoring ONLY
+     * when this is TRUE — an observed settlement with no delivery confirmation
+     * is exactly an x402-strength fact, not an L1 one, and must not be scored
+     * as the premium signal.
+     */
+    deliveryVerified: boolean("delivery_verified").notNull().default(false),
+    /** Which observatory/probe recorded it (provenance, ops visibility). */
+    observedBy: text("observed_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("observed_purchases_tx_hash_idx").on(t.txHash),
+    index("observed_purchases_wallet_idx").on(t.wallet, t.blockTimestamp),
+    index("observed_purchases_counterparty_idx").on(t.counterparty, t.blockTimestamp),
+  ],
+);
+
+/**
+ * vet402 2026-08-14 — operator override transparency log (append-only, PUBLIC).
+ *
+ * The EF/Vitalik blocker: an operator could add a GLOBAL blacklist entry
+ * (operator_policy BLOCK) with no reason, no signal trail, invisible to the
+ * scored party — a silent single censorship point that contradicts credible
+ * neutrality. This table turns every such GLOBAL operator act into an auditable
+ * public record: target address, action, reason, timestamp. Served openly by
+ * GET /api/transparency/operator-overrides and /operator-log, and covered by the
+ * same keyless dispute routes as any score (ToS §8).
+ *
+ * CUSTOMER-scoped lists are NOT recorded here: a customer whitelisting/blacklisting
+ * for their OWN integration is their private management right, not an operator
+ * act of global censorship. Only apiKeyId=NULL (global) writes land here.
+ *
+ * SQL: scripts/sql/2026-08-14-operator-overrides.sql (readers tolerate a missing
+ * table, degrading to an empty log rather than throwing).
+ */
+export const operatorOverrides = pgTable(
+  "operator_overrides",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    wallet: text("wallet").notNull(),
+    /** 'blacklist_added' | 'blacklist_removed'. */
+    action: text("action").notNull(),
+    /** Why the operator applied it — required, never blank. */
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("operator_overrides_created_idx").on(t.createdAt)],
+);
+
 export const funderWallets = pgTable(
   "funder_wallets",
   {

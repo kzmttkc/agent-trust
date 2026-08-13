@@ -20,9 +20,9 @@ import {
   computeWeightedScore,
   dampenReputationForSybil,
   normalizeWalletScore,
+  scoreEconomicActivity,
   scoreIdentity,
   scoreReputation,
-  scoreX402Payments,
   walletsMatch,
 } from "./helpers";
 import { detectReputationSybilFlags, detectSybilFlags } from "./sybil";
@@ -34,6 +34,7 @@ import {
 } from "./verdict";
 import type { AgentIdentity } from "@/lib/chain/erc8004";
 import { getX402PaymentStats } from "@/lib/db/x402-payments";
+import { getObservedPurchaseStats } from "@/lib/db/observed-purchases";
 import { getDataCoverage } from "@/lib/health/data-coverage";
 import type { ScoreRequestContext, TrustScoreResult, TrustSignals } from "./types";
 import { createDeadline, withDeadline } from "@/lib/util/deadline";
@@ -198,9 +199,23 @@ export async function scoreAgentById(
           ok: true as const,
           value: { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null },
         }),
+
+    // vet402 2026-08-14 — L1 observed purchases, the PREMIUM economic-activity
+    // signal. Degrades to "none" like the others; a read failure here can only
+    // lower the axis to its x402/floor value, never raise it, so it is not
+    // flagged as a fail-closed input — the strongest thing a missing L1 read can
+    // do is withhold a promotion, which is the safe direction.
+    walletAddress
+      ? withDeadline(getObservedPurchaseStats(walletAddress), signalBudget, "l1_stats")
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error }))
+      : Promise.resolve({
+          ok: true as const,
+          value: { purchaseCount: 0, uniqueDays: 0, distinctCounterparties: 0 },
+        }),
   ] as const);
 
-  const [reputationResult, feedbackResult, walletResult, x402Result] = settled;
+  const [reputationResult, feedbackResult, walletResult, x402Result, l1Result] = settled;
 
   const reputationUnavailable = !reputationResult.ok;
   const reputation = reputationResult.ok
@@ -240,7 +255,16 @@ export async function scoreAgentById(
     : { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null };
   if (!x402Result.ok) logSignalDegraded("x402_stats", x402Result.error);
 
-  const x402Score = scoreX402Payments(x402Stats);
+  const l1Stats: Awaited<ReturnType<typeof getObservedPurchaseStats>> = l1Result.ok
+    ? l1Result.value
+    : { purchaseCount: 0, uniqueDays: 0, distinctCounterparties: 0 };
+  if (!l1Result.ok) logSignalDegraded("l1_stats", l1Result.error);
+
+  // The highest-weighted axis: verifiable economic activity (L1 observed
+  // purchases first, x402 settlements as the interim proxy). scoreEconomicActivity
+  // takes the strongest available; absent both it returns the 30 floor that keeps
+  // registration-only/self-attested/self-dealing-only capped at WARN.
+  const x402Score = scoreEconomicActivity({ l1: l1Stats, x402: x402Stats });
 
   const identityScore = scoreIdentity(identity.registered, Boolean(identity.tokenUri));
   const onChainAvg =
@@ -311,6 +335,7 @@ export async function scoreAgentById(
     ),
     {
       x402PaymentCount: x402Stats.paymentCount,
+      l1PurchaseCount: l1Stats.purchaseCount,
       uniqueFeedbackClients: feedbackStats.uniqueClients,
       walletTxCount: walletMetrics?.txCount ?? 0,
       walletAgeDays: walletMetrics?.ageDays ?? 0,
@@ -336,6 +361,8 @@ export async function scoreAgentById(
       paymentCount: x402Stats.paymentCount,
       uniqueDays: x402Stats.uniqueDays,
       score: x402Score,
+      l1PurchaseCount: l1Stats.purchaseCount,
+      l1DistinctSellers: l1Stats.distinctCounterparties,
     },
     sybil: {
       risk: sybilRisk,
@@ -424,7 +451,20 @@ export async function scoreWallet(
   } catch {
     x402StatsUnavailable = true;
   }
-  const x402Score = scoreX402Payments(x402Stats);
+
+  // vet402 2026-08-14 — L1 observed purchases (premium economic-activity signal).
+  // Same bare-wallet path: a read failure can only withhold a promotion.
+  let l1Stats: Awaited<ReturnType<typeof getObservedPurchaseStats>> = {
+    purchaseCount: 0,
+    uniqueDays: 0,
+    distinctCounterparties: 0,
+  };
+  try {
+    l1Stats = await getObservedPurchaseStats(address);
+  } catch (error) {
+    logSignalDegraded("l1_stats", error);
+  }
+  const x402Score = scoreEconomicActivity({ l1: l1Stats, x402: x402Stats });
 
   const sybilFlags = await detectSybilFlags({
     identity: {
@@ -462,6 +502,7 @@ export async function scoreWallet(
     ),
     {
       x402PaymentCount: x402Stats.paymentCount,
+      l1PurchaseCount: l1Stats.purchaseCount,
       uniqueFeedbackClients: 0,
       walletTxCount: walletMetrics.txCount,
       walletAgeDays: walletMetrics.ageDays,
@@ -480,6 +521,8 @@ export async function scoreWallet(
       paymentCount: x402Stats.paymentCount,
       uniqueDays: x402Stats.uniqueDays,
       score: x402Score,
+      l1PurchaseCount: l1Stats.purchaseCount,
+      l1DistinctSellers: l1Stats.distinctCounterparties,
     },
     sybil: {
       risk: sybilRisk,

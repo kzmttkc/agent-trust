@@ -34,6 +34,9 @@ const INDEX_LINKS = [
   // publicly」と約束していた帳簿。索引に載っていなければ約束の半分しか
   // 果たしていない。
   { label: "Corrections", href: "/corrections" },
+  // 2026-08-14: the public operator-override log (credible-neutrality blocker).
+  // A censorship ledger nobody can find is not a check on censorship.
+  { label: "Operator log", href: "/operator-log" },
   { label: "FAQ", href: "/faq" },
   { label: "Blog", href: "/blog" },
 ];

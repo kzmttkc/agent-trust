@@ -106,6 +106,11 @@ type Row = {
   wallet: string;
   txHash: string;
   payee?: string | null;
+  /** onchain USDC amount in base units. Defaults to a non-dust 1 USDC so a
+   *  row shaped as a genuine settlement clears the >= X402_MIN filter without
+   *  every test having to spell it out. Pass "0" or a sub-dust value to test
+   *  the dust floor. */
+  onchainAmount?: string | null;
   token?: string | null;
   amountVerified?: boolean | null;
   ownershipVerified?: boolean | null;
@@ -113,13 +118,25 @@ type Row = {
   createdAt?: string | null;
 };
 
+// getX402PaymentStats (payer side) requires a resolved, independent, non-self
+// payee; when a test does not care WHO the payee is (the counting/day tests), a
+// fresh unique address is exactly "an independent seller" and lets the row count.
+let payeeSeq = 0;
+function autoPayee(): string {
+  payeeSeq += 1;
+  // 0x700000+ is well clear of this file's wal(NN) seeds, so an auto payee is
+  // never accidentally the payer or another seeded wallet.
+  return "0x" + (0x700000 + payeeSeq).toString(16).padStart(40, "0");
+}
+
 async function seed(rows: Row[]): Promise<void> {
   for (const r of rows) {
+    const payee = r.payee === undefined ? autoPayee() : r.payee;
     await sql!`INSERT INTO x402_payments
-      (wallet, tx_hash, payee, token, amount_verified, ownership_verified, block_timestamp, created_at)
+      (wallet, tx_hash, payee, onchain_amount, token, amount_verified, ownership_verified, block_timestamp, created_at)
       VALUES (
         ${r.wallet.toLowerCase()}, ${r.txHash.toLowerCase()},
-        ${r.payee?.toLowerCase() ?? null}, ${r.token ?? null},
+        ${payee?.toLowerCase() ?? null}, ${r.onchainAmount ?? "1000000"}, ${r.token ?? null},
         ${r.amountVerified ?? null}, ${r.ownershipVerified ?? null},
         ${r.blockTimestamp ?? null}, ${r.createdAt ?? new Date().toISOString()}
       )`;
