@@ -903,33 +903,80 @@ export type TransferWindow = {
   source: "v2" | "v1";
 };
 
+/** Long enough that a healthy v2 read is normally home before the scarce v1
+ *  request is spent (measured from Vercel's egress, not from a laptop: a quiet
+ *  wallet's v2 window costs 4-7s there, against well under 1s locally). */
+const DEFAULT_HEDGE_AFTER_MS = 6_000;
+
 type WindowOptions = {
   limit?: number;
   chainId?: number;
-  /** How long v2 gets before the fallback is tried. */
+  /** Total allowance for the v2 attempt. */
   v2BudgetMs?: number;
-  /** How long the v1 fallback gets. */
+  /** Total allowance for the v1 attempt. */
   v1BudgetMs?: number;
+  /** How long v2 runs alone before v1 is started ALONGSIDE it. */
+  hedgeAfterMs?: number;
 };
 
+/**
+ * Run v2, and if it has not answered within `hedgeAfterMs`, start v1 as well
+ * and take whichever finishes first.
+ *
+ * WHY HEDGED AND NOT A PLAIN TIMEOUT-THEN-FALLBACK (2026-08-13, corrected).
+ * The first version of this used a fixed v2 timeout: wait 3.5s, then give up
+ * and try v1. That number came from measuring Blockscout FROM A LAPTOP, where
+ * a quiet wallet's window returns in well under a second — and it was wrong,
+ * because production does not run on that laptop. Deployed, it took
+ * /payee/0x0330070F… from 41/WARN in ~7s to "Not verifiable" in 3.9s: from
+ * Vercel's egress the same quiet-wallet read costs 4-7s, so a 3.5s guillotine
+ * killed reads that were about to succeed. I measured the instrument in the
+ * wrong place and broke the addresses that still worked.
+ *
+ * Hedging removes the guess. v2 keeps its FULL budget and is never cut short,
+ * so a slow-but-working v2 still wins and nothing that used to work stops
+ * working. The delay only decides how eagerly the scarce v1 request is spent
+ * — a tuning knob for cost, not a correctness threshold. Getting it "wrong"
+ * now costs one extra request, not a verdict.
+ *
+ * A v2 failure that arrives FAST does not wait out the delay: the hedge fires
+ * on slowness, and a rejection starts v1 immediately.
+ */
 async function withV1Fallback(
   v2: () => Promise<BlockscoutTx[]>,
   v1: () => Promise<BlockscoutTx[]>,
+  hedgeAfterMs: number,
 ): Promise<TransferWindow> {
+  const v2Window = v2().then((transfers) => ({ transfers, source: "v2" as const }));
+  // Settled view of the same promise, so racing it against the timer cannot
+  // leave the original rejection unhandled.
+  const v2Settled = v2Window.then(
+    (window) => ({ ok: true as const, window }),
+    (error) => ({ ok: false as const, error }),
+  );
+
+  const raced = await Promise.race([
+    v2Settled,
+    sleep(hedgeAfterMs).then(() => "still_running" as const),
+  ]);
+  if (raced !== "still_running" && raced.ok) return raced.window;
+
+  const v1Window = v1().then((transfers) => ({ transfers, source: "v1" as const }));
   try {
-    return { transfers: await v2(), source: "v2" };
-  } catch (v2Error) {
-    try {
-      return { transfers: await v1(), source: "v1" };
-    } catch (v1Error) {
-      // Report the FALLBACK's failure, carrying v2's underneath: an operator
-      // reading this needs to know both refused, and which one refused last.
-      throw new BlockscoutUnavailableError(
-        "blockscout_window_unavailable",
-        { v2: v2Error, v1: v1Error },
-        false,
-      );
-    }
+    // First one to SUCCEED wins; rejects only if both fail.
+    return await Promise.any([v2Window, v1Window]);
+  } catch (error) {
+    const reasons =
+      error instanceof AggregateError
+        ? error.errors.map((e) => (e instanceof Error ? e.message : String(e))).join(" / ")
+        : String(error);
+    // Name BOTH refusals: "the window is unavailable" is not actionable, but
+    // "v2 said 500 and v1 said 429" tells an operator which limiter to look at.
+    throw new BlockscoutUnavailableError(
+      `blockscout_window_unavailable:${reasons}`,
+      error,
+      false,
+    );
   }
 }
 
@@ -949,6 +996,7 @@ export async function fetchWalletTransferWindow(
         chainId: options.chainId,
         budgetMs: options.v1BudgetMs,
       }),
+    options.hedgeAfterMs ?? DEFAULT_HEDGE_AFTER_MS,
   );
 }
 
@@ -975,6 +1023,7 @@ export async function fetchTokenTransferWindow(
         chainId: options.chainId,
         budgetMs: options.v1BudgetMs,
       }),
+    options.hedgeAfterMs ?? DEFAULT_HEDGE_AFTER_MS,
   );
 }
 

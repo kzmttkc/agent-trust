@@ -126,6 +126,8 @@ type Upstream = {
   v2TransfersDown?: boolean;
   /** v1 is in its penalty box too — nothing can answer. */
   v1Down?: boolean;
+  /** Only the drain legs' v1 fallback is refused; the metrics walk survives. */
+  v1DrainDown?: boolean;
   /** /counters hangs. Its own contract says a missing answer falls through to
    *  the walk; this pins that it actually does. */
   countersSlow?: boolean;
@@ -218,6 +220,13 @@ function upstream(state: Upstream) {
 
     const params = new URL(url).searchParams;
     if (state.v1Down) return new Response("upstream is down", { status: 503 });
+    // Only the DRAIN legs' v1 fallback is refused; the wallet-metrics walk
+    // (txlist ASCENDING) still answers. Without this split a case could not
+    // isolate a drain failure — metrics would fail too and `degraded` would be
+    // true for a reason the case was not testing.
+    if (state.v1DrainDown && (params.get("sort") === "desc" || params.get("action") === "tokentx")) {
+      return new Response("upstream is down", { status: 503 });
+    }
 
     if (params.get("action") === "txlist") {
       // page 1 holds the whole fixture; any later page is the end of history.
@@ -243,8 +252,10 @@ beforeEach(() => {
   process.env.BLOCKSCOUT_API_URL = "https://base.blockscout.com/api";
   process.env.BASE_RPC_URL = RPC_URL;
   // Leg budgets far under SLOW_MS so "too slow" is reached in test time.
-  process.env.PAYEE_LEG_BUDGET_MS = "250";
-  process.env.PAYEE_V2_BUDGET_MS = "120";
+  process.env.PAYEE_LEG_BUDGET_MS = "600";
+  process.env.PAYEE_V2_BUDGET_MS = "150";
+  process.env.PAYEE_V1_BUDGET_MS = "300";
+  process.env.PAYEE_HEDGE_AFTER_MS = "60";
   process.env.WALLET_METRICS_COUNTER_BUDGET_MS = "120";
   delete process.env.SKIP_CHAIN_READS;
   delete process.env.DATABASE_URL;
@@ -259,6 +270,8 @@ afterEach(() => {
     "BLOCKSCOUT_COOLDOWN_MS",
     "PAYEE_LEG_BUDGET_MS",
     "PAYEE_V2_BUDGET_MS",
+    "PAYEE_V1_BUDGET_MS",
+    "PAYEE_HEDGE_AFTER_MS",
     "WALLET_METRICS_COUNTER_BUDGET_MS",
   ]) {
     delete process.env[key];
@@ -321,6 +334,41 @@ test("the healthy path still costs the drain check ZERO v1 requests", async () =
       `drain check used v1 (${action}) while v2 was healthy:\n${v1.join("\n")}`,
     );
   }
+});
+
+test("REGRESSION: a v2 read that is merely SLOW still wins — it is not guillotined", async () => {
+  // Shipped 2026-08-13 and immediately broke production the other way. The
+  // first fallback cut v2 off at a fixed 3,500ms, a number measured from a
+  // laptop where a quiet wallet's window returns in under a second. From
+  // Vercel's egress the same read costs 4-7s, so the cut-off killed reads that
+  // were about to succeed: /payee/0x0330070F… went from 41/WARN in ~7s to
+  // "Not verifiable" in 3.9s, and EVERY address on the leaderboard followed.
+  //
+  // The hedge is what makes that unrepeatable: v2 is never cut short in favour
+  // of the fallback, both run, first success wins. This pins that a v2 slower
+  // than the hedge delay still produces a v2-sourced verdict when v1 cannot
+  // answer at all.
+  const slowV2Ms = 260;
+  process.env.PAYEE_HEDGE_AFTER_MS = "60";
+  upstream({ v1DrainDown: true });
+  const stubbed = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/api/v2/addresses/") && !String(input).includes("/counters")) {
+      await new Promise((r) => setTimeout(r, slowV2Ms));
+    }
+    return stubbed(input, init);
+  }) as typeof fetch;
+
+  freshCaches();
+  const result = await scorePayeeWallet(WALLET);
+  delete process.env.PAYEE_HEDGE_AFTER_MS;
+
+  assert.equal(
+    result.degraded,
+    false,
+    `a slow-but-healthy v2 was thrown away (flags: ${result.signals.flags.join(",")})`,
+  );
+  assert.equal(result.signals.drainPattern.unmeasured.length, 0);
 });
 
 test("FAIL-CLOSED: when BOTH sources are down the verdict is still BLOCK", async () => {

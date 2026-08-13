@@ -42,13 +42,18 @@ const PROBE_TTL_MS = 60_000;
  *  full minute. Same reasoning as the seller-side probe. */
 const PROBE_FAILURE_TTL_MS = 15_000;
 /**
- * Above the engine's own per-leg budget (PAYEE_LEG_BUDGET_MS, 12s), not under
+ * Above the engine's own per-leg budget (PAYEE_LEG_BUDGET_MS, 20s), not under
  * it. A probe whose deadline is tighter than the thing it probes reports an
  * outage every time the product is merely doing its slowest legitimate work —
  * and a monitor that cries wolf gets muted, which costs exactly as much as one
  * that stays silent.
+ *
+ * 2026-08-13: shipped at 14s against a 16s leg budget, and production duly
+ * reported {"status":"error", latencyMs: 14030} — the probe timing ITSELF out,
+ * indistinguishable in the response from the payee path being down. A probe
+ * must outlive what it probes or it measures its own deadline.
  */
-const PROBE_DEADLINE_MS = 14_000;
+const PROBE_DEADLINE_MS = 24_000;
 
 export type PayeeProbe = {
   /**

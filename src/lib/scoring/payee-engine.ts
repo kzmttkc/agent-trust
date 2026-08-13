@@ -29,22 +29,27 @@ const CACHE_MAX_ENTRIES = 5_000;
  *   v1 txlist  offset=100 (1 request)  1,518-4,654ms
  *   v1 tokentx offset=100 (1 request) 10,297ms
  *
- * V2_BUDGET only has to clear the HEALTHY case — a quiet wallet's window comes
- * back in well under a second, and the busy figures above are an order of
- * magnitude away, so there is no population in between to get wrong. Waiting
- * longer on v2 buys nothing and spends the budget the fallback needs.
+ * THOSE FIGURES ARE FROM A LAPTOP, AND THAT MATTERS. The first version of this
+ * cut v2 off at 3,500ms on the strength of them — "a quiet wallet answers in
+ * well under a second, so nothing legitimate is near this line". Deployed, it
+ * took /payee/0x0330070F… from 41/WARN in ~7s to "Not verifiable" in 3.9s:
+ * from Vercel's egress the very same read costs 4-7s. The budget was measured
+ * in the wrong building. Numbers below are sized from PRODUCTION latency, and
+ * the fallback is hedged (blockscout.ts) so that no single one of them can
+ * decide a verdict on its own any more.
  *
+ * V2_BUDGET is generous because v2 is the preferred source and is never cut
+ * short in favour of the fallback — the hedge runs them side by side instead.
  * V1_BUDGET has to clear 10,297ms or the fallback is started and then killed
- * before it can answer — which is worse than having no fallback at all: the
- * scarce v1 request is spent AND the verdict is refused anyway.
- *
- * LEG_BUDGET is the outer ceiling over both attempts plus one turn of the v1
- * pacing gate (2,500ms, src/lib/chain/blockscout.ts). It exists so a leg can
- * never run longer than the sum it was budgeted for.
+ * before it can answer, which is worse than having no fallback: the scarce v1
+ * request is spent AND the verdict is refused anyway.
+ * LEG_BUDGET is the outer ceiling over the hedge (6,000ms) plus the slower
+ * arm plus one turn of the v1 pacing gate (2,500ms).
  */
-const V2_BUDGET_MS = 3_500;
+const V2_BUDGET_MS = 14_000;
 const V1_BUDGET_MS = 11_000;
-const LEG_BUDGET_MS = 16_000;
+const HEDGE_AFTER_MS = 6_000;
+const LEG_BUDGET_MS = 20_000;
 
 function envBudget(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -317,6 +322,7 @@ function windowOptions() {
     limit: 100,
     v2BudgetMs: envBudget("PAYEE_V2_BUDGET_MS", V2_BUDGET_MS),
     v1BudgetMs: envBudget("PAYEE_V1_BUDGET_MS", V1_BUDGET_MS),
+    hedgeAfterMs: envBudget("PAYEE_HEDGE_AFTER_MS", HEDGE_AFTER_MS),
   };
 }
 
