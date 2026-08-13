@@ -161,6 +161,15 @@ async function fetchWalletMetricsUncoalesced(
     // one: a read we could not complete is not a wallet we know nothing bad
     // about. The caller flags wallet_metrics_unavailable and fails closed —
     // the retry/coalescing above exists to make this rarer, never to soften it.
+    //
+    // NAME THE CAUSE HERE (2026-08-13). logServerError prints `error.message`
+    // and nothing else, so every one of these reached production as the bare
+    // string "wallet_metrics_unavailable" — which upstream, which status code,
+    // which endpoint, all discarded at the throw. Diagnosing the 2026-08-13
+    // payee outage meant re-deriving from outside the process what the process
+    // itself already knew. The tag says WHICH read died; this says WHY.
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`[vouch] wallet_metrics_unavailable ${address}: ${detail.slice(0, 300)}`);
     throw new Error("wallet_metrics_unavailable", { cause: error });
   }
 }
