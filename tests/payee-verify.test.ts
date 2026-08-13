@@ -10,11 +10,8 @@
 // ============================================================
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  isCanonicalName,
-  payeeMessage,
-  NAME_MAX_LENGTH,
-} from "@/app/api/v1/payees/verify/route";
+import { payeeMessage } from "@/app/api/v1/payees/verify/route";
+import { isCanonicalName, NAME_MAX_LENGTH } from "@/lib/validation/canonical-name";
 import { ipRateLimitHeaders, type IpRateLimitResult } from "@/lib/api/ip-rate-limit";
 
 test("isCanonicalName accepts ordinary business/agent names", () => {

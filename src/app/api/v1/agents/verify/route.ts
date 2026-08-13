@@ -12,7 +12,7 @@ import { readCanonicalAgentWallet } from "@/lib/chain/agent-wallet";
 // shares the exact same 4-line-injection risk (a name with a newline could
 // forge an extra "wallet:" or "agentId:" line), so the fix must be the SAME
 // rule, not a second copy that could drift. See that file's comment.
-import { isCanonicalName } from "@/app/api/v1/payees/verify/route";
+import { isCanonicalName } from "@/lib/validation/canonical-name";
 import { logServerError } from "@/lib/util/log";
 
 // A-10 — agent passport self-verification, the symmetric twin of N-16

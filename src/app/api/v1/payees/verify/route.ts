@@ -8,33 +8,9 @@ import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { verifiedPayees } from "@/lib/db/schema";
 import { isValidAddress } from "@/lib/chain/client";
 import { logServerError } from "@/lib/util/log";
-
-// Public, display-facing bound on the payee name. 64 chars fits every real
-// business/agent name while capping the reflected string that lands on the
-// public /payee/:address page and, in future, badge/OG surfaces.
-export const NAME_MAX_LENGTH = 64;
-
-// 2026-08-06 security (self-audit item 2 — message canonicalization).
-// The signed message is newline-joined and documented as a fixed 4 lines.
-// A `name` containing a newline, carriage return, or tab therefore forges
-// extra lines into the canonical message — e.g. name = "Acme\nwallet: 0xEVIL"
-// makes the signed text contain a SECOND "wallet: " line, which any
-// line-oriented parser (the docs invite one) would mis-attribute. It also
-// desynchronizes GET (preview) from POST (verify) if only one side sanitizes.
-// The fix is a single canonicalizer used by BOTH: reject any name that is not
-// already canonical, so the 4-line invariant is structurally guaranteed and
-// there is nothing to "clean up" divergently. Also strips other C0/C1 control
-// characters that never belong in a display name.
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
-
-export function isCanonicalName(name: string): boolean {
-  if (name.length === 0 || name.length > NAME_MAX_LENGTH) return false;
-  // Reject leading/trailing whitespace so the stored/displayed/signed forms
-  // are identical (no silent trim that would change the signed bytes).
-  if (name !== name.trim()) return false;
-  if (CONTROL_CHARS.test(name)) return false;
-  return true;
-}
+// 2026-08-14: isCanonicalName/NAME_MAX_LENGTH moved to @/lib/validation so a
+// route file no longer exports a shared helper (Next 16 route-type contract).
+import { isCanonicalName } from "@/lib/validation/canonical-name";
 
 // N-16 — payee self-verification. Sign the canonical message with the payee
 // wallet; a valid signature IS the proof of control (EIP-191 via viem, which
