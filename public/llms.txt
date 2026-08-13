@@ -1,45 +1,114 @@
-# Vouch
+# vet402
 
-> A trust layer for agent commerce. Vouch computes ERC-8004-based trust scores for on-chain payees on Base, so x402 API providers and AI agents can check a wallet's track record before paying it — without their own review process.
+> Independent verification of the x402 agent-payment economy. vet402 buys what x402 endpoints actually sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence. It also scores payee wallets on Base, so an x402 API provider or a spending agent can check a counterparty before a payment settles.
 
-As AI agents pay each other autonomously (via x402 and similar machine-payment protocols), there is no built-in way to know whether a payee address has a track record worth trusting. Vouch reads on-chain activity and ERC-8004 agent identity/reputation signals for a given wallet or payee, and returns a trust score via a simple API — so an API provider or agent can decide whether to proceed with a payment before it settles.
+x402 settles payments finally and irreversibly, and proof of payment exists on-chain — but proof of delivery does not exist anywhere. Registries can be written for cents and directory metrics can be manufactured, so vet402 does not take either at face value: it measures, states which level of verification a result came from, and says "unverified" when it has not measured. Nothing on the site is presented as an estimate.
+
+Formerly named "Vouch"; renamed to vet402 in August 2026. The production URL is `vet402.com`. The GitHub repository is still `kzmttkc/agent-trust`, and issued API keys and webhook headers keep the `vouch_` / `Vouch-` prefixes for backward compatibility — the old name appearing in those two places is deliberate, not stale documentation.
+
+## Verification levels
+
+This is the published methodology. A result is labelled by the level that produced it and never moves up a level: an L0 probe cannot report settlement, and an L3 opinion is never folded into an L0–L2 fact. L0–L2 verdicts ship with the observatory (see "Being built" below) — they are not being published yet, and this file does not describe them as though they were.
+
+- **L0 Liveness** — does the endpoint answer correctly? Probe, no purchase. Output: pass / fail / unverified.
+- **L1 Settle-through** — does payment settle and a response arrive? Real purchase. Output: n of m settled, latency.
+- **L2 Conformance** — does the response match the seller's own declaration? Purchase plus machine diff. Output: conform / mismatch / undeclared.
+- **L3 Quality** — is the content any good? Published rubric. Output: opinion, and never mixed into an L0–L2 fact.
+
+What the API returns today is a different, older thing: a 0–100 trust or payee score banded ALLOW / WARN / BLOCK. It predates the levels and stays available to API and SDK callers during the transition; observatory verdicts replace it as they ship, and a score is never reported as an L0–L2 result. The front page states this relationship in §2.1. Scoring is fail-closed: an input that could not be read is never reported as an input that was checked and found fine. Such a verdict is marked `degraded`, is not cached, and returns BLOCK to callers, while the public profile pages say "Not verifiable right now" instead of publishing a number.
 
 ## Primary
-- https://vet402.com/ — product overview
-- https://vet402.com/docs/api — API documentation
-- https://vet402.com/faq — FAQ (x402, ERC-8004, and how trust scores work)
-- https://vet402.com/signup — get an API key
-- https://vet402.com/api/health — service status endpoint
 
-## API
-- `GET /api/v1/agents/{agentId}/score` — trust score by ERC-8004 agent ID (optional `?wallet=` to verify the registered wallet)
-- `GET /api/v1/wallets/{address}/score` — trust score by wallet address (primary path for x402 API middleware)
+- https://vet402.com/ — the memo: problem, verification levels, what is live, what is still being built
+- https://vet402.com/docs/api — API reference, including copy-paste curl commands that need no key
+- https://vet402.com/accuracy — public accuracy ledger: past verdicts, outcomes, and misfire rate
+- https://vet402.com/leaderboard — register of recently verified subjects, ranked
+- https://vet402.com/payee — verify a payee, or look one up
+- https://vet402.com/faq — x402, ERC-8004, and how scoring works
+- https://vet402.com/signup — get an API key (free tier: 1,000 lookups / month)
+- https://vet402.com/blog — notes on agent-to-agent payments, x402, and verification
+
+Public per-subject pages: `https://vet402.com/payee/{address}` and `https://vet402.com/agent/{agentId}`.
+
+## API — no key required
+
+These are open paths, rate-limited per IP. Nothing below needs an account.
+
+- `GET /api/v1/accuracy` — the accuracy ledger as JSON (aggregate counts; same numbers /accuracy renders)
+- `GET /api/v1/payees/verify?wallet={address}&name={name}` — returns the exact message a payee must sign. Read-only, writes nothing
+- `POST /api/v1/payees/verify` — publish a verified-payee page and badge by posting that signed message. Free, signature required
+- `GET /api/v1/agents/verify` / `POST /api/v1/agents/verify` — the same claim flow for an ERC-8004 agent identity
+- `GET /api/v1/agents/{agentId}/passport` — machine-readable agent passport
+- `GET /api/badge/{address}.svg` — SVG badge for a payee wallet (states only whether a signed claim exists; carries no score, because a cached score on a third-party page would outlive its freshness window)
+- `GET /api/badge/agent/{agentId}.svg` — the same badge for an agent
+- `GET /api/demo/score` — one fixed, publicly registered agent, scored live. Returns `live: false` rather than a stale or invented number when it cannot compute one, and `degraded: true` when the verdict was computed with an input it could not read
+- `GET /api/health` — service status
+
+Verification proves control of a wallet or an agent identity by signature. It is not an endorsement, and the score is computed independently of it.
+
+## API — API key required
+
+Send `Authorization: Bearer <key>`. Quotas and burst limits: https://vet402.com/docs/api#rate-limits
+
+- `GET /api/v1/payees/{address}/score` — the buyer-side question: should this payee be paid?
+- `GET /api/v1/wallets/{address}/score` — trust score by wallet address (the path x402 middleware uses)
+- `GET /api/v1/agents/{agentId}/score` — trust score by ERC-8004 agent ID (optional `?wallet=` verifies the registered wallet; optional `?chain=` selects an enabled chain, default Base)
 - `POST /api/v1/scores/batch` — score up to 25 agents in one request
+- `GET /api/v1/agents/{agentId}/history` — score history snapshots (paid plans)
 - `POST /api/v1/payments/x402` — attest an x402 payment settlement after verification (idempotent on txHash)
-- `GET /api/v1/agents/{agentId}/history` — score history snapshots (Pro/Scale plan)
-All endpoints require an `Authorization: Bearer` API key. Full reference: https://vet402.com/docs/api
+- `POST /api/v1/events/{trustEventId}/outcome` — report what actually happened after a verdict; this is what the public accuracy ledger is computed from
+- `GET|POST /api/v1/watchlist`, `DELETE /api/v1/watchlist/{id}` — watch an agent or wallet; verdict changes arrive as a `watch.verdict_changed` webhook
+- `GET|POST /api/v1/webhooks`, `DELETE /api/v1/webhooks/{id}` — webhook subscriptions
 
-## Blog
-- https://vet402.com/blog — notes on agent-to-agent payments, x402, and trust scoring
+Full machine-readable schema: https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml
+
+## Packages
+
+On npm, all from the same repository: `@vouchscore/sdk` (spend guard), `@vouchscore/middleware` (x402 request gate), `@vouchscore/mcp-server` (MCP tool). The SDK and the middleware both default to fail-closed — only an ALLOW passes, and a WARN, a BLOCK, a degraded verdict, or a partially measured one is denied unless the caller explicitly opts out.
+
+## Implemented and live
+
+- Verified Payee: prove control of a wallet by signature, get a public page and an SVG badge
+- Drop-in x402 middleware, REST API, and MCP tool
+- Public accuracy ledger, published whether or not the numbers flatter us
+
+## Being built (not measurements yet)
+
+- The observatory: a continuous catalog of x402 endpoints across chains, probed daily, with delisting alerts for claimed sellers
+- Writing verification records to the ERC-8004 Validation Registry
 
 ## Use cases
+
 - x402 API providers deciding whether to accept a payment from an unfamiliar agent wallet
-- AI agents checking a counterparty's on-chain trust score before initiating a machine-to-machine payment
-- Marketplaces and platforms for agent commerce wanting a reputation signal without building their own scoring pipeline
+- Spending agents checking a counterparty before initiating a machine-to-machine payment
+- Payees and agents publishing a signature-proven claim plus a badge, so counterparties can check them
+- Marketplaces wanting a reputation signal without building their own scoring pipeline
 
 ## Chain
-Base (ERC-8004 agent identity/reputation standard).
+
+Base (ERC-8004 agent identity / reputation) is the default and the chain everything is measured on. The agent-score endpoint accepts `?chain=` to select another enabled chain; an unknown or disabled chain is a 400 with the live list, never a silent fallback to a different chain.
 
 ## Note on domain
-The production URL is `vet402.com`. `agent-trust.vercel.app` is an unrelated third-party service and not affiliated with Vouch.
+
+The production URL is `vet402.com`. `agent-trust.vercel.app` is an unrelated third-party service and is not affiliated with vet402.
+
+## Corrections
+
+If a published score or verification result about a wallet you control is wrong, there is a free, key-less correction route open to anyone, customer or not — see section 8 of https://vet402.com/legal/terms
 
 ## Citation
-- You may cite the content on this site (product overview, API docs, FAQ, blog) as long as you credit the source with the corresponding vet402.com URL.
-- Content current as of 2026-07-23.
+
+- You may cite the content on this site (front page, API docs, FAQ, accuracy ledger, blog) as long as you credit the source with the corresponding vet402.com URL.
+- Content current as of 2026-08-13.
 
 ## Legal
+
 - https://vet402.com/legal/terms
 - https://vet402.com/legal/privacy
+- https://vet402.com/legal/notice
 
 ## Contact
+
 - Site: https://vet402.com
+- X: https://x.com/vet_402
+- GitHub: https://github.com/kzmttkc/agent-trust

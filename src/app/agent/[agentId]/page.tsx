@@ -7,6 +7,7 @@ import { getDb } from "@/lib/db/client";
 import { agentPassports } from "@/lib/db/schema";
 import { parseAgentId } from "@/lib/chain/client";
 import { scoreAgentById } from "@/lib/scoring/engine";
+import { hasUnavailableInput } from "@/lib/scoring/verdict";
 import TrackView from "@/components/site/TrackView";
 
 // A-10 — public agent passport profile: the symmetric twin of the payee
@@ -67,7 +68,13 @@ export default async function AgentPage({
   }
 
   let score:
-    | { value: number; recommendation: string; paymentCount: number; uniqueDays: number }
+    | {
+        value: number;
+        recommendation: string;
+        paymentCount: number;
+        uniqueDays: number;
+        degraded: boolean;
+      }
     | null = null;
   try {
     // 2026-08-06: scoreAgentById reads chain state several calls deep. A HANG
@@ -88,6 +95,11 @@ export default async function AgentPage({
       recommendation: result.recommendation,
       paymentCount: result.signals.x402.paymentCount,
       uniqueDays: result.signals.x402.uniqueDays,
+      // 2026-08-13: the same definition of "degraded" the engine uses to decide
+      // a verdict is not safe to cache (verdict.ts). Read here so this page can
+      // say it, instead of printing the fail-closed number as if it were a
+      // reading of the agent.
+      degraded: hasUnavailableInput(result.signals.sybil.flags),
     };
   } catch {
     score = null;
@@ -96,15 +108,21 @@ export default async function AgentPage({
   // Coarse band for the passport_view event — map the product's own
   // ALLOW/WARN/BLOCK banding rather than invent numeric thresholds. The
   // agentId is deliberately NOT a prop (the URL path already carries it).
+  // 2026-08-13: `degraded` is its own band here too. /payee/[address] already
+  // separated it; folding a fail-closed refusal into "low" on this side made an
+  // upstream outage indistinguishable, in the same funnel data, from a genuinely
+  // bad agent.
   const band = !score
     ? "unavailable"
-    : score.recommendation === "ALLOW"
-      ? "high"
-      : score.recommendation === "WARN"
-        ? "medium"
-        : score.recommendation === "BLOCK"
-          ? "low"
-          : "unknown";
+    : score.degraded
+      ? "degraded"
+      : score.recommendation === "ALLOW"
+        ? "high"
+        : score.recommendation === "WARN"
+          ? "medium"
+          : score.recommendation === "BLOCK"
+            ? "low"
+            : "unknown";
 
   return (
     <main className="mx-auto max-w-2xl px-5 py-16 md:px-8">
@@ -148,22 +166,54 @@ export default async function AgentPage({
 
       <div className="mt-8 rounded-xl border border-zinc-200 p-5">
         <p className="text-sm text-zinc-500">Live trust score</p>
-        {score ? (
+        {score?.degraded ? (
+          // 2026-08-13 parity with /payee/[address]: a degraded result is a
+          // refusal, not a reading. The API and the SDK still receive the
+          // fail-closed verdict — "do not pay right now" is the correct answer
+          // to a caller about to move money on a check that could not be
+          // completed. But this page is read by humans, and printing "39 BLOCK"
+          // here publishes a specific accusation about a named agent on the
+          // strength of an upstream outage. The payee side already said the one
+          // true thing instead; this side kept printing the number, so the same
+          // outage read as "not verifiable" on one profile and as a BLOCK verdict
+          // on the other.
+          <>
+            <p className="mt-1 text-xl font-semibold text-zinc-900">Not verifiable right now</p>
+            <p className="mt-2 text-sm text-zinc-600">
+              One or more upstream checks could not be completed, so no score is published for this
+              agent. This is not a finding against it. Callers of the API receive a fail-closed{" "}
+              <code className="rounded bg-zinc-100 px-1 text-zinc-700">BLOCK</code> until the checks
+              succeed.
+            </p>
+          </>
+        ) : score ? (
           <p className="mt-1 text-3xl font-semibold text-zinc-900">
             <span
               role="img"
               aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
             >
-              {score.value} <VerdictBadge verdict={score.recommendation} className="align-middle" />
+              {score.value}
+              {/* 2026-08-13 parity with /payee/[address]: the scale existed only
+                  in the aria-label. Sighted readers saw a bare "49" with no way
+                  to tell 100-point from 1000-point. */}
+              <span className="align-baseline text-base font-normal text-zinc-500"> / 100</span>{" "}
+              <VerdictBadge verdict={score.recommendation} className="align-middle" />
             </span>
           </p>
         ) : (
           <p className="mt-1 text-zinc-500">Score unavailable right now.</p>
         )}
-        {score ? (
+        {score && !score.degraded ? (
           <p className="mt-2 text-xs text-zinc-500">
             x402 settlement record: {score.paymentCount} payment{score.paymentCount === 1 ? "" : "s"} over{" "}
-            {score.uniqueDays} distinct day{score.uniqueDays === 1 ? "" : "s"}.
+            {score.uniqueDays} distinct day{score.uniqueDays === 1 ? "" : "s"}.{" "}
+            {/* 2026-08-13 parity: /payee links its score to the weights that
+                produced it; this side left the reader with a number and no way
+                to find out what went into it. */}
+            <Link href="/docs/api#score-breakdown" className="underline">
+              Score breakdown
+            </Link>
+            .
           </p>
         ) : null}
         <p className="mt-2 text-xs text-zinc-500">

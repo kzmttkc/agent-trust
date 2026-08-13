@@ -51,12 +51,18 @@ export async function GET(
   }
   const label = verified ? "Verified agent" : "Unverified";
   const color = verified ? "#059669" : "#71717a";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="152" height="24" role="img" aria-label="Vouch: ${label}">
-  <rect width="52" height="24" rx="4" fill="#18181b"/>
-  <rect x="52" width="100" height="24" rx="4" fill="${color}"/>
-  <rect x="52" width="6" height="24" fill="${color}"/>
-  <text x="26" y="16" text-anchor="middle" font-family="Verdana,sans-serif" font-size="11" fill="#ffffff">Vouch</text>
-  <text x="102" y="16" text-anchor="middle" font-family="Verdana,sans-serif" font-size="10" fill="#ffffff">${label}</text>
+  // 2026-08-13 rename: this badge still said "Vouch" long after the payee badge
+  // (/api/badge/[address]) was renamed, so the two embeddable badges of the same
+  // product carried two different product names. Same geometry as the payee
+  // badge, for the same reason: "vet402" (6 chars, ~38px at Verdana 11px) needs
+  // a 58px left segment to keep ~10px padding per side; every x downstream
+  // shifts by +6 (total width 152→156).
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="156" height="24" role="img" aria-label="vet402: ${label}">
+  <rect width="58" height="24" rx="4" fill="#18181b"/>
+  <rect x="58" width="98" height="24" rx="4" fill="${color}"/>
+  <rect x="58" width="6" height="24" fill="${color}"/>
+  <text x="29" y="16" text-anchor="middle" font-family="Verdana,sans-serif" font-size="11" fill="#ffffff">vet402</text>
+  <text x="107" y="16" text-anchor="middle" font-family="Verdana,sans-serif" font-size="10" fill="#ffffff">${label}</text>
 </svg>`;
   return new NextResponse(svg, {
     headers: {

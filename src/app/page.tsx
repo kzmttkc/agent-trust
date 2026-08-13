@@ -128,7 +128,12 @@ export default async function Home() {
     // fold の 123px 下だった。RFC 第1面の要素と順序（ヘッダ／表題／タグライン／
     // ダブルルール／マーク／Abstract／2本の入口）は一つも動かさず、行間と
     // マークの寸法だけを詰めて 712px に収めている。ここは md:pt-12 を外した分。
-    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-6">
+    // 2026-08-13 再監査: 同じ [M8] の欠陥がモバイルに残っていた。375×812 で
+    // 2本の CTA の下端は 934px（fold の 122px 下）で、幅の広い端末だけを直して
+    // いたことになる。ここから下の `sm:` 付きの値は 8/13 に承認された desktop の
+    // 組版そのままで、640px 未満にだけ詰めた値を当てている（1440×720 の 706px は
+    // 動かさない）。要素・順序・コピーは一つも変えていない。
+    <main className="px-4 pt-4 pb-4 sm:px-6 sm:pt-8 md:px-8 md:pt-6">
       {/* 2026-08-06 growth: lp_view opens the funnel (Verilot parity). Without
           it, CTA click-through rate has no denominator — the automatic
           pageview can't carry utm_source as a queryable prop. */}
@@ -146,9 +151,15 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: safeJsonLd(softwareApplicationJsonLd) }}
       />
 
-      <article className="sheet">
+      {/* max-sm:py-5 — 紙の天地の余白だけ 32px → 20px。.sheet 自体（全ページ共通）
+          は触らず、この1枚にだけ当てている。 */}
+      <article className="sheet max-sm:py-5">
         {/* ================= RFC first page ================= */}
-        <div className="doc-head">
+        {/* 640px 未満ではヘッダの2列が縦に積まれて8行になる（.doc-head の
+            media query）。line-height 1.7 のままだと、この1ブロックだけで
+            198px — モバイルの fold の約1/4 を、まだ何も言っていない書誌情報が
+            占めていた。行間と2列間の空きだけを詰める（文字サイズも行数も同じ）。 */}
+        <div className="doc-head max-sm:gap-2 max-sm:leading-[1.3]">
           <div className="doc-head-col">
             {HEAD_LEFT.map((row) => (
               <span key={row.label}>
@@ -171,22 +182,25 @@ export default async function Home() {
           </div>
         </div>
 
-        <h1 className="doc-title mt-6">
+        <h1 className="doc-title mt-3 sm:mt-6">
           vet402 — Independent Verification of the x402 Agent-Payment Economy
         </h1>
-        <p className="mx-auto mt-3 max-w-[52ch] text-center text-brand-lift">
+        <p className="mx-auto mt-2 max-w-[52ch] text-center text-brand-lift sm:mt-3">
           We buy. We settle. We publish the measurements.
         </p>
 
-        <div className="rule-double mx-auto mt-4 w-full max-w-[34ch]" />
+        <div className="rule-double mx-auto mt-3 w-full max-w-[34ch] sm:mt-4" />
 
         {/* マークは 132 → 104px（モバイルと同寸）。[M8] の 123px のうち 28px を
-            ここから出している。紙面の中央・ダブルルールの直下という位置は同じ。 */}
-        <div className="mt-5 flex justify-center">
-          <Mark402 animate className="h-auto w-[104px]" />
+            ここから出している。紙面の中央・ダブルルールの直下という位置は同じ。
+            2026-08-13 再監査: 640px 未満では 72px。[M8] で desktop の寸法を
+            詰めた時と同じ手で、モバイルにも同じ処置をしているだけ。位置・
+            アニメーション・前後の要素は変わらない。 */}
+        <div className="mt-3 flex justify-center sm:mt-5">
+          <Mark402 animate className="h-auto w-[72px] sm:w-[104px]" />
         </div>
 
-        <div className="mt-5 flex flex-col gap-1 sm:flex-row sm:gap-0">
+        <div className="mt-3 flex flex-col gap-1 sm:mt-5 sm:flex-row sm:gap-0">
           <p className="shrink-0 text-brand-deep sm:w-[10ch]">Abstract</p>
           <p className="min-w-0 max-w-[62ch] text-brand">
             {/* 引用符は straight。RFC の原典はプレーンテキストで、curly quote は
@@ -206,7 +220,7 @@ export default async function Home() {
         {/* 2026-08-06 growth: lp_cta_click{position} tells us WHICH CTA converts
             (hero vs final vs pricing), which a plain /signup pageview can never
             attribute. */}
-        <div className="mt-5 flex flex-wrap gap-3 sm:pl-[10ch]">
+        <div className="mt-4 flex flex-wrap gap-3 sm:mt-5 sm:pl-[10ch]">
           <TrackedLink
             href="#methodology"
             event="lp_cta_click"

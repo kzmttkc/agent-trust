@@ -1,4 +1,14 @@
+import type { Metadata } from "next";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
+
+// 2026-08-13 [m2] の続き: /legal/notice にだけ固有 title を付け、同じ legal/
+// 配下の terms と privacy を取り残していた。template が " | vet402" を付けるので、
+// ここではサフィックスを書かない。
+export const metadata: Metadata = {
+  title: "Privacy Policy",
+  description:
+    "What vet402 collects, what it does not, and how long it is kept — for API customers and for the wallets that appear in public verification results.",
+};
 
 export default function PrivacyPage() {
   return (

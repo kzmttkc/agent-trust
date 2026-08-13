@@ -55,6 +55,15 @@ type DemoPayload = {
   sybilRisk: string;
   registered: boolean;
   scoredAt: string;
+  // 2026-08-13: was computed below and used only to pick a Cache-Control, so
+  // the one fact that changes how this number should be read never left the
+  // server. A caller saw `78 / ALLOW` and `39 / BLOCK` in the same shape, with
+  // nothing in the body distinguishing "we checked" from "we could not finish
+  // checking, so we fail closed". Additive and machine-readable, matching what
+  // /payee already says in prose and what the v1 payee score returns as
+  // `degraded`. Only meaningful when `live` is true — a `{ live: false }`
+  // response is the absence of a verdict, not a degraded one.
+  degraded: boolean;
 };
 
 let cached: { payload: DemoPayload; expiresAt: number } | null = null;
@@ -93,6 +102,7 @@ export async function GET(request: NextRequest) {
         setTimeout(() => reject(new Error("demo_score_timeout")), SCORE_TIMEOUT_MS),
       ),
     ]);
+    const degraded = hasUnavailableInput(result.signals.sybil.flags);
     const payload: DemoPayload = {
       live: true,
       agentId: result.agentId,
@@ -103,6 +113,7 @@ export async function GET(request: NextRequest) {
       sybilRisk: result.signals.sybil.risk,
       registered: result.signals.identity.registered,
       scoredAt: result.scoredAt,
+      degraded,
     };
     // A degraded verdict (some input could not be read) is deliberately NOT
     // pinned. The engine already refuses to cache one; this route used to pin
@@ -114,7 +125,6 @@ export async function GET(request: NextRequest) {
     //
     // Still cached briefly rather than not at all: while upstream is unwell,
     // recomputing on every request is what deepens the outage.
-    const degraded = hasUnavailableInput(result.signals.sybil.flags);
     if (!degraded) {
       cached = { payload, expiresAt: now + DEMO_TTL_MS };
     }
