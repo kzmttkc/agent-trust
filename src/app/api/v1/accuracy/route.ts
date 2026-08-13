@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/api/client-ip";
-import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
+import {
+  consumeIpRateLimit,
+  ipRateLimitHeaders,
+  sharedCacheRateLimitHeaders,
+} from "@/lib/api/ip-rate-limit";
 import { computeAccuracyReport, type AccuracyReport } from "@/lib/scoring/accuracy";
 import { computeBenchmarkReport, type BenchmarkReport } from "@/lib/scoring/benchmark-report";
 import { fetchAccuracyRows, fetchBenchmarkRows } from "@/lib/db/outcome-reader";
@@ -112,15 +116,19 @@ export async function GET(request: NextRequest) {
   // Limiter runs BEFORE the cache short-circuit (2026-08-13). Two reasons: the
   // documented ceiling (20/min/IP) was not actually applied to a cache hit, and
   // — the reported defect — a cached response carried no RateLimit-* headers at
-  // all, so a machine could not read its remaining budget off the wire. Every
-  // response from this path now carries the same header contract.
+  // all, so a machine had nothing on the wire to read its budget from.
   const ip = getClientIp(request) ?? "unknown";
   const limited = await consumeIpRateLimit(`accuracy:${ip}`, 20, 60_000);
-  const rlHeaders = ipRateLimitHeaders(limited);
+  // Two header sets, because most responses here are served to other callers
+  // from the shared CDN cache: `perCaller` (Remaining/Reset/Retry-After) goes
+  // only on responses the CDN does not share, `shared` carries the ceiling,
+  // which is true for everyone. See sharedCacheRateLimitHeaders.
+  const perCallerRlHeaders = ipRateLimitHeaders(limited);
+  const rlHeaders = sharedCacheRateLimitHeaders(limited);
   if (!limited.allowed) {
     // 2026-08-06: full RateLimit-* header set, consistent with the other
     // key-less public paths.
-    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: rlHeaders });
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: perCallerRlHeaders });
   }
 
   if (cached && cached.expiresAt > now) {
@@ -159,7 +167,8 @@ export async function GET(request: NextRequest) {
     logServerError("accuracy_report", error);
     return NextResponse.json(
       { error: "accuracy_unavailable" },
-      { status: 503, headers: rlHeaders },
+      // Not CDN-cached, so the per-caller numbers are still the caller's own.
+      { status: 503, headers: perCallerRlHeaders },
     );
   }
 }

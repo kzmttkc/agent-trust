@@ -23,10 +23,14 @@ info:
     abuse throttles (e.g. 60 auth-failures/min/IP) exist only to blunt
     key-guessing and scraping and are not hit by valid authenticated traffic.
 
-    Key-less calls are throttled per IP instead, and every response on those
-    paths carries `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`
-    (IETF draft names, distinct from the `X-RateLimit-*` monthly quota above);
-    a throttled one adds `Retry-After`.
+    Key-less calls are throttled per IP instead. Every response on those paths
+    carries `RateLimit-Limit` — the ceiling for that path, true for every caller.
+    `RateLimit-Remaining` and `RateLimit-Reset` (IETF draft names, distinct from
+    the `X-RateLimit-*` monthly quota above) are per-caller counters and are sent
+    only on responses a shared cache does not replay to a different caller —
+    chiefly the `429`, which also carries `Retry-After`. A CDN-cached `200`
+    deliberately omits them: a counter belonging to whoever populated the cache
+    would be a number that means something other than what it appears to mean.
 
     **Unknown paths.** Any request under `/api/` that matches no route answers
     `404` with a JSON body (`{"error":"not_found","path":…}`), never an HTML
@@ -1635,13 +1639,18 @@ components:
           description: Seconds until the window resets.
           schema: { type: integer }
         RateLimit-Limit:
-          description: Key-less paths — ceiling for the current IP window.
+          description: Key-less paths — ceiling for the IP window. Sent on every response.
           schema: { type: integer }
         RateLimit-Remaining:
-          description: Key-less paths — requests left in the current IP window.
+          description: >-
+            Key-less paths — requests left in your current IP window. Per-caller,
+            so it is sent here and on other uncached responses, but not on a
+            CDN-cached 200.
           schema: { type: integer }
         RateLimit-Reset:
-          description: Key-less paths — unix epoch seconds when the window resets.
+          description: >-
+            Key-less paths — unix epoch seconds when your window resets. Same
+            per-caller rule as RateLimit-Remaining.
           schema: { type: integer }
         X-RateLimit-Limit:
           description: Authenticated paths — monthly plan quota.

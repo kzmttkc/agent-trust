@@ -131,4 +131,25 @@ export function ipRateLimitHeaders(result: IpRateLimitResult): Record<string, st
   return headers;
 }
 
+/**
+ * The subset that stays true on a response the shared CDN cache may replay to
+ * a DIFFERENT caller.
+ *
+ * 2026-08-13, found by measuring the deploy rather than the code: /accuracy and
+ * /api/demo/score answer most traffic from the edge with `s-maxage`, so the
+ * `RateLimit-Remaining: 9` baked into that cached response is whoever's request
+ * populated the cache — eleven requests later it still said 9, because the
+ * function was never reached. A per-caller counter served to other callers is a
+ * number that means something other than what it appears to mean, which is the
+ * exact defect class this endpoint exists to avoid.
+ *
+ * `RateLimit-Limit` is a constant of the endpoint and is true for everyone, so
+ * it stays. `Remaining`/`Reset` are per-caller and are emitted only on
+ * responses the CDN does not share — chiefly the `429`, which also carries
+ * `Retry-After` and is where a caller actually needs the numbers.
+ */
+export function sharedCacheRateLimitHeaders(result: IpRateLimitResult): Record<string, string> {
+  return { "RateLimit-Limit": String(result.limit) };
+}
+
 export { getClientIp } from "@/lib/api/client-ip";

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/api/client-ip";
-import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
+import {
+  consumeIpRateLimit,
+  ipRateLimitHeaders,
+  sharedCacheRateLimitHeaders,
+} from "@/lib/api/ip-rate-limit";
 import { scoreAgentById } from "@/lib/scoring/engine";
 import { hasUnavailableInput } from "@/lib/scoring/verdict";
 import { logServerError } from "@/lib/util/log";
@@ -102,13 +106,18 @@ export async function GET(request: NextRequest) {
   // RateLimit-* headers, leaving a machine unable to read its own budget.
   const ip = getClientIp(request) ?? "unknown";
   const limited = await consumeIpRateLimit(`demo-score:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
-  const rlHeaders = ipRateLimitHeaders(limited);
+  // Two header sets, because most responses here are served to other callers
+  // from the shared CDN cache: `perCaller` (Remaining/Reset/Retry-After) goes
+  // only on responses the CDN does not share, `shared` carries the ceiling,
+  // which is true for everyone. See sharedCacheRateLimitHeaders.
+  const perCallerRlHeaders = ipRateLimitHeaders(limited);
+  const rlHeaders = sharedCacheRateLimitHeaders(limited);
   if (!limited.allowed) {
     // 2026-08-06: emit the full RateLimit-* set (not just Retry-After) so the
     // key-less paths share one visible contract.
     return NextResponse.json(
       { live: false, reason: "rate_limited" },
-      { status: 429, headers: rlHeaders },
+      { status: 429, headers: perCallerRlHeaders },
     );
   }
 

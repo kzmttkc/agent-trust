@@ -150,7 +150,7 @@ test("/api/demo/score publishes freshness the way its sibling passport does", ()
   }
 });
 
-test("the key-less paths report the caller's remaining budget on every response", () => {
+test("the key-less paths publish their rate limit on the wire", () => {
   // A limiter the client cannot see is useless as a documented contract. Both
   // routes previously short-circuited on their module cache BEFORE consuming
   // the limiter, so the common response carried no headers at all — and the
@@ -164,7 +164,40 @@ test("the key-less paths report the caller's remaining budget on every response"
       limiterAt < cacheAt,
       `${rel}: the limiter must run before the cache short-circuit, or a cache hit is unmetered and header-less`,
     );
-    assert.match(file, /\.\.\.rlHeaders/, `${rel} must spread the RateLimit-* headers onto its responses`);
+    assert.match(file, /\.\.\.rlHeaders/, `${rel} must put the rate-limit ceiling on its responses`);
+  }
+});
+
+test("a per-caller counter is never baked into a shared-cache response", () => {
+  // Measured on the deploy, not read off the code: eleven fetches of the CDN-
+  // cached /api/demo/score all reported `RateLimit-Remaining: 9`, because the
+  // function was never reached — the number described whoever populated the
+  // cache. That is precisely the "a number that means something other than what
+  // it appears to mean" defect the rest of this file exists to close, so the
+  // cacheable responses carry the ceiling only.
+  const helper = src("lib/api/ip-rate-limit.ts");
+  const shared = helper.slice(helper.indexOf("export function sharedCacheRateLimitHeaders"));
+  assert.doesNotMatch(shared, /RateLimit-Remaining/, "Remaining is per-caller and must not be shared");
+  assert.doesNotMatch(shared, /RateLimit-Reset/, "Reset is per-caller and must not be shared");
+  assert.match(shared, /RateLimit-Limit/, "the ceiling is true for everyone and stays");
+
+  for (const rel of ["app/api/v1/accuracy/route.ts", "app/api/demo/score/route.ts"]) {
+    const file = src(rel);
+    // Every `s-maxage` response must use the shared set, never the full one.
+    for (const block of file.split("NextResponse.json").slice(1)) {
+      const head = block.slice(0, 400);
+      if (!head.includes("s-maxage")) continue;
+      assert.ok(
+        head.includes("...rlHeaders") && !head.includes("perCallerRlHeaders"),
+        `${rel}: a CDN-cacheable response must not carry per-caller rate-limit counters`,
+      );
+    }
+    // …and the 429, which is not shared, must carry the full set incl. Retry-After.
+    assert.match(
+      file,
+      /status: 429,\s*headers: perCallerRlHeaders/,
+      `${rel}: the 429 must carry Remaining/Reset/Retry-After`,
+    );
   }
 });
 
