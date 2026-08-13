@@ -77,6 +77,10 @@ export default async function BlogPostPage({
         </p>
       </div>
 
+      {post.editorsNote ? (
+        <p className="text-sm italic text-zinc-500">{post.editorsNote}</p>
+      ) : null}
+
       <article className="space-y-4 text-zinc-700 leading-relaxed">
         {post.body.map((paragraph, i) => (
           <p key={i}>{paragraph}</p>

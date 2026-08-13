@@ -4,6 +4,11 @@ export type BlogPost = {
   description: string;
   publishedAt: string; // ISO date
   updatedAt: string; // ISO date
+  /**
+   * Editorial note rendered above the body (italic). Used for corrections or
+   * context added after publication — the body itself stays as written.
+   */
+  editorsNote?: string;
   /** Plain paragraphs, rendered in order. Keep server-renderable (no client-only content). */
   body: string[];
 };
@@ -13,9 +18,14 @@ export const BLOG_POSTS: BlogPost[] = [
     slug: "why-agent-payments-need-a-trust-score",
     title: "Why agent-to-agent payments need a trust score",
     description:
-      "x402 lets an AI agent pay for an API call in one HTTP round trip, but it says nothing about whether the wallet on the other end is worth paying. Here's the gap Vouch fills, and how the score is built.",
+      "x402 lets an AI agent pay for an API call in one HTTP round trip, but it says nothing about whether the wallet on the other end is worth paying. Here's the gap vet402 fills, and how the score is built.",
     publishedAt: "2026-07-21",
     updatedAt: "2026-07-21",
+    // 2026-08-13 rename: the note is the only rename-era addition. The body
+    // below predates the rename and is kept as written (historical record) —
+    // do not swap "Vouch" for "vet402" inside it.
+    editorsNote:
+      "Editor's note (August 2026): Vouch has been renamed vet402. This post predates the rename and is preserved as written.",
     body: [
       "x402 solves a narrow, real problem: an agent hits a paid endpoint, gets a 402 Payment Required response with a price, pays on-chain, and retries the request with proof of payment attached. No account, no invoice, no human in the loop. That's the whole point — it's built for machines transacting with machines at a pace no manual approval flow could keep up with.",
       "What x402 does not solve is whether the wallet on the other side of that payment has any track record. A brand-new address with zero history looks identical, at the protocol level, to an address that has settled thousands of legitimate API calls. For a human-run service, that ambiguity is usually fine — chargebacks and reputation exist as a backstop. For an API provider auto-accepting payments from unknown agent wallets at machine speed, it isn't. The failure mode isn't theoretical: sybil wallets, drained faucets, and agents proxying payments through disposable addresses are all cheap to generate and expensive to distinguish from good-faith traffic after the fact.",
