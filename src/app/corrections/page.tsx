@@ -1,0 +1,196 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
+
+/**
+ * /corrections — the log the site has been promising.
+ *
+ * 2026-08-13 UX監査R1 [C8]。「Corrections are logged publicly」は LP §3.3 と
+ * llms.txt の2箇所で約束していたのに、その置き場は 404 だった。約束した
+ * 帳簿が存在しないのは、accuracy 頁が存在しないのと同じ性質の欠陥になる
+ * ——「実測を公開する」と言っている製品が、自分の誤りの記録だけ持っていない
+ * ことになる。
+ *
+ * 今日の件数は0件。/accuracy が既に採っている作法（数字が無いうちは方法を
+ * 先に出し、空であることを正直に書く）をそのまま踏襲する。件数が増えたら
+ * ここが表になる ―― その時に初めて表を作るのでは、また同じ空白期間が出る。
+ *
+ * 記録はまだ手で足す。訂正が発生してから自動化を作るのが順序で、0件のうちに
+ * DB テーブルを掘るのは、動いていることの証明にならない配管を1本増やすだけ。
+ */
+
+export const metadata: Metadata = {
+  title: "Corrections log",
+  description:
+    "Every correction vet402 has issued to a published score or verification result, with what was wrong and what changed. Empty until the first one is issued.",
+};
+
+type Correction = {
+  /** 訂正を公開した日 (UTC, YYYY-MM-DD) */
+  date: string;
+  /** 何についての訂正か。アドレスや agent id を書く場合は当人の申立てが前提。 */
+  subject: string;
+  /** 何が間違っていたか */
+  wrong: string;
+  /** 何をしたか */
+  action: string;
+};
+
+/**
+ * 発行済みの訂正。
+ *
+ * 空配列は「まだ1件も無い」という事実であって、書き忘れではない。ここに
+ * 何かを足すのは、ToS §8 のどちらかの経路で申立てを受け、事実誤認だったと
+ * 判断して再スコアした時だけ。「見解の相違で変えなかった」ものはここには
+ * 載らない（訂正ではないため）が、それは §2 に書いてある。
+ */
+const CORRECTIONS: Correction[] = [];
+
+export default function CorrectionsPage() {
+  return (
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <article className="sheet">
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>Independent Measurement</span>
+            <span>Register: corrections issued</span>
+            <span>
+              {/* この頁のシアン1点。発行済みの件数という事実。 */}
+              Entries: <span className="text-signal">{CORRECTIONS.length}</span>
+            </span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>All corrections, none withdrawn</span>
+            <span>Aggregate and per-subject</span>
+          </div>
+        </div>
+
+        <h1 className="doc-title mt-10">Corrections</h1>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        <div className="mt-8 flex flex-col gap-1 sm:flex-row sm:gap-0">
+          <p className="shrink-0 text-brand-deep sm:w-[10ch]">Abstract</p>
+          <p className="min-w-0 max-w-[62ch] text-brand">
+            When vet402 publishes something about an address and gets it wrong, the correction is
+            published here with what was wrong and what changed. Nothing is removed from this list
+            once it is on it.
+          </p>
+        </div>
+
+        {/* ===== 1. The log ===== */}
+        <h2 className="sec-head">
+          <span className="sec-no">1.</span>
+          <span>Issued corrections</span>
+        </h2>
+
+        {CORRECTIONS.length === 0 ? (
+          <div className="dashbox mt-6 max-w-[64ch]">
+            <p className="doc-caption">Empty log</p>
+            <p className="mt-3 text-brand">No corrections have been issued yet.</p>
+            <p className="doc-note mt-3">
+              This is the count, not a claim about our accuracy: the product is in closed beta and
+              the volume of published verdicts about named addresses is still small. The page exists
+              before the first entry for the same reason{" "}
+              <Link href="/accuracy" className="doc-link">
+                the accuracy ledger
+              </Link>{" "}
+              published its methodology before it had numbers &mdash; a log that appears only once
+              there is something flattering to put in it is not a log.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 divide-y divide-hair border-t border-brand-deep">
+            {CORRECTIONS.map((entry) => (
+              <div key={`${entry.date}-${entry.subject}`} className="py-5">
+                <p className="text-[0.8125rem] text-brand-lift">{entry.date}</p>
+                <p className="mt-1 break-all font-[family-name:var(--font-display)] font-semibold text-brand-deep">
+                  {entry.subject}
+                </p>
+                <p className="mt-2 max-w-[64ch] text-brand">
+                  <strong>What was wrong.</strong> {entry.wrong}
+                </p>
+                <p className="mt-2 max-w-[64ch] text-brand">
+                  <strong>What changed.</strong> {entry.action}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ===== 2. What gets logged ===== */}
+        <h2 className="sec-head">
+          <span className="sec-no">2.</span>
+          <span>What lands here, and what does not</span>
+        </h2>
+
+        <div className="mt-6 space-y-5">
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">2.1</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              <strong>A fact we got wrong, and fixed.</strong> If we published something about an
+              address that was not true &mdash; a mis-read signal, a mis-attributed wallet, a stale
+              input treated as current &mdash; the correction and the re-score are logged, whether
+              the challenge came from a customer or from a stranger.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">2.2</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              <strong>Not: a score that moved on its own.</strong> Scores change constantly as
+              on-chain behavior changes. That is the instrument working, not a correction, and
+              logging it would bury the entries that matter.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">2.3</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              <strong>Not: a disagreement we did not concede.</strong> A score is our opinion and
+              sometimes we will disagree with the person challenging it. Those are answered
+              directly, in writing, and are not corrections. The route stays open either way.
+            </p>
+          </div>
+        </div>
+
+        {/* ===== 3. How to get one ===== */}
+        <h2 className="sec-head">
+          <span className="sec-no">3.</span>
+          <span>If you think a score about you is wrong</span>
+        </h2>
+        <p className="doc-p">
+          You do not need an account, an API key, a payment, or a lawyer to challenge a score. Two
+          routes, both free: prove control of the address by signing our canonical message and
+          posting it to <code className="break-all text-brand-deep">/api/v1/payees/verify</code>, or
+          write to{" "}
+          <a className="doc-link" href={SUPPORT_MAILTO}>
+            {SUPPORT_EMAIL}
+          </a>{" "}
+          with the address and what you think is wrong. One person reads that inbox and will
+          acknowledge within 5 business days.{" "}
+          <Link href="/legal/terms#corrections" className="doc-link">
+            Section 8 of the Terms of Service
+          </Link>{" "}
+          is the full text of both.
+        </p>
+
+        <p className="mt-8 text-[0.8125rem]">
+          <Link href="/accuracy" className="doc-link">
+            Measured accuracy
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/payee" className="doc-link">
+            Verify a payee
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/legal/terms#corrections" className="doc-link">
+            Terms of Service, section 8
+          </Link>
+        </p>
+      </article>
+    </main>
+  );
+}

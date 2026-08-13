@@ -235,6 +235,14 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 2026-08-13 アクセシビリティ監査: 下の `*` は html にも当たるので上の
+     scroll-behavior:smooth は本来ここで潰れているはずだが、監査は「解除
+     されない」と実測している。ルート要素だけは名指しで戻す — スクロールの
+     挙動は scrolling element に効く値で、そこだけ取りこぼすと動きを減らす
+     設定の人にアンカー移動のスクロールアニメーションが残る。 */
+  html {
+    scroll-behavior: auto !important;
+  }
   *,
   *::before,
   *::after {
@@ -451,10 +459,44 @@ a {
   }
 
   /* 表は 320px でも紙面から溢れさせない。溢れる分は表自身の中で横スクロール
-     させ、ページ本体を横スクロールさせない（craft-floor「320px 責任」）。 */
+     させ、ページ本体を横スクロールさせない（craft-floor「320px 責任」）。
+
+     2026-08-13 アクセシビリティ監査（200%拡大・実効幅 720px）: その「溢れる分」
+     に手掛かりが1つも無かった（実測 boxShadow:none / maskImage:none /
+     ::after content:none）。macOS と iOS のオーバーレイ・スクロールバーは
+     静止時に消えるので、読者には「表がそこで終わっている」ようにしか見えない。
+     LP §2 では `conform / mismat` と語の途中で切れていた。
+
+     CodeBlock.module.css が既に採っている手をそのまま表にも当てる:
+     background-attachment: local の連動シャドウ。静的な mask-image と違って
+     端まで送れば消えるので、最後の桁を食わない。色は罫線と同じ #8f9cb2 の
+     インクで、ガラスでもグラデ装飾でもない — 紙が続いていることを示す
+     ひとつの縁。左右のカバーは紙の白と同色なので、スクロール位置が端に
+     ある側では影が完全に隠れる。 */
   .table-scroll {
     overflow-x: auto;
     margin-top: 1.5rem;
+    background:
+      linear-gradient(to right, #ffffff 60%, rgba(255, 255, 255, 0)) left center,
+      linear-gradient(to left, #ffffff 60%, rgba(255, 255, 255, 0)) right center,
+      radial-gradient(farthest-side at 0 50%, rgba(143, 156, 178, 0.65), rgba(143, 156, 178, 0))
+        left center,
+      radial-gradient(farthest-side at 100% 50%, rgba(143, 156, 178, 0.65), rgba(143, 156, 178, 0))
+        right center;
+    background-repeat: no-repeat;
+    background-size:
+      2rem 100%,
+      2rem 100%,
+      0.6rem 100%,
+      0.6rem 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  /* キーボードで横送りするための tabindex=0 が付いている（TableScroll.tsx）。
+     フォーカスの所在が見えないと「押しても何も起きない」ように見えるので、
+     リンクやボタンと同じ輪郭を出す。 */
+  .table-scroll:focus-visible {
+    outline: 2px solid #233456;
+    outline-offset: 2px;
   }
 
   /* ---- 破線ボックス（マークと同じ文法の囲み）------------------------- */

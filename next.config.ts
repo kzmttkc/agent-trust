@@ -57,6 +57,23 @@ const nextConfig: NextConfig = {
         destination: "/#pricing",
         permanent: false,
       },
+      // 2026-08-13 UX監査R1 [B2]: 旧 Vercel ドメイン
+      // agent-trust-tawny.vercel.app が本番とバイト同一の複製を配信し続けて
+      // いた（実測: HTTP 200、同じ HTML）。GitHub リポの homepage も当時そこを
+      // 指していた。同じ文書が2つの正典を持つと、被リンクと索引が割れるだけ
+      // でなく、「どちらが本物か」を読者が判定できない — 検証を売る製品が
+      // 自分の身元で それをやっているのは、llms.txt が第三者ドメインを
+      // 否認しているのと辻褄が合わない。
+      //
+      // ホスト一致の恒久リダイレクト。パスは保存する（旧ドメインの深いリンクが
+      // トップに落ちない）。308 = permanent:true で、メソッドと本文を保つ
+      // （301 は POST を GET に変える）。
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "agent-trust-tawny.vercel.app" }],
+        destination: "https://vet402.com/:path*",
+        permanent: true,
+      },
     ];
   },
 };

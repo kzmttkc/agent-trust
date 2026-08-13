@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
+import { TableScroll } from "@/components/site/TableScroll";
 import { computeAccuracyReport, type AccuracyReport } from "@/lib/scoring/accuracy";
 import { computeBenchmarkReport, type BenchmarkReport } from "@/lib/scoring/benchmark-report";
 import { fetchAccuracyRows, fetchBenchmarkRows } from "@/lib/db/outcome-reader";
@@ -112,7 +113,7 @@ export default async function AccuracyPage() {
           §2.
         </p>
 
-        <div className="table-scroll">
+        <TableScroll label="Headline accuracy figures over the last 90 days">
           <table className="fact-table">
             <caption className="sr-only">
               Headline accuracy figures over the last 90 days
@@ -144,13 +145,13 @@ export default async function AccuracyPage() {
               </tr>
             </tbody>
           </table>
-        </div>
+        </TableScroll>
 
         {/* 2026-08-06 (320px persona audit A-6): the column gutters pushed the
             rightmost column — the single most important number on this page —
             off screen at 320px. The table now scrolls inside its own container
             and the page itself never scrolls sideways. */}
-        <div className="table-scroll">
+        <TableScroll label="Outcome counts by recommendation over the last 90 days">
           <table className="fact-table">
             <caption className="sr-only">
               Outcome counts by recommendation over the last 90 days
@@ -188,7 +189,7 @@ export default async function AccuracyPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
 
         <p className="doc-note mt-5 max-w-[70ch]">
           {hasAnyData ? (
@@ -245,7 +246,7 @@ export default async function AccuracyPage() {
 
         {hasBenchmarkData ? (
           <>
-            <div className="table-scroll">
+            <TableScroll label="Operator benchmark results over the last 90 days">
               <table className="fact-table">
                 <caption className="sr-only">Operator benchmark results over the last 90 days</caption>
                 <thead>
@@ -267,9 +268,17 @@ export default async function AccuracyPage() {
                     <td className="num whitespace-nowrap">
                       <Rate value={benchmark.knownBad.detectionRate} />
                     </td>
+                    {/* 2026-08-13 UX監査R1 [A2]: 開示が非対称だった。既知良の行は
+                        「0 allowed / 17 warned / 0 blocked」と3値すべて出しているのに、
+                        既知悪はここが「25 of 25 flagged, 0 allowed」で、
+                        24 BLOCK / 1 WARN という内訳が落ちていた（API の
+                        /api/v1/accuracy には最初から出ている）。しかもその1件の
+                        WARN は、リスト中で最も名の知れた Lazarus/Ronin のアドレス。
+                        自分に都合の悪い側だけ粒度が粗いのは、この頁の存在理由に
+                        反する。同じ粒度で出す。 */}
                     <td className="num whitespace-nowrap text-brand-lift">
-                      {benchmark.knownBad.detected} of {benchmark.knownBad.total} flagged,{" "}
-                      {benchmark.knownBad.missed} allowed
+                      {benchmark.knownBad.blocked} of {benchmark.knownBad.total} blocked,{" "}
+                      {benchmark.knownBad.warned} warned, {benchmark.knownBad.missed} allowed
                     </td>
                   </tr>
                   <tr>
@@ -286,13 +295,30 @@ export default async function AccuracyPage() {
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
             {/* 2026-08-13 UX監査2巡目 [M7]: 「誤ブロック 0%」は自賛に読める。
                 実測では 17件の known-good のうち ALLOW は0件で、17件全部が WARN
                 だった — つまり 0% が言っているのは「1件も BLOCK しなかった」で
                 あって「全部を通した」ではない。数字の隣で自分から言う。
                 件数はレポートから引く（ここに 17 を焼き込むと、集合が変わった
                 翌週に嘘になる）。 */}
+            {/* 2026-08-13 UX監査R1 [A2] の続き。既知良の 0% には既に自分から
+                但し書きを付けていたのに、既知悪の 100% には付けていなかった。
+                100% が言っているのは「1件も素通りさせなかった」であって
+                「全部を止めた」ではない — WARN は検知に数えているが、
+                WARN のまま通す実装であれば止まらない。件数はレポートから
+                引く（焼き込むと集合が変わった翌週に嘘になる）。 */}
+            {benchmark.knownBad.warned > 0 ? (
+              <p className="doc-note mt-5 max-w-[70ch]">
+                On that {benchmark.knownBad.detectionRate ?? 0}%: a detection here counts BLOCK{" "}
+                <em>or</em> WARN. {benchmark.knownBad.warned} of the {benchmark.knownBad.total}{" "}
+                known-bad addresses{" "}
+                {benchmark.knownBad.warned === 1 ? "scores" : "score"} WARN rather than BLOCK, so
+                an integration that lets WARN through would pay{" "}
+                {benchmark.knownBad.warned === 1 ? "it" : "them"}. The SDK and the middleware
+                default to allow-only, which is why that default exists.
+              </p>
+            ) : null}
             {benchmark.knownGood.total > 0 && benchmark.knownGood.allowed === 0 ? (
               <p className="doc-note mt-5 max-w-[70ch]">
                 On that 0%: a false positive here counts only a BLOCK on a known-good address.
@@ -375,6 +401,53 @@ export default async function AccuracyPage() {
             the codebase at{" "}
             <code className="break-all text-brand-deep">src/lib/benchmark/dataset.ts</code>, and
             rates follow the same {report.minSample}+ minimum-sample rule.
+          </MethodItem>
+        </div>
+
+        {/* ===== 4. Data reuse / Citation =====
+            2026-08-13 UX監査R1 [B1]: 引用許諾は public/llms.txt にしか無く、
+            robots.txt が Allow するだけで、サイト内から llms.txt へのリンクは
+            0本だった。つまり機械には読めて人間には到達できない。研究者ペルソナは
+            この頁の数字を引きたくて、許諾が見つからずに止まった。文言は
+            llms.txt の Citation / Corrections 節と同じ趣旨をそのまま人間向けの
+            位置に置く（新しい条件は付けていない）。 */}
+        <h2 className="sec-head">
+          <span className="sec-no">4.</span>
+          <span>Data reuse and citation</span>
+        </h2>
+
+        <div className="mt-6 space-y-5">
+          <MethodItem no="4.1" title="You may cite this">
+            The content on this site &mdash; front page, API docs, FAQ, this accuracy ledger, the
+            blog &mdash; may be quoted and cited, by people and by machines, as long as the source
+            is credited with the corresponding vet402.com URL. No permission request is needed and
+            nothing has to be asked of us first.
+          </MethodItem>
+          <MethodItem no="4.2" title="Cite the numbers with their window">
+            Every figure on this page is a rolling 90-day aggregate that moves as the sample grows.
+            A citation that carries the retrieval date and the window is reproducible; one that
+            prints a bare percentage is not. The same numbers are available as JSON at{" "}
+            <code className="text-brand-deep">GET /api/v1/accuracy</code>, with a{" "}
+            <code className="text-brand-deep">generatedAt</code> timestamp to quote.
+          </MethodItem>
+          <MethodItem no="4.3" title="If a figure about you is wrong">
+            There is a free, key-less correction route open to anyone, customer or not &mdash; see{" "}
+            <Link href="/legal/terms#corrections" className="doc-link">
+              section 8 of the Terms of Service
+            </Link>
+            . Corrections we issue are published in the{" "}
+            <Link href="/corrections" className="doc-link">
+              corrections log
+            </Link>
+            .
+          </MethodItem>
+          <MethodItem no="4.4" title="The machine-readable copy">
+            The same statement, plus the site map and the open API paths, is served for automated
+            readers at{" "}
+            <a href="/llms.txt" className="doc-link">
+              /llms.txt
+            </a>
+            .
           </MethodItem>
         </div>
 

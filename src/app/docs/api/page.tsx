@@ -4,6 +4,7 @@ import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import CodeBlock from "@/components/docs/CodeBlock";
 import DocsToc, { type TocItem } from "@/components/docs/DocsToc";
+import { TableScroll } from "@/components/site/TableScroll";
 import { SITE_URL } from "@/lib/site-url";
 
 // 2026-08-13 UX監査2巡目 [m2]: このページには metadata が無く、layout の
@@ -208,6 +209,8 @@ function endpointId(ep: Endpoint): string {
 // 各エンドポイントカードに付けてある。
 const TOC: TocItem[] = [
   { href: "#quickstart", label: "Quickstart" },
+  { href: "#packages", label: "Packages" },
+  { href: "#verdicts", label: "Verdicts & thresholds" },
   { href: "#rate-limits", label: "Rate limits" },
   {
     href: "#endpoints",
@@ -388,6 +391,145 @@ export default function ApiDocsPage() {
         </div>
       </section>
 
+      {/* 2026-08-13 UX監査R1 [C4]: 3つのパッケージは npm に公開済み（いずれも
+          0.1.0）なのに、サイト全体で "npm" の文字が0件だった。LP は「middleware
+          package」と書き、docs は REST しか説明していないので、SDK を入れて
+          試したい読者の導線が1本も無い。さらに npm には無関係の別ベンダーの
+          `vouch-sdk` / `@getvouch/sdk` が実在するため、スコープ付きの正確な
+          名前を名指しする必要がある（打ち間違いの行き先が他人のコードになる）。 */}
+      <section id="packages" className="scroll-mt-32 space-y-3">
+        <h2 className="sec-head">Packages</h2>
+        <p className="text-sm text-brand">
+          Three published packages, all from{" "}
+          <a
+            href="https://github.com/kzmttkc/agent-trust"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="doc-link"
+          >
+            this repository
+          </a>
+          . They wrap the same REST API documented below &mdash; nothing here is available to a
+          package that is not available to a plain <code>fetch</code>.
+        </p>
+        <CodeBlock
+          label="npm: install the vet402 packages"
+          code={`npm i @vouchscore/sdk          # spend guard for an agent about to pay
+npm i @vouchscore/middleware   # x402 request gate for an API provider
+npm i @vouchscore/mcp-server   # MCP tool, so an agent can ask before it pays`}
+        />
+        <p className="text-sm text-brand-lift">
+          The <code className="text-brand-deep">@vouchscore</code> scope is the only one that is
+          ours. Unscoped <code>vouch-sdk</code> and <code>@getvouch/sdk</code> exist on npm and are
+          unrelated packages by other publishers &mdash; installing those gets you someone else&apos;s
+          code, not ours.
+        </p>
+        <p className="text-sm text-brand">
+          <strong>Both the SDK and the middleware default to allow-only.</strong> Only an{" "}
+          <code>ALLOW</code> passes; a <code>WARN</code>, a <code>BLOCK</code>, a degraded verdict
+          and a partially measured one are all denied unless the caller explicitly opts out. That
+          default is fail-closed on purpose &mdash; see{" "}
+          <a href="#verdicts" className="doc-link">
+            Verdicts &amp; thresholds
+          </a>{" "}
+          for what to do about a WARN.
+        </p>
+      </section>
+
+      {/* 2026-08-13 UX監査R1 [C6]: ALLOW/WARN/BLOCK は全ページに出ているのに、
+          境界値がサイトのどこにも書いていなかった。運用者ペルソナは
+          「WARN が来たらどうすればいいのか」が決められず統合コードを書けずに
+          離脱している。閾値は src/lib/chain/config.ts の SCORE_THRESHOLDS を
+          そのまま写す（記憶で書かない）。SDK 既定の fail-closed も、閾値と
+          同じ場所で言わないと「WARN は通るのだろう」と読まれる。 */}
+      <section id="verdicts" className="scroll-mt-32 space-y-3">
+        <h2 className="sec-head">Verdicts &amp; thresholds</h2>
+        <p className="text-sm text-brand">
+          Every scored response carries a numeric score and a{" "}
+          <code className="text-brand-deep">recommendation</code>. The bands are fixed and the same
+          for the agent, wallet and payee engines:
+        </p>
+        <TableScroll label="Score bands and recommended handling">
+          <table className="fact-table">
+            <caption className="sr-only">
+              Score thresholds for ALLOW, WARN and BLOCK, and what to do with each
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Verdict</th>
+                <th scope="col" className="num">
+                  Score
+                </th>
+                <th scope="col">What it means</th>
+                <th scope="col">Recommended handling</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="text-brand-deep">ALLOW</td>
+                <td className="num whitespace-nowrap text-brand-deep">70 &ndash; 100</td>
+                <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                  Every check completed and nothing adverse was found.
+                </td>
+                <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                  Proceed. This is the only band the SDK and the middleware pass by default.
+                </td>
+              </tr>
+              <tr>
+                <td className="text-brand-deep">WARN</td>
+                <td className="num whitespace-nowrap text-brand-deep">40 &ndash; 69</td>
+                <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                  Not cleared. Something is thin, unusual, or only partially measured &mdash; not
+                  enough to condemn the address, not enough to pass it either.
+                </td>
+                <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                  Decide deliberately rather than by default: allow it under a spend ceiling, queue
+                  it for review, or require a second signal.
+                </td>
+              </tr>
+              <tr>
+                <td className="text-brand-deep">BLOCK</td>
+                <td className="num whitespace-nowrap text-brand-deep">0 &ndash; 39</td>
+                <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                  Adverse signals, a blacklist hit, or a check that could not be completed at all
+                  (<code>degraded: true</code>).
+                </td>
+                <td className="font-[family-name:var(--font-sans)] font-normal whitespace-normal text-brand">
+                  Do not pay. A degraded BLOCK is a refusal to answer, not a finding &mdash; retry
+                  once the upstream recovers.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </TableScroll>
+        <ul className="list-disc space-y-2 pl-5 text-sm text-brand">
+          <li>
+            <strong>Band the recommendation, not the number.</strong> Read{" "}
+            <code>recommendation</code>, not <code>trustScore &gt;= 70</code>. A blacklisted address
+            and a degraded verdict are <code>BLOCK</code> regardless of what the number says, so a
+            numeric comparison in your own code will disagree with ours on exactly the cases that
+            cost money.
+          </li>
+          <li>
+            <strong>The default is allow-only, and that is the point.</strong>{" "}
+            <code>@vouchscore/sdk</code> and <code>@vouchscore/middleware</code> deny everything
+            that is not <code>ALLOW</code> unless you opt out explicitly. The asymmetry is
+            deliberate: declining a good payee costs a retry, paying a bad one is final and
+            irreversible on x402.
+          </li>
+          <li>
+            <strong>WARN is where your policy lives, not ours.</strong> We publish the band and the
+            raw signals behind it; what an acceptable risk is at your transaction size is yours to
+            set. The one handling we do argue against is treating WARN as a quiet ALLOW &mdash; our{" "}
+            <Link href="/accuracy" className="doc-link">
+              operator benchmark
+            </Link>{" "}
+            currently scores known-bad addresses WARN rather than BLOCK in a minority of cases, so
+            a pass-on-WARN integration would pay those.
+          </li>
+        </ul>
+      </section>
+
       {/* 2026-08-06: capacity planning. Quotas were on the pricing page but the
           burst behaviour was nowhere — a synchronous gate needs both to size a
           deployment. Values are read from the code (auth.ts PLAN_LIMITS,
@@ -398,7 +540,7 @@ export default function ApiDocsPage() {
           Scoring is synchronous, so plan for both the monthly quota and the
           burst behaviour below.
         </p>
-        <div className="table-scroll">
+        <TableScroll label="Monthly request quota by plan">
           <table className="fact-table">
             <caption className="sr-only">Monthly request quota by plan</caption>
             <thead>
@@ -413,7 +555,7 @@ export default function ApiDocsPage() {
               <tr><td className="text-brand-deep">Scale</td><td className="num text-brand-deep">500,000</td></tr>
             </tbody>
           </table>
-        </div>
+        </TableScroll>
         <ul className="list-disc space-y-2 pl-5 text-sm text-brand">
           <li>
             <strong>Quota is per calendar month (UTC)</strong> and shared across
@@ -448,7 +590,7 @@ export default function ApiDocsPage() {
         {/* 2026-08-13 [m1]: 429 は2系統あり、区別できないと誤ったリトライを
             書かれる（月次枯渇に指数バックオフを掛けても、翌月まで通らない）。 */}
         <h3 className="sub-head">Two kinds of 429</h3>
-        <div className="table-scroll">
+        <TableScroll label="The two distinct causes of an HTTP 429">
           <table className="fact-table">
             <caption className="sr-only">
               The two distinct causes of an HTTP 429 and how to tell them apart
@@ -492,7 +634,7 @@ export default function ApiDocsPage() {
               </tr>
             </tbody>
           </table>
-        </div>
+        </TableScroll>
         <p className="text-sm text-brand-lift">
           The header families are deliberately different names:{" "}
           <code className="text-brand-deep">X-RateLimit-*</code> reports the monthly plan quota,{" "}
@@ -611,7 +753,7 @@ export default function ApiDocsPage() {
             much receiving history the wallet actually has, because a cold wallet cannot be judged
             on a track record it does not have.
           </p>
-          <div className="table-scroll">
+          <TableScroll label="Payee score component weights by data depth">
             <table className="fact-table">
               <caption className="sr-only">
                 Payee score component weights by data depth
@@ -663,7 +805,7 @@ export default function ApiDocsPage() {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           <ul className="list-disc space-y-2 pl-5 text-sm text-brand">
             <li>
               <strong>The raw inputs are in the response.</strong>{" "}
@@ -718,7 +860,7 @@ export default function ApiDocsPage() {
 
         <div>
           <h3 className="sub-head">Events</h3>
-          <div className="table-scroll">
+          <TableScroll label="Webhook event types and their payloads">
             <table className="fact-table">
               <caption className="sr-only">Webhook event types and their payloads</caption>
               <thead>
@@ -746,7 +888,7 @@ export default function ApiDocsPage() {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           <p className="mt-2 text-sm text-brand">
             A score is never pushed — scores are computed on demand and pushing a
             cached one would invite treating a stale number as fresh.
@@ -899,7 +1041,7 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
 
       <section id="error-codes" className="scroll-mt-32 space-y-3">
         <h2 className="sec-head">Error codes</h2>
-        <div className="table-scroll">
+        <TableScroll label="HTTP error codes returned by the vet402 API">
           <table className="fact-table">
             {/* 2026-08-06 a11y: caption + scope="col" bring this table up to the
                 same standard /accuracy and /leaderboard already meet, so a
@@ -922,7 +1064,7 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
         <p className="text-sm text-brand">
           Error bodies are shaped as <code className="text-brand-deep">{`{ "error": string, "details"?: object }`}</code>.
         </p>

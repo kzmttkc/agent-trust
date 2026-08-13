@@ -88,9 +88,14 @@ export default function DocsToc({ items }: { items: TocItem[] }) {
       .join(" ");
 
   return (
+    // 2026-08-13 アクセシビリティ監査 [E2]: 帯を bg-ground/95 + backdrop-blur で
+    // 敷いていた。11–12px の目次文字の背後に本文が透けるので、拡大して読んで
+    // いる読者には「ピントが合っていない」ようにしか見えない。ここは紙の上に
+    // 置いた索引の帯であって、ガラス板ではない。不透明にする（bg-ground は
+    // 地色そのものなので、見た目の色は透けていない場所と変わらない）。
     <nav
       aria-label="On this page"
-      className="sticky top-14 z-30 border-b border-hair bg-ground/95 px-4 py-2 backdrop-blur sm:px-6 md:px-8"
+      className="sticky top-14 z-30 border-b border-hair bg-ground px-4 py-2 sm:px-6 md:px-8"
     >
       {/* モバイル: 開閉式の全項目リスト */}
       <details ref={detailsRef} className="mx-auto w-full max-w-[var(--column)] px-[var(--sheet-pad)] md:hidden">
@@ -108,7 +113,16 @@ export default function DocsToc({ items }: { items: TocItem[] }) {
             [+]
           </span>
         </summary>
-        <ul className="mt-1 max-h-[60vh] overflow-y-auto pb-1 text-xs">
+        {/* 2026-08-13 アクセシビリティ監査 [E2]: max-h-[60vh] は比率なので、
+            ビューポートが縮んでも占有率が変わらない。200%拡大の 450px 高の
+            画面では sticky ヘッダ 57px + このパネル 315px = 372px、つまり
+            画面の 83% が案内に食われ、本文は 78px しか残っていなかった
+            （実測）。上限は比率ではなく「本文に必ず残す高さ」から決める:
+            16rem = 256px を残す（sticky ヘッダ 57px + この帯の見出し行 +
+            本文 約180px）。450px 高では索引が 194px まで縮んで本文が
+            180px 残る。もう一方の 20rem = 320px は、背の高い画面で索引が
+            伸び続けるのを止める側。 */}
+        <ul className="mt-1 max-h-[min(calc(100dvh-16rem),20rem)] overflow-y-auto pb-1 text-xs">
           {items.map((item) => (
             <li key={item.href}>
               <a

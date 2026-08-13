@@ -7,14 +7,42 @@
  * up navigation chrome and break the dashboard layout.
  */
 
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { buttonClass } from "@/components/ui/Button";
 
-export function SiteChrome({ children }: { children: React.ReactNode }) {
+export function SiteChrome({
+  children,
+  // 2026-08-13 UX監査R1 [D2]: 上流障害の掲示帯。ここは client component なので
+  // 自分では計測できない。server component として描画したものを slot で
+  // 受け取る（layout.tsx が渡す）。/dashboard では下の早期 return で落ちる
+  // ——あちらは自分の app shell を持っていて、掲示の宛先も違う。
+  banner,
+}: {
+  children: React.ReactNode;
+  banner?: React.ReactNode;
+}) {
   const pathname = usePathname();
   const isDashboard = pathname?.startsWith("/dashboard");
+
+  // 2026-08-13 アクセシビリティ監査 [E3]: クライアント側のルート遷移のあと
+  // document.activeElement が BODY に落ちていた。ブラウザの通常の読込なら
+  // それが既定の挙動だが、SPA 遷移では「文書が変わったこと」も「どこから
+  // 読み始めればいいか」も、キーボードとスクリーンリーダの利用者には何も
+  // 伝わらない — 毎回ヘッダの先頭から Tab を打ち直すことになる。
+  // 初回描画では動かさない（通常の読込のフォーカス位置を奪わない）。
+  const mainRef = useRef<HTMLDivElement>(null);
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    // preventScroll: Next.js のスクロール復元と競合させない。
+    mainRef.current?.focus({ preventScroll: true });
+  }, [pathname]);
 
   if (isDashboard) {
     return <>{children}</>;
@@ -36,7 +64,8 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
         Skip to main content
       </a>
       <SiteHeader />
-      <div id="main-content" tabIndex={-1} className="flex-1">
+      {banner}
+      <div id="main-content" ref={mainRef} tabIndex={-1} className="flex-1">
         {children}
       </div>
       <SiteFooter />

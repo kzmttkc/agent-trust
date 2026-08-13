@@ -24,6 +24,7 @@ What the API returns today is a different, older thing: a 0–100 trust or payee
 - https://vet402.com/accuracy — public accuracy ledger: past verdicts, outcomes, and misfire rate
 - https://vet402.com/leaderboard — register of recently verified subjects, ranked
 - https://vet402.com/payee — verify a payee, or look one up
+- https://vet402.com/corrections — every correction issued to a published result, and what does not count as one
 - https://vet402.com/faq — x402, ERC-8004, and how scoring works
 - https://vet402.com/signup — get an API key (free tier: 1,000 lookups / month)
 - https://vet402.com/blog — notes on agent-to-agent payments, x402, and verification
@@ -90,15 +91,19 @@ Base (ERC-8004 agent identity / reputation) is the default and the chain everyth
 
 ## Note on domain
 
-The production URL is `vet402.com`. `agent-trust.vercel.app` is an unrelated third-party service and is not affiliated with vet402.
+The production URL is `vet402.com`, and it is the only canonical one. `agent-trust-tawny.vercel.app` is our own former deployment URL: it now issues a permanent (308) redirect to `vet402.com` and should not be cited, indexed, or linked as a source. `agent-trust.vercel.app` is a different thing again — an unrelated third-party service, not affiliated with vet402.
 
 ## Corrections
 
-If a published score or verification result about a wallet you control is wrong, there is a free, key-less correction route open to anyone, customer or not — see section 8 of https://vet402.com/legal/terms
+If a published score or verification result about a wallet you control is wrong, there is a free, key-less correction route open to anyone, customer or not — see section 8 of https://vet402.com/legal/terms#corrections
+
+Corrections that are issued are published at https://vet402.com/corrections — as of 2026-08-13 that log is empty, which is a count and not a claim about accuracy.
 
 ## Citation
 
 - You may cite the content on this site (front page, API docs, FAQ, accuracy ledger, blog) as long as you credit the source with the corresponding vet402.com URL.
+- The same statement is published for human readers in section 4 of https://vet402.com/accuracy — this file is not the only place it exists.
+- Figures on the accuracy ledger are rolling 90-day aggregates; cite them with the retrieval date, or quote the `generatedAt` timestamp from `GET /api/v1/accuracy`.
 - Content current as of 2026-08-13.
 
 ## Legal

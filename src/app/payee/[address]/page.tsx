@@ -8,6 +8,7 @@ import { verifiedPayees } from "@/lib/db/schema";
 import { isValidAddress } from "@/lib/chain/client";
 import { scorePayeeWallet } from "@/lib/scoring/payee-engine";
 import TrackView from "@/components/site/TrackView";
+import FocusOnArrival from "@/components/site/FocusOnArrival";
 import CodeBlock from "@/components/docs/CodeBlock";
 import { getAddress } from "viem";
 import { SITE_URL } from "@/lib/site-url";
@@ -91,6 +92,11 @@ export default async function PayeePage({
     dataDepth: string;
     degraded: boolean;
     unavailable: string[];
+    // 2026-08-13 UX監査R1 [A5]: エンジンは最初から scoredAt を返していて、
+    // API の応答にも出ているのに、この公開ページだけが「いつ測ったか」を
+    // 出していなかった。数字だけが置いてあると、それが今日の測定なのか
+    // 3週間前のキャッシュなのかを読者は判定できない。
+    scoredAt: string;
   } | null = null;
   try {
     const result = await scorePayeeWallet(wallet);
@@ -100,10 +106,17 @@ export default async function PayeePage({
       dataDepth: result.dataDepth,
       degraded: result.degraded,
       unavailable: result.signalsUnavailable,
+      scoredAt: result.scoredAt,
     };
   } catch {
     score = null;
   }
+
+  // 表示用。ISO のまま出すと秒とタイムゾーンで桁が伸びて、事実より書式が
+  // 目立つ。UTC の「分」まで — 秒はこの頁の読者の判断を1つも変えない。
+  const scoredAtLabel = score
+    ? `${score.scoredAt.slice(0, 10)} ${score.scoredAt.slice(11, 16)} UTC`
+    : null;
 
   // 2026-08-13: an incompletely measured score says so on the page, in the
   // same plain terms the API reports it. The engine's own field names are the
@@ -171,7 +184,12 @@ export default async function PayeePage({
                 で、この頁の L0 とは別物 — 同じサイトに L0 の定義が2つあった。
                 claim 側から L 記号を外し、事実語だけで何の記録かを言う。 */}
             <span>Claim: wallet control by signature</span>
-            <span>Score computed on request</span>
+            {/* 2026-08-13 UX監査R1 [A6]: 同じアドレスに公開スコアが2つ出る
+                （この頁の payee エンジンと、/leaderboard の agent/wallet
+                エンジン）。docs には「別エンジン」と書いてあったが、どちらの
+                頁にもその表示が無かったので、読者からは同じ物差しの数字が
+                食い違って見えた。どちらのエンジンかを書誌欄に出す。 */}
+            <span>Engine: payee, computed on request</span>
           </div>
         </div>
 
@@ -179,7 +197,17 @@ export default async function PayeePage({
             DB のキーもバッジ URL も小文字のままで（照合は今までどおり）、人が
             読み比べる1箇所だけを大文字混じりの正規形にする。ウォレットの
             打ち間違いはチェックサムでしか目視検出できない。 */}
-        <h1 className="mt-10 break-all text-center text-[clamp(0.8125rem,2.6vw,1.125rem)] text-brand-deep">
+        {/* 2026-08-13 アクセシビリティ監査 [E3]: /payee のフォームから届いた時
+            だけ、この見出しへフォーカスを移す（素の GET フォーム + サーバ
+            redirect なので完全な再読込になり、フォーカスは BODY に落ちていた）。
+            tabIndex={-1} は見出しを Tab 順に入れずにプログラム的なフォーカス先に
+            するための標準の作法で、SiteChrome の #main-content と同じ。 */}
+        <FocusOnArrival targetId="payee-subject" fromPathPrefix="/payee" />
+        <h1
+          id="payee-subject"
+          tabIndex={-1}
+          className="mt-10 break-all text-center text-[clamp(0.8125rem,2.6vw,1.125rem)] text-brand-deep"
+        >
           {checksummed}
         </h1>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
@@ -296,12 +324,38 @@ export default async function PayeePage({
           ) : (
             <p className="mt-3 text-brand-lift">Score unavailable right now.</p>
           )}
+          {/* 2026-08-13 UX監査R1 [A5][A6]: 測定時刻とエンジン名を、数字と同じ
+              囲みの中に置く。「いつ・どの物差しで」が数字から離れると、離れた
+              ぶんだけ読者は数字だけを持ち出す。 */}
+          {scoredAtLabel ? (
+            <p className="doc-note mt-4">
+              Payee engine, computed on this request at{" "}
+              <span className="text-brand-deep">{scoredAtLabel}</span>. The register at{" "}
+              <Link href="/leaderboard" className="doc-link">
+                /leaderboard
+              </Link>{" "}
+              runs a different engine, so it can carry a different number for this address.
+            </p>
+          ) : null}
           <p className="doc-note mt-4">
             {/* 2026-08-06 a11y (WCAG 2.4.4): the link text used to be the bare
                 path "/accuracy", which reads as "slash accuracy" in a screen
                 reader's link list. The descriptive phrase is now the link. */}
             <Link href="/accuracy" className="doc-link">
               Methodology and measured accuracy
+            </Link>
+            .
+          </p>
+          {/* 2026-08-13 UX監査R1 [C7]: この頁は名指しのアドレスについて数字を
+              公開している当の場所なのに、異議申立の入口が無かった（唯一の記述は
+              ToS §8＝全文の27%地点）。文言は ToS §8 の見出しをそのまま使う。 */}
+          <p className="doc-note mt-2">
+            <Link href="/legal/terms#corrections" className="doc-link">
+              Think this score is wrong?
+            </Link>{" "}
+            Two free routes, no account needed. Corrections we issue are listed in the{" "}
+            <Link href="/corrections" className="doc-link">
+              corrections log
             </Link>
             .
           </p>

@@ -217,7 +217,12 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="space-y-2">
+        {/* 2026-08-13 UX監査R1 [C7]: 異議申立の入口は UI のどこにも無く、唯一の
+            記述がこの §8（全文の27%地点）だった。LP §3.3 / /payee/:address /
+            /faq / /accuracy / /corrections から名指しで飛べるように id を付ける。
+            id は節番号ではなく "corrections" — 節が繰り上がってもリンクが
+            死なないため。 */}
+        <section id="corrections" className="scroll-mt-24 space-y-2">
           <h2 className="sec-head">
             <span className="sec-no">8.</span>
             <span>If you think a score about you is wrong</span>

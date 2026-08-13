@@ -13,6 +13,7 @@
  */
 
 import TrackedLink from "@/components/site/TrackedLink";
+import { TableScroll } from "@/components/site/TableScroll";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 import { buttonClass } from "@/components/ui/Button";
 
@@ -36,7 +37,16 @@ export function PricingSection() {
         before committing to anything.
       </p>
 
-      <div className="table-scroll">
+      {/* 2026-08-13 UX監査R1 [D1]: 375px で表の実幅 365px に対して可視域 309px、
+          つまり INCLUDES 列（各段に何が付くか＝価格表で価格の次に効く列）が
+          最初から画面外に出ていた。LP §2 の検証レベル表が既に採っている手
+          （幅が足りない画面では表をやめて定義リストで積む）をここにも当てる。
+          表と定義リストは同じ BILLING_PLANS / INCLUDES から出ているので、
+          片方だけが古くなることはない。 */}
+      <TableScroll
+        label="vet402 access tiers"
+        className="hidden min-[800px]:block"
+      >
         <table className="fact-table">
           <caption className="sr-only">vet402 access tiers, monthly quota and what each includes</caption>
           <thead>
@@ -67,7 +77,27 @@ export function PricingSection() {
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
+
+      <dl className="mt-6 min-[800px]:hidden">
+        {PLAN_ORDER.map((id) => {
+          const plan = BILLING_PLANS[id];
+          return (
+            <div key={id} className="border-t border-hair py-4 first:border-t-brand-deep">
+              <dt className="flex items-baseline justify-between gap-3 font-[family-name:var(--font-display)] font-semibold text-brand-deep">
+                <span>{plan.name}</span>
+                <span className="whitespace-nowrap tabular-nums">{plan.priceLabel}</span>
+              </dt>
+              <dd className="mt-2 space-y-1 text-[0.8125rem] text-brand">
+                <p className="text-brand-deep">
+                  {plan.monthlyLimit.toLocaleString("en-US")} lookups / month
+                </p>
+                <p>{INCLUDES[id]}</p>
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
 
       {/* 2026-08-06 growth: pricing_cta_click{plan} — which plan people click is
           the only pre-signup price-sensitivity signal we have (all CTAs land on

@@ -4,6 +4,8 @@ import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import { Mark402 } from "@/components/site/Mark402";
 import { PricingSection } from "@/components/site/PricingSection";
+import { TableScroll } from "@/components/site/TableScroll";
+import { X402_DEFINITION } from "@/components/site/faq-data";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 import { buttonClass } from "@/components/ui/Button";
 import { SITE_URL } from "@/lib/site-url";
@@ -30,7 +32,22 @@ const HEAD_LEFT = [
   { label: "Status", value: "Building in public", signal: true },
 ];
 
-const HEAD_RIGHT = ["vet402", "x402 Economy", "August 2026", "Obsoletes: trust scores"];
+// 2026-08-13 UX監査R1 [D4]: 4ペルソナが独立に「ヘッダは trust scores を
+// obsoletes と言っているのに §2.1 は今日返るのが trust score だと言っている」
+// と矛盾を報告した。ヘッダ文言は承認済みコピーなので変えない。代わりに
+// その行から §2.1 へ飛べるようにして、3秒で去る読者が矛盾を抱えたまま
+// 離脱しないようにする（Obsoletes は RFC の書誌欄で「何を置き換える文書か」
+// を宣言する欄で、置き換えの進行状況は §2.1 が持っている）。
+const HEAD_RIGHT: { value: string; href?: string; title?: string }[] = [
+  { value: "vet402" },
+  { value: "x402 Economy" },
+  { value: "August 2026" },
+  {
+    value: "Obsoletes: trust scores",
+    href: "#methodology",
+    title: "What replaces the trust score, and what is still returned today — see section 2.1",
+  },
+];
 
 const CONTENTS = [
   { no: "1.", title: "The problem this memo addresses", href: "#gap", kind: "background" },
@@ -176,9 +193,17 @@ export default async function Home() {
             ))}
           </div>
           <div className="doc-head-col">
-            {HEAD_RIGHT.map((value) => (
-              <span key={value}>{value}</span>
-            ))}
+            {HEAD_RIGHT.map((row) =>
+              row.href ? (
+                <span key={row.value}>
+                  <Link href={row.href} className="doc-link" title={row.title}>
+                    {row.value}
+                  </Link>
+                </span>
+              ) : (
+                <span key={row.value}>{row.value}</span>
+              ),
+            )}
           </div>
         </div>
 
@@ -265,6 +290,23 @@ export default async function Home() {
           <span>The problem this memo addresses</span>
         </h2>
 
+        {/* 2026-08-13 UX監査R1 [C1][C2]: このページは "x402" を12回使って一度も
+            定義していなかった（実測: 定義 0回）。この分野の外から来た読者は
+            §1.1 の最初の行で降りる。定義は /faq の Q1 に承認済みの文章として
+            既に在ったので、新しいコピーを書かず、そこから引用して FAQ へ
+            繋ぐ（本文から /faq へのリンクは、これ以前は1本も無かった —
+            ヘッダのナビだけだった）。 */}
+        <div className="dashbox mt-6 max-w-[64ch]">
+          <p className="doc-caption">{X402_DEFINITION.question}</p>
+          <p className="mt-3 text-brand">{X402_DEFINITION.answer}</p>
+          <p className="doc-note mt-3">
+            <Link href="/faq" className="doc-link">
+              ERC-8004, what the score is, and what it is not
+            </Link>{" "}
+            &mdash; the rest of the questions.
+          </p>
+        </div>
+
         <div className="mt-6 space-y-5">
           <div className="flex gap-4">
             <span className="w-[4ch] shrink-0 text-brand-lift">1.1</span>
@@ -275,9 +317,13 @@ export default async function Home() {
           </div>
           <div className="flex gap-4">
             <span className="w-[4ch] shrink-0 text-brand-lift">1.2</span>
+            {/* 2026-08-13 UX監査R1 [A4]: 98.7% にチェーンの修飾が無く、3チェーン
+                全体の数字として読めた。原典はチェーン別に 98.7%(ETH) /
+                99.3%(Base) / 100.0%(BSC) で、ここは一番低い値を採っている
+                （盛ってはいない）。どのチェーンの数字かを字面に出す。 */}
             <p className="min-w-0 max-w-[64ch] text-brand">
-              Registries can be written for cents: 98.7% of ERC-8004 reputation feedback has no
-              verifiable transaction behind it.{" "}
+              Registries can be written for cents: 98.7% of ERC-8004 reputation feedback on
+              Ethereum has no verifiable transaction behind it.{" "}
               <a href="#ref-arxiv" className="ref-mark">
                 [ARXIV-2606]
               </a>
@@ -285,11 +331,22 @@ export default async function Home() {
           </div>
           <div className="flex gap-4">
             <span className="w-[4ch] shrink-0 text-brand-lift">1.3</span>
+            {/* 2026-08-13 UX監査R1 [A3]: ここは "roughly half of observed x402
+                traffic is self-dealing" と書き、出典は URL も日付も無い
+                「Artemis, x402 activity analysis, 2026」だった。原典（Visa と
+                Artemis の共同レポート）を当たると、公表されている数字は
+                self-dealing 単独ではなく **wash と test を合わせて除外した
+                分** で、生の 178.3M トランザクションが調整後 109.6M になる
+                = 38.5%。「およそ半分」でも「self-dealing」でもない。
+                追跡できない引用を「Nothing on this site is an estimate」を
+                掲げる頁に置くのは自己矛盾なので、原典が実際に公表している
+                数字と語（adjusted / wash and test）に合わせ、URL・発行者・
+                発行月・データ基準日を References に全部書く。 */}
             <p className="min-w-0 max-w-[64ch] text-brand">
-              Directory metrics can be manufactured: roughly half of observed x402 traffic is
-              self-dealing.{" "}
+              Directory metrics can be manufactured: 38.5% of x402 transactions fall away as wash
+              or test activity before the totals mean anything.{" "}
               <a href="#ref-artemis" className="ref-mark">
-                [ARTEMIS-2026]
+                [VISA-ARTEMIS-2026]
               </a>
             </p>
           </div>
@@ -306,10 +363,25 @@ export default async function Home() {
           folded into an L0&ndash;L2 fact.
         </p>
 
-        {/* 表は sm 以上。320–639px では同じ配列を定義リストで積む（4列の散文表を
+        {/* 表は md 以上。768px 未満では同じ配列を定義リストで積む（4列の散文表を
             横スクロールさせると、この表で一番重要な Output 列が最初から画面外に
-            出る）。表示されない側は display:none なので支援技術にも二重に出ない。 */}
-        <div className="table-scroll hidden sm:block">
+            出る）。表示されない側は display:none なので支援技術にも二重に出ない。
+
+            2026-08-13 アクセシビリティ監査（200%拡大）で、しきい値 640px は
+            低すぎたことが実測で出た: .fact-table-fixed の下限は 39rem = 624px で、
+            紙面の内寸がそれを割るのは 640px ではなく 786px。720px では
+            50px、640px では 66px が隠れ、画面には `conform / mismat` と
+            `opinion — never m` が出ていた。「正確に測る」を売る頁で、検証段の
+            定義そのものが語の途中で切れていたことになる。
+
+            しきい値は md(768px) では足りない（実測: 768px の紙面内寸は 606px で
+            まだ 18px 隠れる）。内寸は viewport - 162px（ページ余白 64 + 紙の
+            左右余白 96 + 罫 2）なので、624px を確保できるのは 786px から。
+            30px の余裕を見て 800px を境にする。 */}
+        <TableScroll
+          label="vet402 verification levels"
+          className="hidden min-[800px]:block"
+        >
           <table className="fact-table fact-table-fixed">
             <caption className="sr-only">
               vet402 verification levels: what each level asks, how it is run, and what it outputs
@@ -361,9 +433,9 @@ export default async function Home() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
 
-        <dl className="mt-6 sm:hidden">
+        <dl className="mt-6 min-[800px]:hidden">
           {LEVELS.map((row) => (
             <div key={row.level} className="border-t border-hair py-4 first:border-t-brand-deep">
               <dt className="font-[family-name:var(--font-display)] font-semibold text-brand-deep">
@@ -415,16 +487,39 @@ export default async function Home() {
           </div>
           <div className="flex gap-4">
             <span className="w-[4ch] shrink-0 text-brand-lift">3.2</span>
+            {/* 2026-08-13 UX監査R1 [D3]: 3ペルソナが独立に「ここは never "bad" と
+                言うが、API は読めなかった入力に対して fail-closed の BLOCK を
+                返す」と矛盾を指摘した。設計としては矛盾していない — 人に見せる
+                面と、金を動かす直前の機械に返す答えは別物にしてある。その意図は
+                docs（Payee score / Availability）と llms.txt には書いてあったが、
+                この頁だけ半分しか言っていなかった。残りの半分を1行で足す。 */}
             <p className="min-w-0 max-w-[64ch] text-brand">
               Unverifiable is not a verdict. We say <strong>&quot;unverified&quot;</strong>, never
-              &quot;bad&quot;.
+              &quot;bad&quot;. A caller about to move money gets the safe answer instead: a check
+              that could not be completed returns a fail-closed{" "}
+              <span className="whitespace-nowrap">BLOCK</span> to the API and the SDK, while the
+              public page prints &ldquo;not verifiable right now&rdquo; and no number.{" "}
+              <Link href="/docs/api#payee-score" className="doc-link">
+                Why the two answers differ
+              </Link>
+              .
             </p>
           </div>
           <div className="flex gap-4">
             <span className="w-[4ch] shrink-0 text-brand-lift">3.3</span>
+            {/* 2026-08-13 UX監査R1 [C7][C8]: この2つの約束の実行先が UI のどこにも
+                無かった。異議申立は ToS §8（全文の27%地点）だけ、訂正ログは
+                2箇所で約束しながら該当ページが 404 だった。 */}
             <p className="min-w-0 max-w-[64ch] text-brand">
-              Sellers can dispute any result and trigger a free re-verification. Corrections are
-              logged publicly.
+              Sellers can dispute any result and trigger a free re-verification.{" "}
+              <Link href="/legal/terms#corrections" className="doc-link">
+                How to dispute a result
+              </Link>
+              . Corrections are logged publicly &mdash;{" "}
+              <Link href="/corrections" className="doc-link">
+                the corrections log
+              </Link>
+              .
             </p>
           </div>
         </div>
@@ -450,6 +545,12 @@ export default async function Home() {
             }
             action={{ label: "Verify a payee", href: "/payee", event: "lp_cta_click", position: "s4_payee" }}
           />
+          {/* 2026-08-13 UX監査R1 [C4]: 3つのパッケージは npm に公開済み
+              （いずれも 0.1.0）なのに、サイト全体で "npm" の文字が0件で、
+              「middleware package」と書きながらインストール名がどこにも
+              無かった。しかも npm には無関係の別ベンダーの `vouch-sdk` /
+              `@getvouch/sdk` が実在するので、スコープ付きの正確な名前を
+              名指しする必要がある。 */}
           <ItemRow
             state="live"
             title="Drop-in middleware, REST API and MCP tool"
@@ -457,6 +558,15 @@ export default async function Home() {
               <>
                 An x402 middleware package, a REST API, and an MCP tool that answers the question a
                 spending agent should ask before it pays.
+                <span className="mt-3 block text-[0.8125rem] text-brand-lift">
+                  On npm:{" "}
+                  <code className="break-all text-brand-deep">npm i @vouchscore/sdk</code>,{" "}
+                  <code className="break-all text-brand-deep">@vouchscore/middleware</code>,{" "}
+                  <code className="break-all text-brand-deep">@vouchscore/mcp-server</code>. The{" "}
+                  <code className="text-brand-deep">@vouchscore</code> scope is the only one that
+                  is ours &mdash; unscoped <code>vouch-sdk</code> and{" "}
+                  <code>@getvouch/sdk</code> on npm are unrelated packages by other publishers.
+                </span>
               </>
             }
             action={{ label: "API reference", href: "/docs/api", event: "docs_click", position: "s4_docs" }}
@@ -542,7 +652,9 @@ export default async function Home() {
           <div id="ref-arxiv" className="flex flex-col gap-1 sm:flex-row sm:gap-4">
             <dt className="shrink-0 text-brand-deep sm:w-[16ch]">[ARXIV-2606]</dt>
             <dd className="min-w-0 max-w-[58ch] text-brand">
-              98.7% of ERC-8004 reputation feedback has no verifiable transaction behind it.{" "}
+              98.7% of ERC-8004 reputation feedback on Ethereum has no verifiable transaction
+              behind it. The paper reports this per chain; §1.2 quotes the Ethereum figure, which
+              is the lowest of the three it measures.{" "}
               <a
                 href="https://arxiv.org/abs/2606.26028"
                 target="_blank"
@@ -554,10 +666,22 @@ export default async function Home() {
             </dd>
           </div>
           <div id="ref-artemis" className="flex flex-col gap-1 sm:flex-row sm:gap-4">
-            <dt className="shrink-0 text-brand-deep sm:w-[16ch]">[ARTEMIS-2026]</dt>
+            <dt className="shrink-0 text-brand-deep sm:w-[16ch]">[VISA-ARTEMIS-2026]</dt>
             <dd className="min-w-0 max-w-[58ch] text-brand">
-              Roughly half of observed x402 traffic is self-dealing. Artemis, x402 activity
-              analysis, 2026.
+              Raw x402 activity of $135.7M across 178.3M transactions falls to $15.0M across 109.6M
+              once wash and test transactions are excluded &mdash; 38.5% of transactions, 88.9% of
+              volume. Visa and Artemis,{" "}
+              <a
+                href="https://www.visa.com/en-us/thought-leadership/innovation/agentic-payments-from-the-ground-up"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="doc-link"
+              >
+                Agentic Payments from the Ground Up
+              </a>
+              , July 2026; Artemis Analytics on-chain data as of April 21, 2026. The split between
+              self-dealing and wash trading inside that excluded share is not published, so this
+              page does not state one.
             </dd>
           </div>
         </dl>

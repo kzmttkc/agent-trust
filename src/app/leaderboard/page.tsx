@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
+import { TableScroll } from "@/components/site/TableScroll";
 import { fetchLeaderboard } from "@/lib/db/leaderboard";
 
 // N-17 — public agent leaderboard. Latest verdict per agent, aggregate only.
@@ -25,13 +26,49 @@ function SeedTag() {
   return <span className="marker marker-plan ml-2 align-middle">benchmark</span>;
 }
 
-export default async function LeaderboardPage() {
-  let rows: Awaited<ReturnType<typeof fetchLeaderboard>> = [];
+/**
+ * 既定で紙面に載せる行数。
+ *
+ * 2026-08-13 UX監査R1 [A1]: ヘッダは "Rows: 25 of 25" と刷っていたが、窓の中に
+ * 実在する被検体は42件（既知悪25 + 既知良17）で、25 は上位25件という表示上の
+ * 都合でしかなかった。分母を表示件数と同じ数にすると「全部見えている」と
+ * 読める。しかも落ちていた17件は**全部 BLOCK**（既知悪の下位）で、可視な
+ * 登録簿は良い側へ系統的に偏っていた——「Nothing on this site is an estimate」
+ * を掲げる製品としては、順位表の分母が一番落としてはいけない数字だった。
+ *
+ * 直し方は3つあった（正しい分母を出すだけ／全件出す／ページング）。全件出す
+ * ことにして、既定は上位25件・?all=1 で残りも同じ表に続ける形にしている。
+ * 順位表としての読みやすさ（上位が上）と、隠していないこと（続きへの導線と
+ * 内訳が常に見える）を両立させるにはこれが一番安い。
+ */
+const DEFAULT_ROWS = 25;
+/** 窓は30日なので現実には数十件だが、DBが荒れた時に紙面が無限に伸びない上限。 */
+const MAX_ROWS = 500;
+
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ all?: string | string[] }>;
+}) {
+  const allParam = (await searchParams).all;
+  const showAll = (Array.isArray(allParam) ? allParam[0] : allParam) === "1";
+
+  let all: Awaited<ReturnType<typeof fetchLeaderboard>> = [];
   try {
-    rows = await fetchLeaderboard(25);
+    all = await fetchLeaderboard(MAX_ROWS);
   } catch {
-    rows = [];
+    all = [];
   }
+  const total = all.length;
+  const rows = showAll ? all : all.slice(0, DEFAULT_ROWS);
+  const hidden = all.slice(rows.length);
+  // 隠れている行の判定内訳。件数だけ書くと「下位が切れている」としか読めず、
+  // それが良い側への偏りだと分からない。
+  const hiddenByVerdict = hidden.reduce<Record<string, number>>((acc, r) => {
+    const key = r.recommendation || "—";
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
   const hasSeeded = rows.some((r) => r.seeded);
 
   return (
@@ -42,12 +79,23 @@ export default async function LeaderboardPage() {
             <span>Independent Measurement</span>
             <span>Register: recently verified subjects</span>
             <span>
-              {/* この頁のシアン1点。表に何行載っているかという事実。 */}
-              Rows: <span className="text-signal">{rows.length} of 25</span>
+              {/* この頁のシアン1点。表に何行載っているかという事実。分母は
+                  「表示上限」ではなく「窓の中に実在する被検体の数」。 */}
+              Rows:{" "}
+              <span className="text-signal">
+                {rows.length} of {total}
+                {rows.length < total ? ` (top ${rows.length} by score)` : ""}
+              </span>
             </span>
           </div>
           <div className="doc-head-col">
             <span>vet402</span>
+            {/* 2026-08-13 UX監査R1 [A6]: 同じアドレスに2つの公開スコアが出る
+                （例: /payee は payee エンジン、この表は agent/wallet エンジン）。
+                docs には「別エンジン」と書いてあるが、どちらの頁にもその表示が
+                無かったので、読者からは同じ物差しの数字が食い違って見えた。
+                どのエンジンのどの時点の測定かを、両方の頁の書誌欄に出す。 */}
+            <span>Engine: agent / wallet</span>
             <span>Latest verdict per subject</span>
             <span>Aggregate only</span>
           </div>
@@ -64,6 +112,20 @@ export default async function LeaderboardPage() {
             settlements. Run the same lookup yourself with an API key.
           </p>
         </div>
+
+        {/* 2026-08-13 UX監査R1 [A6]: どちらのエンジンの数字かを本文にも1行。
+            /payee/:address が同じアドレスに別の数字を出すのは仕様だが、
+            その旨がどこにも書いていなければ読者には食い違いにしか見えない。 */}
+        <p className="doc-note mt-6 max-w-[70ch]">
+          These are agent/wallet-engine verdicts, each one the latest benchmark or lookup result
+          for that subject. A payee page at <code className="text-brand-deep">/payee/&lt;address&gt;</code>{" "}
+          runs a different engine on the request, weighted for the buyer-side question, so the same
+          address can carry two different published numbers.{" "}
+          <Link href="/docs/api#payee-score" className="doc-link">
+            How the two differ
+          </Link>
+          .
+        </p>
 
         {/* 2026-08-06 UX audit item 6: distinguish operator self-benchmark rows
             from customer traffic, in plain sight, so the board can be full
@@ -98,7 +160,7 @@ export default async function LeaderboardPage() {
             </p>
           </div>
         ) : (
-          <div className="table-scroll">
+          <TableScroll label="Recently verified subjects, ranked by score">
             <table className="fact-table">
               <caption className="sr-only">
                 Recently verified subjects, ranked by trust score
@@ -158,8 +220,37 @@ export default async function LeaderboardPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         )}
+
+        {/* 2026-08-13 UX監査R1 [A1]: 隠れている行の内訳を、隠したその場に置く。
+            件数だけでは「下位が切れている」としか読めないが、実測では欠落17件が
+            全部 BLOCK で、可視な登録簿は良い側へ偏っていた。偏りの向きを言わずに
+            件数だけ直すのは、分母を直したことにならない。 */}
+        {hidden.length > 0 ? (
+          <p className="doc-note mt-5 max-w-[70ch]">
+            {hidden.length} further {hidden.length === 1 ? "subject is" : "subjects are"} in the
+            window and not shown above (
+            {Object.entries(hiddenByVerdict)
+              .sort((a, b) => b[1] - a[1])
+              .map(([verdict, count]) => `${count} ${verdict}`)
+              .join(", ")}
+            ) &mdash; they score below the top {rows.length}, so what is visible here is the
+            flattering end of the register.{" "}
+            <Link href="/leaderboard?all=1" className="doc-link">
+              Show all {total}
+            </Link>
+            .
+          </p>
+        ) : showAll && total > DEFAULT_ROWS ? (
+          <p className="doc-note mt-5 max-w-[70ch]">
+            All {total} subjects in the window, lowest scores included.{" "}
+            <Link href="/leaderboard" className="doc-link">
+              Back to the top {DEFAULT_ROWS}
+            </Link>
+            .
+          </p>
+        ) : null}
 
         {/* 2026-08-06 a11y (WCAG 2.4.4): the link text was the bare path
             "/accuracy", which a screen reader's link list renders as "slash

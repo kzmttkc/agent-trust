@@ -30,6 +30,10 @@ const INDEX_LINKS = [
   // JavaScript. The footer is server-rendered and always visible, so it is the
   // right home for them.
   { label: "Leaderboard", href: "/leaderboard" },
+  // 2026-08-13 UX監査R1 [C8]: LP §3.3 と llms.txt が「Corrections are logged
+  // publicly」と約束していた帳簿。索引に載っていなければ約束の半分しか
+  // 果たしていない。
+  { label: "Corrections", href: "/corrections" },
   { label: "FAQ", href: "/faq" },
   { label: "Blog", href: "/blog" },
 ];
