@@ -7,13 +7,14 @@ import {
   fetchWalletTransactions,
 } from "@/lib/chain/blockscout";
 import { isValidAddress } from "@/lib/chain/client";
-import { BASE_USDC_ADDRESS } from "@/lib/chain/config";
+import { BASE_USDC_ADDRESS, SCORE_THRESHOLDS } from "@/lib/chain/config";
 import { fetchWalletMetrics } from "@/lib/chain/wallet-metrics";
 import { getOutcomesForWallet, type WalletOutcomeRow } from "@/lib/db/outcome-writer";
 import { getPayeeStats, type PayeeStats } from "@/lib/db/x402-payments";
 import { LruCache } from "@/lib/util/lru-cache";
 import { logServerError } from "@/lib/util/log";
-import { normalizeWalletScore, toRecommendation } from "./helpers";
+import { normalizeWalletScore } from "./helpers";
+import { hasUnavailableInput, toRecommendation } from "./verdict";
 import type { Recommendation } from "./types";
 
 const FETCH_TIMEOUT_MS = 8_000;
@@ -35,6 +36,30 @@ const DRAIN_MIN_VALUE_WEI = 5_000_000_000_000_000n; // 0.005 ETH
  */
 const DRAIN_MIN_VALUE_USDC = 10_000_000n; // 10 USDC
 const DRAIN_HIGH_RATIO = 0.8;
+
+/**
+ * Ceiling for a verdict computed with at least one input we could not read.
+ *
+ * WHY A CEILING AND NOT A PENALTY (2026-08-13). Measured on
+ * /payee/0xd8dA…6045: one wallet, one afternoon, nothing changing on chain —
+ * 70/ALLOW on first load, 37/BLOCK on reload, 49/WARN on the leaderboard. The
+ * whole spread was decided by WHICH upstream read happened to fail, because
+ * every missing signal was silently replaced by a plausible middle value
+ * (scoreDrain returns a neutral 50 for a check that never ran) and the result
+ * was then banded like a measurement. The drain-check-only failure landed on
+ * exactly 70 = SCORE_THRESHOLDS.allow, so a wallet whose exit-scam check was
+ * never performed cleared the product's most permissive verdict — the
+ * fail-OPEN direction, on the buyer-side engine the SDK's SpendGuard consults
+ * before releasing funds.
+ *
+ * A fixed subtraction would not have closed it (84 − 20 is still a passable
+ * number). A ceiling states the only thing that is actually true when a read
+ * is missing: we cannot certify this wallet above the block line. It sits one
+ * point under SCORE_THRESHOLDS.warn rather than at 0, because 0 is what
+ * applyManualList uses for an operator blacklist and a degraded read is not an
+ * accusation.
+ */
+const DEGRADED_SCORE_CEILING = SCORE_THRESHOLDS.warn - 1;
 
 export type DataDepth = "thin" | "moderate" | "rich";
 
@@ -70,6 +95,14 @@ export type PayeeScoreResult = {
   score: number;
   recommendation: Recommendation;
   dataDepth: DataDepth;
+  /**
+   * True when at least one input could not be read, so this is a fail-closed
+   * refusal rather than a measurement. `dataDepth` answers "how much history
+   * does this wallet have?"; this answers "did we manage to look?" — a
+   * data-poor wallet we read completely is not the same as a wallet we could
+   * not read at all, and the two used to be indistinguishable to callers.
+   */
+  degraded: boolean;
   signals: PayeeSignals;
   scoredAt: string;
   cacheExpiresAt: string;
@@ -342,10 +375,18 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
 
   const outcomes = await getOutcomesForWallet(addrLower);
 
-  const walletScore = normalizeWalletScore({
+  const rawWalletScore = normalizeWalletScore({
     ageDays: walletMetrics?.ageDays ?? 0,
     txCount: walletMetrics?.txCount ?? 0,
   });
+  // A failed metrics read leaves ageDays 0 / txCount 0 behind, which
+  // normalizeWalletScore reads as `isBurner` — a specific, checkable claim
+  // about a wallet nobody managed to look at. The weighting may treat missing
+  // history conservatively (that is the fail-closed direction), but the
+  // reported signal must not assert a fact we did not observe.
+  const walletScore = walletMetrics
+    ? rawWalletScore
+    : { ...rawWalletScore, isBurner: false };
 
   const receivingScore = scoreReceiving(stats);
   const drainScore = scoreDrain(drainSignal);
@@ -358,7 +399,7 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
       drainScore * weights.drain,
   );
 
-  const { score, types: outcomeTypes, adjustment } = applyOutcomeAdjustment(
+  const { score: measuredScore, types: outcomeTypes, adjustment } = applyOutcomeAdjustment(
     preOutcomeScore,
     outcomes,
   );
@@ -370,7 +411,18 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
   }
   if (walletScore.isBurner) flags.push("new_burner_wallet");
 
-  const recommendation = toRecommendation(score, false);
+  // ---- fail-closed gate ------------------------------------------------
+  // The invariant verdict.ts documents for the seller-side engine, applied to
+  // the buyer side, which never had it: an `*_unavailable` flag means "we
+  // could not check", and that must never leave here dressed as "we checked
+  // and it was fine". `hasUnavailableInput` is the shared definition on
+  // purpose — a local `.endsWith("_unavailable")` re-implementation is exactly
+  // how the two sides drifted apart in the first place.
+  const degraded = hasUnavailableInput(flags);
+  const score = degraded ? Math.min(measuredScore, DEGRADED_SCORE_CEILING) : measuredScore;
+  // Stated, not inferred from the ceiling: if DEGRADED_SCORE_CEILING were ever
+  // moved above the block line, the refusal must not quietly turn into a WARN.
+  const recommendation: Recommendation = degraded ? "BLOCK" : toRecommendation(score, false);
 
   const now = Date.now();
   const result: PayeeScoreResult = {
@@ -378,6 +430,7 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
     score,
     recommendation,
     dataDepth,
+    degraded,
     signals: {
       receiving: {
         paymentCount: stats.paymentCount,
@@ -412,8 +465,9 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
       "outflow pattern) — it is not an identity or legal-standing check.",
   };
 
-  const hasUnavailableFlag = flags.some((flag) => flag.endsWith("_unavailable"));
-  if (!hasUnavailableFlag) {
+  // A verdict the engine is not confident enough to cache is one nobody
+  // downstream may pin either (tests/verdict-consistency.test.ts).
+  if (!degraded) {
     cache.set(addrLower, { result, expiresAt: now + CACHE_TTL_MS });
   }
 
