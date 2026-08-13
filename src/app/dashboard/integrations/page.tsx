@@ -1,12 +1,12 @@
 "use client";
 
+import { SITE_URL } from "@/lib/site-url";
+
 export default function DashboardIntegrationsPage() {
-  // Fallback URL is the current production deployment. A custom domain
-  // (e.g. api.vouch.dev) is not registered yet — replace this once it is.
   const base =
     typeof window !== "undefined"
       ? `${window.location.origin}/api/v1`
-      : "https://agent-trust-tawny.vercel.app/api/v1";
+      : `${SITE_URL}/api/v1`;
 
   return (
     <div className="space-y-6">

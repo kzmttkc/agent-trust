@@ -3,6 +3,7 @@ import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import CodeBlock from "@/components/docs/CodeBlock";
 import DocsToc, { type TocItem } from "@/components/docs/DocsToc";
+import { SITE_URL } from "@/lib/site-url";
 
 type Endpoint = {
   method: "GET" | "POST";
@@ -248,8 +249,7 @@ export default function ApiDocsPage() {
         <p className="text-brand">
           Authenticate with <code className="text-brand-deep">Authorization: Bearer</code>{" "}
           API key. Base URL:{" "}
-          <code className="break-all text-brand-deep">https://agent-trust-tawny.vercel.app/api/v1</code>
-          {" "}(custom domain not yet registered).
+          <code className="break-all text-brand-deep">{`${SITE_URL}/api/v1`}</code>
         </p>
         {/* 2026-08-12 FIX-4: 発行されるキーの形が docs のどこにも書いておらず、
             LP の MCP 例だけが `vk_...` という実在しない接頭辞を載せていた

@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { getAllPosts, getPostBySlug } from "@/lib/blog";
-
-const SITE_URL = "https://agent-trust-tawny.vercel.app";
+import { SITE_URL } from "@/lib/site-url";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 export function generateStaticParams() {
   return getAllPosts().map((post) => ({ slug: post.slug }));
@@ -65,7 +65,7 @@ export default async function BlogPostPage({
         // element is inserted (a CSP anti-exfiltration measure), which
         // otherwise trips a harmless React hydration-mismatch warning here.
         suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
 
       <div className="space-y-2">

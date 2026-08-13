@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
+import { SITE_URL } from "@/lib/site-url";
 
 type Overview = {
   apiKey: { id: string; name: string | null; plan: string } | null;
@@ -120,7 +121,7 @@ function FirstCallGuide({ hasKey }: { hasKey: boolean }) {
   const base =
     typeof window !== "undefined"
       ? `${window.location.origin}/api/v1`
-      : "https://agent-trust-tawny.vercel.app/api/v1";
+      : `${SITE_URL}/api/v1`;
   const curl = `curl -H "Authorization: Bearer $VOUCH_API_KEY" \\
   ${base}/wallets/0xd8da6bf26964af9d7eed9e03e53415d37aa96045/score`;
   return (

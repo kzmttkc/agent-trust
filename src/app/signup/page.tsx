@@ -6,6 +6,7 @@ import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { track } from "@/lib/analytics";
 import { signupAction, type SignupState } from "./actions";
 import { buttonClass } from "@/components/ui/Button";
+import { SITE_URL } from "@/lib/site-url";
 
 // 2026-08-06 growth: failure-reason allowlist for the signup_failed event.
 // PII guard — analytics props must never carry user input (email/name/invite
@@ -75,12 +76,10 @@ export default function SignupPage() {
   }, [state]);
 
   if (apiKey) {
-    // Fallback URL is the current production deployment. A custom domain
-    // (e.g. api.vouch.dev) is not registered yet — replace this once it is.
     const base =
       typeof window !== "undefined"
         ? `${window.location.origin}/api/v1`
-        : "https://agent-trust-tawny.vercel.app/api/v1";
+        : `${SITE_URL}/api/v1`;
     const curlExample = `curl -H "Authorization: Bearer ${apiKey}" \\
   ${base}/wallets/0x1234567890123456789012345678901234567890/score`;
 

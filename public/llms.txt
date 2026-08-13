@@ -5,11 +5,11 @@
 As AI agents pay each other autonomously (via x402 and similar machine-payment protocols), there is no built-in way to know whether a payee address has a track record worth trusting. Vouch reads on-chain activity and ERC-8004 agent identity/reputation signals for a given wallet or payee, and returns a trust score via a simple API — so an API provider or agent can decide whether to proceed with a payment before it settles.
 
 ## Primary
-- https://agent-trust-tawny.vercel.app/ — product overview
-- https://agent-trust-tawny.vercel.app/docs/api — API documentation
-- https://agent-trust-tawny.vercel.app/faq — FAQ (x402, ERC-8004, and how trust scores work)
-- https://agent-trust-tawny.vercel.app/signup — get an API key
-- https://agent-trust-tawny.vercel.app/api/health — service status endpoint
+- https://vet402.com/ — product overview
+- https://vet402.com/docs/api — API documentation
+- https://vet402.com/faq — FAQ (x402, ERC-8004, and how trust scores work)
+- https://vet402.com/signup — get an API key
+- https://vet402.com/api/health — service status endpoint
 
 ## API
 - `GET /api/v1/agents/{agentId}/score` — trust score by ERC-8004 agent ID (optional `?wallet=` to verify the registered wallet)
@@ -17,10 +17,10 @@ As AI agents pay each other autonomously (via x402 and similar machine-payment p
 - `POST /api/v1/scores/batch` — score up to 25 agents in one request
 - `POST /api/v1/payments/x402` — attest an x402 payment settlement after verification (idempotent on txHash)
 - `GET /api/v1/agents/{agentId}/history` — score history snapshots (Pro/Scale plan)
-All endpoints require an `Authorization: Bearer` API key. Full reference: https://agent-trust-tawny.vercel.app/docs/api
+All endpoints require an `Authorization: Bearer` API key. Full reference: https://vet402.com/docs/api
 
 ## Blog
-- https://agent-trust-tawny.vercel.app/blog — notes on agent-to-agent payments, x402, and trust scoring
+- https://vet402.com/blog — notes on agent-to-agent payments, x402, and trust scoring
 
 ## Use cases
 - x402 API providers deciding whether to accept a payment from an unfamiliar agent wallet
@@ -31,15 +31,15 @@ All endpoints require an `Authorization: Bearer` API key. Full reference: https:
 Base (ERC-8004 agent identity/reputation standard).
 
 ## Note on domain
-The production URL is `agent-trust-tawny.vercel.app`. `agent-trust.vercel.app` (without "-tawny") is an unrelated third-party service and not affiliated with Vouch.
+The production URL is `vet402.com`. `agent-trust.vercel.app` is an unrelated third-party service and not affiliated with Vouch.
 
 ## Citation
-- You may cite the content on this site (product overview, API docs, FAQ, blog) as long as you credit the source with the corresponding agent-trust-tawny.vercel.app URL.
+- You may cite the content on this site (product overview, API docs, FAQ, blog) as long as you credit the source with the corresponding vet402.com URL.
 - Content current as of 2026-07-23.
 
 ## Legal
-- https://agent-trust-tawny.vercel.app/legal/terms
-- https://agent-trust-tawny.vercel.app/legal/privacy
+- https://vet402.com/legal/terms
+- https://vet402.com/legal/privacy
 
 ## Contact
-- Site: https://agent-trust-tawny.vercel.app
+- Site: https://vet402.com

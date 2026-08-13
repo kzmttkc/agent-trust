@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getAllPosts } from "@/lib/blog";
+import { SITE_URL } from "@/lib/site-url";
 
 export const metadata: Metadata = {
   title: "Blog — vet402",
   description: "Notes on agent-to-agent payments, x402, and trust scoring on Base.",
-  alternates: { canonical: "https://agent-trust-tawny.vercel.app/blog" },
+  alternates: { canonical: `${SITE_URL}/blog` },
 };
 
 export default function BlogIndexPage() {

@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import Script from "next/script";
 import "./globals.css";
 import { SiteChrome } from "@/components/site/SiteChrome";
+import { SITE_URL } from "@/lib/site-url";
 
 // 2026-07-22 CTO実装: 全社日次反応レポート(daily_reaction_report.py)向けに
 // 合流Plausibleサイト(sharoushi-agent.com)へ計装(未計装だった6サイトの1つ)。
@@ -34,7 +35,6 @@ const fragmentMono = localFont({
   src: [{ path: "../fonts/fragment-400.woff2", weight: "400", style: "normal" }],
 });
 
-const SITE_URL = "https://agent-trust-tawny.vercel.app";
 const SITE_TITLE = "vet402 — Independent Verification of the x402 Agent-Payment Economy";
 const SITE_DESCRIPTION =
   "vet402 buys what x402 endpoints actually sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence.";
@@ -60,6 +60,10 @@ const DIRECTION_CONTRACT = `<!--
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
+  // 自己参照 canonical（2026-08-13 監査是正）。"./" は各ルートの実パスに対して
+  // metadataBase 基準で解決されるため、ここ1箇所で全ページに自己参照 canonical が
+  // 付く（独自に canonical を持つページはページ側が優先される）。
+  alternates: { canonical: "./" },
   title: {
     default: SITE_TITLE,
     template: "%s | vet402",

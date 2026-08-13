@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-
-const SITE_URL = "https://agent-trust-tawny.vercel.app";
+import { SITE_URL } from "@/lib/site-url";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 type FaqItem = { question: string; answer: string };
 
@@ -91,7 +91,7 @@ export default async function FaqPage() {
           // element is inserted (a CSP anti-exfiltration measure), which
           // otherwise trips a harmless React hydration-mismatch warning here.
           suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
         />
 
         <div className="doc-head">

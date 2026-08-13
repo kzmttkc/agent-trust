@@ -6,6 +6,8 @@ import { Mark402 } from "@/components/site/Mark402";
 import { PricingSection } from "@/components/site/PricingSection";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 import { buttonClass } from "@/components/ui/Button";
+import { SITE_URL } from "@/lib/site-url";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 /**
  * The front page is the memo.
@@ -20,8 +22,6 @@ import { buttonClass } from "@/components/ui/Button";
  * this page claims a measurement that has not been made: §4 lists only what is
  * running today, §5 says out loud that the observatory is being built.
  */
-
-const SITE_URL = "https://agent-trust-tawny.vercel.app";
 
 const HEAD_LEFT = [
   { label: "Network Working Group", value: null },
@@ -133,13 +133,13 @@ export default async function Home() {
         type="application/ld+json"
         nonce={nonce}
         suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationJsonLd) }}
       />
       <script
         type="application/ld+json"
         nonce={nonce}
         suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(softwareApplicationJsonLd) }}
       />
 
       <article className="sheet">
