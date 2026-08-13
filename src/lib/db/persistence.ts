@@ -47,6 +47,16 @@ export async function persistPayeeScoreResult(
   const db = getDb();
   if (!db || apiKeyId === "dev") return;
 
+  // A verdict computed with an input we could not read is a refusal, not a
+  // measurement, and trust_events is the ledger /accuracy is computed from.
+  // Recording it would publish "vet402 blocked this wallet" for a wallet
+  // nobody managed to check — the seller side stopped doing exactly this in
+  // 8b0df27 ("上流に届かなかった結果を verdict として記録しない"); the payee
+  // route was still doing it. Measured 2026-08-12: 15 of 17 known-good
+  // addresses were logged as BLOCK during a Blockscout lockout and /accuracy
+  // published an 88.2% false-positive rate against them.
+  if (result.degraded) return;
+
   await db.insert(trustEvents).values({
     apiKeyId,
     agentId: null,

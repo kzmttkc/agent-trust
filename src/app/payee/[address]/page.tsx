@@ -11,7 +11,18 @@ import TrackView from "@/components/site/TrackView";
 
 // N-16 — public payee profile: verified identity claim + live payee score.
 // The two-sided surface: spending agents check it, payees link it.
-export const revalidate = 300;
+//
+// NOT CACHED, ON PURPOSE (2026-08-13). This used to be `revalidate = 300`.
+// The build has always classified the route as dynamic, so that number never
+// actually took effect — but it stated an intent that contradicts the engine:
+// scorePayeeWallet refuses to cache a verdict computed with an input it could
+// not read, and tests/verdict-consistency.test.ts pins the rule that no
+// surface may outlive the engine's own confidence in a verdict. A 300s ISR
+// generation is exactly how /agent/[id] pinned one flap of a Blockscout
+// outage for five minutes on 2026-08-12. The engine's own 5-minute in-process
+// cache already absorbs the repeat cost for healthy verdicts, and it is the
+// one cache that knows which verdicts are safe to keep.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
@@ -49,10 +60,20 @@ export default async function PayeePage({
     }
   }
 
-  let score: { value: number; recommendation: string; dataDepth: string } | null = null;
+  let score: {
+    value: number;
+    recommendation: string;
+    dataDepth: string;
+    degraded: boolean;
+  } | null = null;
   try {
     const result = await scorePayeeWallet(wallet);
-    score = { value: result.score, recommendation: result.recommendation, dataDepth: result.dataDepth };
+    score = {
+      value: result.score,
+      recommendation: result.recommendation,
+      dataDepth: result.dataDepth,
+      degraded: result.degraded,
+    };
   } catch {
     score = null;
   }
@@ -63,15 +84,21 @@ export default async function PayeePage({
   // drift from the scoring engine. The wallet address is deliberately NOT a
   // prop — aggregating per-address in analytics is both a privacy smell and
   // useless (the URL path already exists in the automatic pageview).
+  // 2026-08-13: `degraded` is its own band. Folding a fail-closed refusal into
+  // "low" would make an upstream outage indistinguishable, in the funnel data,
+  // from a genuinely bad wallet — and it was a BLOCK-shaped refusal that
+  // produced the 88.2% false-positive figure on /accuracy.
   const band = !score
     ? "unavailable"
-    : score.recommendation === "ALLOW"
-      ? "high"
-      : score.recommendation === "WARN"
-        ? "medium"
-        : score.recommendation === "BLOCK"
-          ? "low"
-          : "unknown";
+    : score.degraded
+      ? "degraded"
+      : score.recommendation === "ALLOW"
+        ? "high"
+        : score.recommendation === "WARN"
+          ? "medium"
+          : score.recommendation === "BLOCK"
+            ? "low"
+            : "unknown";
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
@@ -146,7 +173,27 @@ export default async function PayeePage({
 
         <div className="dashbox mt-8">
           <p className="doc-caption">Live payee score</p>
-          {score ? (
+          {score?.degraded ? (
+            // 2026-08-13: a degraded result is a refusal, not a reading. The
+            // API and the SDK still receive BLOCK — "do not pay this wallet
+            // right now" is the correct answer to a caller about to move money
+            // when a check could not be completed. But this page is read by
+            // humans, and printing "39 BLOCK" here would publish a specific
+            // accusation about a named wallet on the strength of an upstream
+            // outage, on a site whose masthead is "Nothing on this site is an
+            // estimate." So the page says the one true thing instead.
+            <>
+              <p className="mt-3 font-[family-name:var(--font-display)] text-[1.375rem] font-semibold leading-tight text-brand-deep">
+                Not verifiable right now
+              </p>
+              <p className="mt-2 text-[0.8125rem] text-brand-lift">
+                One or more upstream checks could not be completed, so no score is published for
+                this wallet. This is not a finding against it. Callers of the API receive a
+                fail-closed <code className="text-brand-deep">BLOCK</code> until the checks
+                succeed.
+              </p>
+            </>
+          ) : score ? (
           // 2026-08-06 a11y (keyboard+screen-reader persona audit L5): the verdict
           // word used to be separated from the data-depth note by nothing but a
           // visual `ml-2` margin, so innerText read "37 BLOCKdata: thin" and the

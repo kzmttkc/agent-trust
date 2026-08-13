@@ -505,6 +505,208 @@ export async function fetchAddressTransactionCount(
   }
 }
 
+// ---- v2 transfer reads ------------------------------------------------------
+/**
+ * WHY THESE EXIST (2026-08-13). The payee engine's drain check used to make
+ * FOUR v1 reads in one Promise.all (txlist, balance, tokentx, tokenbalance).
+ * The measurement at the top of this file says the v1 limiter answers three
+ * back-to-back requests and then refuses — so that check could not succeed
+ * even alone, and it shared its budget with fetchWalletMetrics' own v1 walk.
+ * Measured the same day: base.blockscout.com's v1 endpoints returned 429 to a
+ * single spaced request while `/api/v2/...` on the same host answered 200,
+ * which is the separate-limiter claim above holding in production.
+ *
+ * So the transfer history moves to v2 and the two balances move to the RPC
+ * (see payee-engine), taking the drain check from four v1 requests to zero.
+ * These deliberately return the same BlockscoutTx shape as their v1
+ * counterparts: the callers' arithmetic is unchanged, only the source is.
+ *
+ * Failure semantics are the v1 ones, NOT fetchAddressTransactionCount's: a
+ * read that did not complete throws, so the caller still fails closed. That
+ * function may return null because a null there falls through to a second
+ * source; there is no second source here.
+ */
+type BlockscoutV2Page = {
+  items?: unknown[];
+  next_page_params?: Record<string, string | number | null> | null;
+};
+
+async function blockscoutV2GetOnce<T extends BlockscoutV2Page>(
+  path: string,
+  params: Record<string, string>,
+  chainId?: number,
+): Promise<T> {
+  const base = getBlockscoutBaseUrl(chainId).replace(/\/+$/, "");
+  const url = new URL(`${base}/v2${path}`);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      next: { revalidate: 0 },
+    });
+  } catch (error) {
+    throw new BlockscoutUnavailableError("blockscout_v2_network_error", error, true);
+  }
+
+  if (!response.ok) {
+    // No openRateLimitCooldown() even on a 429: the v2 limiter is a separate
+    // budget, and pausing v1 reads because v2 was busy would spread an outage
+    // rather than contain it.
+    throw new BlockscoutUnavailableError(
+      `blockscout_v2_http_${response.status}`,
+      undefined,
+      response.status >= 500,
+    );
+  }
+
+  try {
+    return (await response.json()) as T;
+  } catch (error) {
+    throw new BlockscoutUnavailableError("blockscout_v2_invalid_json", error);
+  }
+}
+
+async function blockscoutV2Get<T extends BlockscoutV2Page>(
+  path: string,
+  params: Record<string, string>,
+  chainId?: number,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await blockscoutV2GetOnce<T>(path, params, chainId);
+    } catch (error) {
+      lastError = error;
+      const retryable = error instanceof BlockscoutUnavailableError && error.retryable;
+      if (!retryable || attempt === MAX_ATTEMPTS) break;
+      await sleep(retryDelayMs(attempt));
+    }
+  }
+  throw lastError;
+}
+
+/** One v2 page is 50 items; the v1 calls these replace read offset=100, so the
+ *  drain window must not shrink — a shorter window counts less outflow, which
+ *  is the fail-OPEN direction on a drain ratio. */
+const V2_PAGE_SIZE = 50;
+const V2_MAX_PAGES = 2;
+
+async function fetchV2Transfers<T>(
+  path: string,
+  baseParams: Record<string, string>,
+  limit: number,
+  toTx: (item: T) => BlockscoutTx | null,
+  chainId?: number,
+): Promise<BlockscoutTx[]> {
+  const out: BlockscoutTx[] = [];
+  let params: Record<string, string> = { ...baseParams };
+
+  for (let page = 1; page <= V2_MAX_PAGES; page++) {
+    const data = await blockscoutV2Get<BlockscoutV2Page>(path, params, chainId);
+    const items = (data.items ?? []) as T[];
+    for (const item of items) {
+      const tx = toTx(item);
+      if (tx) out.push(tx);
+      if (out.length >= limit) return out;
+    }
+    const next = data.next_page_params;
+    if (!next || items.length < V2_PAGE_SIZE) break;
+    params = { ...baseParams };
+    for (const [key, value] of Object.entries(next)) {
+      if (value !== null && value !== undefined) params[key] = String(value);
+    }
+  }
+
+  return out;
+}
+
+type V2NativeTx = {
+  hash?: string;
+  block_number?: number;
+  timestamp?: string;
+  value?: string;
+  from?: { hash?: string } | null;
+  to?: { hash?: string } | null;
+};
+
+type V2TokenTransfer = {
+  transaction_hash?: string;
+  block_number?: number;
+  timestamp?: string;
+  total?: { value?: string } | null;
+  from?: { hash?: string } | null;
+  to?: { hash?: string } | null;
+};
+
+function toEpochSeconds(iso: string | undefined): string {
+  if (!iso) return "0";
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? String(Math.floor(ms / 1000)) : "0";
+}
+
+/** Native-token transfers, newest first — the v2 replacement for
+ *  fetchWalletTransactions({ sort: "desc" }). */
+export async function fetchWalletTransfersV2(
+  address: Address,
+  options: { limit?: number; chainId?: number } = {},
+): Promise<BlockscoutTx[]> {
+  return fetchV2Transfers<V2NativeTx>(
+    `/addresses/${address}/transactions`,
+    {},
+    options.limit ?? 100,
+    (item) => {
+      const from = item.from?.hash;
+      const to = item.to?.hash;
+      // A contract creation has no `to`. It moves value out of the wallet, so
+      // dropping it would understate outflow — count it against a burn-shaped
+      // address rather than silently ignoring it.
+      if (!from) return null;
+      return {
+        hash: item.hash ?? "",
+        blockNumber: String(item.block_number ?? 0),
+        timeStamp: toEpochSeconds(item.timestamp),
+        from,
+        to: to ?? "0x0000000000000000000000000000000000000000",
+        value: item.value ?? "0",
+      };
+    },
+    options.chainId,
+  );
+}
+
+/** ERC-20 transfers for one token, newest first — the v2 replacement for
+ *  fetchTokenTransfers({ contractAddress }). The token filter is applied
+ *  server-side by `token=`; items without a numeric total are dropped rather
+ *  than counted as zero. */
+export async function fetchTokenTransfersV2(
+  address: Address,
+  contractAddress: Address,
+  options: { limit?: number; chainId?: number } = {},
+): Promise<BlockscoutTx[]> {
+  return fetchV2Transfers<V2TokenTransfer>(
+    `/addresses/${address}/token-transfers`,
+    { token: contractAddress, type: "ERC-20" },
+    options.limit ?? 100,
+    (item) => {
+      const from = item.from?.hash;
+      const to = item.to?.hash;
+      const value = item.total?.value;
+      if (!from || !to || value === undefined || value === null) return null;
+      return {
+        hash: item.transaction_hash ?? "",
+        blockNumber: String(item.block_number ?? 0),
+        timeStamp: toEpochSeconds(item.timestamp),
+        from,
+        to,
+        value,
+      };
+    },
+    options.chainId,
+  );
+}
+
 export interface WalletHistoryHead {
   /** Oldest transaction on this chain — the wallet's age. */
   firstTx: BlockscoutTx | null;

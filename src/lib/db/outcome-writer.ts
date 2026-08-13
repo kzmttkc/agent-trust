@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "./client";
+import { isMissingSchemaError } from "./pg-errors";
 import { trustEvents, verdictOutcomes } from "./schema";
 import { dispatchWebhookEvent } from "@/lib/webhooks";
 
@@ -265,10 +266,20 @@ export type WalletOutcomeRow = {
 /**
  * Outcome history for a wallet named as `relatedWallet` on any verdict —
  * used by the payee scoring engine (src/lib/scoring/payee-engine.ts) to
- * factor in prior fraud/legitimacy labels. Same degrade-to-empty discipline
- * as collectWatchedTrustEvents: verdict_outcomes may not be migrated in
- * every environment yet, so a missing table must read as "no history", not
- * an error.
+ * factor in prior fraud/legitimacy labels.
+ *
+ * WHAT AN EMPTY RESULT IS ALLOWED TO MEAN (2026-08-13). This used to catch
+ * EVERY error and return `[]`, on the reasoning that verdict_outcomes may not
+ * be migrated in some environment. But `[]` is not a neutral value here: it is
+ * the input that decides whether applyOutcomeAdjustment caps a wallet's score
+ * at 15. A wallet with a recorded confirmed_fraud scored as though it were
+ * clean whenever the query failed for ANY reason — a connection reset, a
+ * timeout, a permissions change — and the failure was invisible in the result.
+ * That is the same fail-OPEN shape the payee engine's verdict path had.
+ *
+ * So the degrade is now narrowed to the case it was written for: a table that
+ * does not exist yet legitimately reads as "no history". Every other failure
+ * throws, and the caller flags it and fails closed.
  */
 export async function getOutcomesForWallet(
   wallet: string,
@@ -304,11 +315,15 @@ export async function getOutcomesForWallet(
 
     return rows;
   } catch (err) {
-    console.error(
-      "outcome-writer: getOutcomesForWallet failed, degrading to no-op (verdict_outcomes likely not migrated yet)",
-      err,
-    );
-    return [];
+    if (isMissingSchemaError(err)) {
+      console.error(
+        "outcome-writer: getOutcomesForWallet found no verdict_outcomes table; reading as no history",
+        err,
+      );
+      return [];
+    }
+    // Anything else is a read we did not complete. Never a silent [].
+    throw new Error("outcome_history_unavailable", { cause: err });
   }
 }
 

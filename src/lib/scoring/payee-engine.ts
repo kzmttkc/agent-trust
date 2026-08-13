@@ -1,12 +1,7 @@
-import type { Address } from "viem";
+import { erc20Abi, type Address } from "viem";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
-import {
-  fetchTokenBalance,
-  fetchTokenTransfers,
-  fetchWalletBalance,
-  fetchWalletTransactions,
-} from "@/lib/chain/blockscout";
-import { isValidAddress } from "@/lib/chain/client";
+import { fetchTokenTransfersV2, fetchWalletTransfersV2 } from "@/lib/chain/blockscout";
+import { getPublicClient, isValidAddress } from "@/lib/chain/client";
 import { BASE_USDC_ADDRESS, SCORE_THRESHOLDS } from "@/lib/chain/config";
 import { fetchWalletMetrics } from "@/lib/chain/wallet-metrics";
 import { getOutcomesForWallet, type WalletOutcomeRow } from "@/lib/db/outcome-writer";
@@ -189,6 +184,27 @@ function assessAssetDrain(
 }
 
 /**
+ * Current balances, read from the chain rather than from the indexer.
+ *
+ * These deliberately do NOT swallow their errors into a null: a balance we
+ * could not read is the denominator of the drain ratio, and treating it as
+ * zero would turn "we don't know what's left" into "nothing is left", i.e.
+ * invent a drain. The caller catches and flags drain_check_unavailable.
+ */
+async function fetchNativeBalance(address: Address): Promise<bigint> {
+  return getPublicClient().getBalance({ address });
+}
+
+async function fetchErc20Balance(address: Address, token: Address): Promise<bigint> {
+  return getPublicClient().readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [address],
+  });
+}
+
+/**
  * Exit-scam shape check on the payee's own wallet: received funds, then
  * pulled out (near-)everything. Adapted from
  * src/lib/indexer/outcome-detector.ts's classifyWalletActivity, but scored
@@ -218,17 +234,23 @@ async function detectDrainPattern(address: Address): Promise<DrainSignal> {
   }
 
   try {
+    // 2026-08-13: these four reads were all Blockscout v1, fired together.
+    // The v1 limiter answers three back-to-back requests and then refuses for
+    // 95+ seconds, renewing the lockout on every request made while limited
+    // (measured; see the header of lib/chain/blockscout.ts) — so this check
+    // could not succeed even on its own, and it starved fetchWalletMetrics'
+    // v1 walk of the same budget. Production sat permanently on
+    // drain_check_unavailable as a result.
+    //
+    // History now comes from v2 (separate, permissive limiter) and the two
+    // balances from the RPC, which is what an RPC is actually good at: a
+    // single current-state read, no indexer pagination, no shared budget.
+    // Zero v1 requests here now.
     const [txs, balance, usdcTxs, usdcBalance] = await Promise.all([
-      withTimeout(fetchWalletTransactions(address, { sort: "desc", offset: 100 })),
-      withTimeout(fetchWalletBalance(address)),
-      withTimeout(
-        fetchTokenTransfers(address, {
-          contractAddress: BASE_USDC_ADDRESS,
-          sort: "desc",
-          offset: 100,
-        }),
-      ),
-      withTimeout(fetchTokenBalance(address, BASE_USDC_ADDRESS)),
+      withTimeout(fetchWalletTransfersV2(address, { limit: 100 })),
+      withTimeout(fetchNativeBalance(address)),
+      withTimeout(fetchTokenTransfersV2(address, BASE_USDC_ADDRESS, { limit: 100 })),
+      withTimeout(fetchErc20Balance(address, BASE_USDC_ADDRESS)),
     ]);
 
     const addressLower = address.toLowerCase();
@@ -373,7 +395,16 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
     flags.push("drain_check_unavailable");
   }
 
-  const outcomes = await getOutcomesForWallet(addrLower);
+  // Outcome history is what caps a wallet with recorded fraud at 15. A read we
+  // could not complete must therefore land in the degraded class, not read as
+  // "this wallet has no history" — see getOutcomesForWallet's own note.
+  let outcomes: WalletOutcomeRow[] = [];
+  try {
+    outcomes = await getOutcomesForWallet(addrLower);
+  } catch (error) {
+    logServerError("payee_outcome_history", error);
+    flags.push("outcome_history_unavailable");
+  }
 
   const rawWalletScore = normalizeWalletScore({
     ageDays: walletMetrics?.ageDays ?? 0,
