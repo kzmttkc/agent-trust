@@ -1,11 +1,14 @@
 // Single source of truth for the support/contact address, referenced from
-// the footer, /legal/notice, and /legal/privacy. Change it in one place only.
+// the footer, /legal/notice, /legal/privacy, /legal/terms, and /corrections.
+// Change it in one place only.
 //
-// NOTE (2026-07-21, Takeshi decision): vouch.dev is not yet registered.
-// Domain purchase is on hold until traction justifies the spend, so this
-// points directly at the operator's personal inbox, kzmttkc314@gmail.com,
-// which actually receives mail. Once the domain is registered and mail
-// forwarding is confirmed with a real test send, swap this back to the
-// support alias on the vouch.dev domain.
-export const SUPPORT_EMAIL = "kzmttkc314@gmail.com";
+// NOTE (2026-08-14): switched from the operator's personal inbox
+// to support@vet402.com after the owner confirmed
+// real delivery to that address with a test send. This address is legally
+// load-bearing — it is the receiving route for GDPR data-subject requests
+// and score-correction challenges (ToS §8) — so if mail routing for the
+// domain ever changes, re-verify delivery with a real test send BEFORE
+// touching this constant. (History: 2026-07-21 Takeshi decision kept the
+// personal Gmail here while the domain purchase was on hold.)
+export const SUPPORT_EMAIL = "support@vet402.com";
 export const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}`;
