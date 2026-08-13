@@ -37,10 +37,10 @@ const endpoints: Endpoint[] = [
   "signals": { "identity": {...}, "reputation": {...}, "wallet": {...}, "x402": {...}, "sybil": {...}, "manual": {...} },
   "breakdown": {
     "components": {
-      "identity":   { "score": 100, "weight": 0.2, "contribution": 25 },
-      "reputation": { "score": 66,  "weight": 0.3, "contribution": 24.75 },
-      "wallet":     { "score": 75,  "weight": 0.2, "contribution": 18.75 },
-      "x402":       { "score": 83,  "weight": 0.1, "contribution": 10.38 }
+      "identity":   { "score": 100, "weight": 0.05, "contribution": 6.25 },
+      "reputation": { "score": 66,  "weight": 0.10, "contribution": 8.25 },
+      "wallet":     { "score": 75,  "weight": 0.25, "contribution": 23.44 },
+      "x402":       { "score": 83,  "weight": 0.40, "contribution": 41.5 }
     },
     "weightedSubtotal": 79,
     "sybilPenalty": 0,
@@ -316,13 +316,21 @@ export default function ApiDocsPage() {
               schema signals codegen/tooling-level integration intent, deeper
               than reading the human docs. */}
           <TrackedLink
-            href="https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml"
+            href="/openapi.yaml"
             event="openapi_click"
             className="underline"
           >
-            <code className="text-brand-deep">docs/openapi.yaml</code>
+            <code className="text-brand-deep">/openapi.yaml</code>
           </TrackedLink>{" "}
-          on GitHub.
+          (also on{" "}
+          <TrackedLink
+            href="https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml"
+            event="openapi_click_github"
+            className="underline"
+          >
+            GitHub
+          </TrackedLink>
+          ).
         </p>
       </div>
 
@@ -506,6 +514,41 @@ app.use("/api/paid", createExpressGate({
             Verdicts &amp; thresholds
           </a>{" "}
           for what to do about a WARN.
+        </p>
+
+        {/* 2026-08-13 UX監査L3 [P5・実装者]。サイトの docs は mcp-server を
+            install 一行でしか触れず、設定ブロック・tool 名・mcpServers JSON が
+            無かった（SDK/middleware は完備）。MCP 経由の実装者はここで手が
+            止まる。設定は packages/mcp-server/README.md の実物をそのまま写す。 */}
+        <h3 className="text-base font-semibold text-brand-deep">MCP: let an agent ask before it pays</h3>
+        <p className="text-sm text-brand">
+          <code>@vouchscore/mcp-server</code> exposes the score as Model Context Protocol tools, so an
+          MCP-capable agent (Claude Desktop and other MCP clients) can check a counterparty before it
+          settles. Your client launches it with <code>npx</code> — no clone, no build. Add this to the
+          client config (<code>~/Library/Application&nbsp;Support/Claude/claude_desktop_config.json</code>{" "}
+          on macOS, <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows) and restart:
+        </p>
+        <CodeBlock
+          label="MCP client config for @vouchscore/mcp-server"
+          code={`{
+  "mcpServers": {
+    "vouch-trust": {
+      "command": "npx",
+      "args": ["-y", "@vouchscore/mcp-server"],
+      "env": {
+        "VOUCH_API_KEY": "vouch_live_your_key_here"
+      }
+    }
+  }
+}`}
+        />
+        <p className="text-sm text-brand">
+          <code>VOUCH_API_KEY</code> is required (create one at{" "}
+          <code>/dashboard/keys</code>); <code>VOUCH_API_URL</code> is optional and defaults to the
+          hosted API. It registers five tools — <code>check_agent_trust</code>,{" "}
+          <code>check_wallet_trust</code>, <code>check_payee_trust</code>,{" "}
+          <code>explain_trust_score</code>, and <code>attest_x402_payment</code>. Same fail-closed
+          reading as the SDK: treat anything but <code>ALLOW</code> as &ldquo;do not pay yet&rdquo;.
         </p>
       </section>
 
@@ -786,9 +829,12 @@ app.use("/api/paid", createExpressGate({
             its 0–100 <code>score</code>, its <code>weight</code>, and its{" "}
             <code>contribution</code> (<code>score × weight ÷ 0.8</code>; the four
             contributions sum to <code>weightedSubtotal</code>). Weights are
-            identity&nbsp;0.2, reputation&nbsp;0.3, wallet&nbsp;0.2, x402&nbsp;0.1
+            identity&nbsp;0.05, reputation&nbsp;0.10, wallet&nbsp;0.25, x402&nbsp;0.40
             — divided by 0.8 because the customer whitelist/blacklist is a policy
-            layer, not a signal.
+            layer, not a signal. Weighted toward the signals that are hardest to
+            fake: a real settled x402 payment history counts most, self-asserted
+            identity and reputation least. ALLOW additionally requires verifiable
+            on-chain evidence — self-assertion alone is capped below ALLOW.
           </li>
           <li>
             <strong>weightedSubtotal</strong> — the weighted average of the four

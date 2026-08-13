@@ -24,7 +24,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const DOCS_URL = "https://vet402.com/docs/api";
-const SCHEMA_URL = "https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml";
+const SCHEMA_URL = "https://vet402.com/openapi.yaml";
 
 /** Cap the echo: the path is caller-controlled, and a 404 must not become a
  *  way to make this endpoint emit an arbitrarily large body. */
@@ -38,7 +38,7 @@ function notFound(request: NextRequest): NextResponse {
       error: "not_found",
       path: safePath(request),
       message:
-        "No API route matches this path. See the documented endpoints at /docs/api, or the machine-readable schema at docs/openapi.yaml.",
+        "No API route matches this path. See the documented endpoints at /docs/api, or the machine-readable schema at /openapi.yaml.",
       documentation: DOCS_URL,
       schema: SCHEMA_URL,
     },

@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { runScoringProbe } from "@/lib/health/scoring-probe";
 
 /**
@@ -19,6 +20,16 @@ import { runScoringProbe } from "@/lib/health/scoring-probe";
  * ok の時は何も描かない（常設の緑バッジは、異常時の赤を見慣れさせるだけ）。
  */
 export async function StatusBanner() {
+  // 2026-08-13 UX監査L3 [P1・離脱級]。この掲示はライブ健全性プローブ駆動だが、
+  // layout に置かれ、ホームだけが静的プリレンダされるため「ビルド時にプローブが
+  // 返した error/degraded」が静的HTMLへ焼き込まれ、上流回復後も古い赤が
+  // 配信され続けた（実測: /api/health=ok・全採点稼働なのにホームだけ
+  // "Scoring is failing upstream"）。「Nothing is an estimate」を掲げる製品が
+  // 自分の状態表示で嘘をつく＝信頼の自傷。connection() でこの掲示を必ず
+  // リクエスト時レンダにし、焼き込みを構造的に禁じる（プローブは60秒メモ化
+  // 済みなので毎リクエストで上流は叩かない）。ホーム以外は元から動的で無影響。
+  await connection();
+
   let status: "ok" | "degraded" | "error";
   try {
     status = (await runScoringProbe()).status;
