@@ -30,7 +30,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Address } from "viem";
-import { SCORE_THRESHOLDS } from "@/lib/chain/config";
+import { BASE_USDC_ADDRESS, SCORE_THRESHOLDS } from "@/lib/chain/config";
 import { resetBlockscoutRateGate } from "@/lib/chain/blockscout";
 import { invalidateWalletMetricsCache } from "@/lib/chain/wallet-metrics";
 import { invalidatePayeeScoreCache, scorePayeeWallet } from "@/lib/scoring/payee-engine";
@@ -83,6 +83,7 @@ const usdcTransfers = [
     from: { hash: "0x000000000000000000000000000000000000cafe" },
     to: { hash: WALLET.toLowerCase() },
     total: { value: "5000000000", decimals: "6" },
+    token: { address_hash: BASE_USDC_ADDRESS as string },
     timestamp: new Date((now - 30 * 86_400) * 1000).toISOString(),
     block_number: 500,
   },
@@ -92,13 +93,18 @@ const usdcTransfers = [
     from: { hash: WALLET.toLowerCase() },
     to: { hash: "0x000000000000000000000000000000000000feed" },
     total: { value: "1000000000", decimals: "6" },
+    token: { address_hash: BASE_USDC_ADDRESS as string },
     timestamp: new Date((now - 10 * 86_400) * 1000).toISOString(),
     block_number: 600,
   },
 ];
 
 const NATIVE_BALANCE = 900_000_000_000_000n; // 0.0009 ETH
-const USDC_BALANCE = 4_000_000_000n; // 4,000 of the 5,000 USDC still there
+// Mutable so a case can pose the wallet AFTER an exit: the balance is the
+// denominator of the drain ratio, so a case that rewrites the transfers must
+// rewrite what is left behind too or it is describing an impossible wallet.
+let usdcBalance = 4_000_000_000n; // 4,000 of the 5,000 USDC still there
+const USDC_BALANCE_DEFAULT = usdcBalance;
 const RPC_URL = "https://rpc.test.invalid";
 
 const v2Native = historyPage.map((tx) => ({
@@ -110,7 +116,38 @@ const v2Native = historyPage.map((tx) => ({
   to: { hash: tx.to },
 }));
 
-type Down = { metrics?: boolean; drain?: boolean };
+/** A wallet that reads fine but is young and barely used — measured, not
+ *  missing. Used to show that the partial-measurement cap is a CEILING and
+ *  not a floor: this wallet's own merits can still take it under the block
+ *  line while a leg is unmeasured. */
+const youngHistory = [
+  {
+    hash: "0xy1",
+    from: "0x000000000000000000000000000000000000dead",
+    to: WALLET.toLowerCase(),
+    value: "1000000000000000",
+    timeStamp: String(now - 10 * 86_400),
+    blockNumber: "1",
+    isError: "0",
+  },
+  ...Array.from({ length: 2 }, (_, i) => ({
+    hash: `0xy${i + 2}`,
+    from: WALLET.toLowerCase(),
+    to: "0x000000000000000000000000000000000000beef",
+    value: "0",
+    timeStamp: String(now - (9 - i) * 86_400),
+    blockNumber: String(i + 2),
+    isError: "0",
+  })),
+];
+
+type Down = {
+  metrics?: boolean;
+  drain?: boolean;
+  nativeLeg?: boolean;
+  usdcLeg?: boolean;
+  young?: boolean;
+};
 
 /**
  * Stubs every upstream the payee engine reads, at the fetch boundary — the
@@ -139,7 +176,7 @@ function upstream(down: Down) {
           call.method === "eth_getBalance"
             ? `0x${NATIVE_BALANCE.toString(16)}`
             : call.method === "eth_call"
-              ? `0x${USDC_BALANCE.toString(16).padStart(64, "0")}`
+              ? `0x${usdcBalance.toString(16).padStart(64, "0")}`
               : "0x0",
       }));
       return new Response(JSON.stringify(Array.isArray(body) ? reply : reply[0]), {
@@ -152,20 +189,22 @@ function upstream(down: Down) {
     if (url.includes("/api/v2/addresses/")) {
       if (url.includes("/counters")) {
         if (down.metrics) return dead;
-        return new Response(JSON.stringify({ transactions_count: 121 }), {
+        return new Response(JSON.stringify({ transactions_count: down.young ? 3 : 121 }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }
       if (url.includes("/token-transfers")) {
-        if (down.drain) return dead;
+        if (down.drain || down.usdcLeg) return dead;
         return new Response(JSON.stringify({ items: usdcTransfers, next_page_params: null }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }
       if (url.includes("/transactions")) {
-        if (down.drain) return dead;
+        // The endpoint that returned HTTP 500 on 10 of 10 requests in
+        // production on 2026-08-13 while /token-transfers kept answering.
+        if (down.drain || down.nativeLeg) return dead;
         return new Response(
           JSON.stringify({ items: [...v2Native].reverse(), next_page_params: null }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -177,7 +216,8 @@ function upstream(down: Down) {
     const params = new URL(url).searchParams;
     if (params.get("action") === "txlist" && params.get("sort") === "asc") {
       if (down.metrics) return dead;
-      return okJson(params.get("page") === "1" ? historyPage : []);
+      const history = down.young ? youngHistory : historyPage;
+      return okJson(params.get("page") === "1" ? history : []);
     }
 
     throw new Error(`unstubbed upstream call: ${url}`);
@@ -426,4 +466,219 @@ test("the payee page does not pin a verdict for longer than the engine trusts it
     "a non-zero revalidate would outlive the engine's own confidence",
   );
   assert.match(page, /export const dynamic = "force-dynamic";/);
+});
+
+// ---- partial measurement (2026-08-13 operator ruling) ------------------------
+// Measured that day: base.blockscout.com's v2 /addresses/{a}/transactions
+// returned HTTP 500 on 10 of 10 spaced requests while /token-transfers on the
+// same host answered. The native leg was dead and the USDC leg — the asset an
+// x402 payee is actually paid in — was fully readable. The engine threw that
+// real measurement away and reported "we know nothing".
+//
+// The ruling: discarding a completed measurement is not failing closed, it is
+// failing blind. Assess the legs independently, keep what was measured, and
+// hold the fail-closed line one level up — a partial reading can never clear
+// ALLOW, and the missing leg is named rather than averaged away.
+
+test("PARTIAL: one dead asset leg does not throw away the other's measurement", async () => {
+  const result = await score({ nativeLeg: true });
+  assert.equal(result.degraded, false, "one live leg is not 'we could not check'");
+  assert.deepEqual(result.signalsUnavailable, ["native_drain"]);
+  assert.deepEqual(result.signals.drainPattern.unmeasured, ["native_drain"]);
+  // The USDC leg's real numbers survived: 5,000 in, 1,000 out.
+  assert.equal(result.signals.drainPattern.incomingCount, 1);
+  assert.equal(result.signals.drainPattern.outgoingCount, 1);
+  assert.equal(result.signals.drainPattern.drainRatio, 0.2);
+});
+
+test("PARTIAL: a partially measured wallet can never be ALLOW", async () => {
+  // The whole fail-closed half of the ruling. This wallet is a clean 84/ALLOW
+  // when both legs answer — losing a leg must cost it the gate, not the score.
+  for (const down of [{ nativeLeg: true }, { usdcLeg: true }]) {
+    const result = await score(down);
+    assert.notEqual(
+      result.recommendation,
+      "ALLOW",
+      `${JSON.stringify(down)} cleared ALLOW at score ${result.score}`,
+    );
+    assert.equal(result.recommendation, "WARN");
+    assert.ok(
+      result.score < SCORE_THRESHOLDS.allow,
+      `score ${result.score} is not below the ALLOW line`,
+    );
+    assert.ok(result.signalsUnavailable.length > 0, "the missing leg must be disclosed");
+  }
+});
+
+test("PARTIAL: a measured leg that looks bad still produces its own BLOCK", async () => {
+  // The other half: capping at WARN must not become a FLOOR at WARN. A wallet
+  // whose surviving leg shows an actual drain has been measured, and that
+  // measurement is allowed to be damning.
+  const drained = [
+    {
+      transaction_hash: "0xa",
+      from: { hash: "0x000000000000000000000000000000000000cafe" },
+      to: { hash: WALLET.toLowerCase() },
+      total: { value: "5000000000", decimals: "6" }, // received 5,000 USDC
+      token: { address_hash: BASE_USDC_ADDRESS as string },
+      timestamp: new Date((now - 30 * 86_400) * 1000).toISOString(),
+      block_number: 500,
+    },
+    {
+      transaction_hash: "0xb",
+      from: { hash: WALLET.toLowerCase() },
+      to: { hash: "0x000000000000000000000000000000000000feed" },
+      total: { value: "4990000000", decimals: "6" }, // pulled out ~everything
+      token: { address_hash: BASE_USDC_ADDRESS as string },
+      timestamp: new Date((now - 1 * 86_400) * 1000).toISOString(),
+      block_number: 600,
+    },
+  ];
+  const prior = usdcTransfers.splice(0, usdcTransfers.length, ...drained);
+  usdcBalance = 10_000_000n; // 10 USDC left of 5,000 — ratio 0.998
+  try {
+    const result = await score({ nativeLeg: true, young: true });
+    assert.equal(result.signals.drainPattern.detected, true, "the drain must be detected");
+    assert.equal(result.degraded, false);
+    assert.deepEqual(result.signalsUnavailable, ["native_drain"]);
+    assert.equal(
+      result.recommendation,
+      "BLOCK",
+      `the cap must be a ceiling, not a floor (score ${result.score})`,
+    );
+    assert.ok(result.score < SCORE_THRESHOLDS.warn);
+  } finally {
+    usdcTransfers.splice(0, usdcTransfers.length, ...prior);
+    usdcBalance = USDC_BALANCE_DEFAULT;
+  }
+});
+
+test("PARTIAL: both legs dead is still degraded, not a partial reading", async () => {
+  const result = await score({ drain: true });
+  assert.equal(result.degraded, true);
+  assert.equal(result.recommendation, "BLOCK");
+  assert.deepEqual(result.signalsUnavailable, ["native_drain", "usdc_drain"]);
+  assert.ok(result.score < SCORE_THRESHOLDS.warn);
+});
+
+test("DISCLOSURE: signalsUnavailable names every input that was not read", async () => {
+  const clean = await score({});
+  assert.deepEqual(clean.signalsUnavailable, [], "a full reading discloses nothing missing");
+
+  const noMetrics = await score({ metrics: true });
+  assert.ok(noMetrics.signalsUnavailable.includes("wallet_metrics"));
+
+  const noNative = await score({ nativeLeg: true });
+  assert.ok(noNative.signalsUnavailable.includes("native_drain"));
+});
+
+test("a partial reading is not cached either", async () => {
+  // It is capped because of an upstream outage; pinning it for five minutes
+  // would hold the cap long after the missing leg came back.
+  upstream({ nativeLeg: true });
+  freshCaches();
+  const partial = await scorePayeeWallet(WALLET);
+  assert.equal(partial.recommendation, "WARN");
+
+  upstream({});
+  invalidateWalletMetricsCache(WALLET);
+  resetBlockscoutRateGate();
+  const recovered = await scorePayeeWallet(WALLET);
+  assert.equal(recovered.recommendation, "ALLOW");
+  assert.deepEqual(recovered.signalsUnavailable, []);
+});
+
+test("the page discloses a partial measurement instead of absorbing it", () => {
+  const page = readFileSync(
+    join(process.cwd(), "src", "app", "payee", "[address]", "page.tsx"),
+    "utf8",
+  );
+  assert.match(page, /signalsUnavailable/, "the page must read the engine's own disclosure");
+  assert.match(page, /Partial measurement/);
+  assert.match(page, /native_drain: "ETH outflow leg unmeasured"/);
+});
+
+// ---- upstream shape, not just upstream status -------------------------------
+// Both found by independent review of the v2 migration, 2026-08-13. A read can
+// fail while returning HTTP 200, and the drain ratio is arithmetic over raw
+// token units — so "did we get a 200?" is not the same question as "did we get
+// the thing we asked for?".
+
+test("SHAPE: a 200 that is not the paged shape is a failed read, not empty history", async () => {
+  // The asymmetry this closes: unparseable JSON threw, but well-formed JSON
+  // with no `items` was served as [] — no incoming transfers, no drain ratio,
+  // a near-neutral 60, and no *_unavailable flag anywhere. A proxy's own error
+  // envelope reads exactly like that.
+  upstream({});
+  const stubbed = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/v2/addresses/") && url.includes("/token-transfers")) {
+      return new Response(JSON.stringify({ message: "upstream proxy: quota exceeded" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return stubbed(input, init);
+  }) as typeof fetch;
+
+  freshCaches();
+  const drifted = await scorePayeeWallet(WALLET);
+  assert.deepEqual(
+    drifted.signalsUnavailable,
+    ["usdc_drain"],
+    "a 200 without `items` must land in the unavailable class",
+  );
+  assert.notEqual(drifted.recommendation, "ALLOW");
+
+  // The distinction that matters, stated as a contrast: a genuinely EMPTY list
+  // is a completed reading of a wallet that has moved nothing, and must still
+  // be treated as one. Shape drift and empty history had exactly the same
+  // effect before this fix; they must not now.
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/v2/addresses/") && url.includes("/token-transfers")) {
+      return new Response(JSON.stringify({ items: [], next_page_params: null }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return stubbed(input, init);
+  }) as typeof fetch;
+
+  freshCaches();
+  const empty = await scorePayeeWallet(WALLET);
+  assert.deepEqual(empty.signalsUnavailable, [], "an empty list is a completed reading");
+  assert.notEqual(
+    empty.score,
+    drifted.score,
+    "shape drift and empty history must not produce the same verdict",
+  );
+});
+
+test("SHAPE: a foreign token in the response is dropped, not summed into the ratio", async () => {
+  // `value` is in each token's own smallest unit. One 18-decimal transfer
+  // summed against USDC's 6 decimals moves the drain ratio by orders of
+  // magnitude, and BLOCKSCOUT_API_URL is operator-settable — a proxy that
+  // ignores `token=` is the case the v1 client-side filter existed for.
+  const foreign = {
+    transaction_hash: "0xdeadbeef",
+    from: { hash: WALLET.toLowerCase() },
+    to: { hash: "0x0000000000000000000000000000000000000bad" },
+    total: { value: "9000000000000000000000", decimals: "18" }, // 9,000 of an 18-dec token
+    token: { address_hash: "0x4200000000000000000000000000000000000006" }, // WETH, not USDC
+    timestamp: new Date((now - 2 * 86_400) * 1000).toISOString(),
+    block_number: 700,
+  };
+  usdcTransfers.push(foreign);
+  try {
+    const result = await score({});
+    // Unchanged from the clean case: 5,000 in, 1,000 out, 4,000 left → 0.2.
+    assert.equal(result.signals.drainPattern.outgoingCount, 1, "the WETH transfer must be dropped");
+    assert.equal(result.signals.drainPattern.drainRatio, 0.2);
+    assert.equal(result.signals.drainPattern.detected, false);
+    assert.equal(result.recommendation, "ALLOW");
+  } finally {
+    usdcTransfers.pop();
+  }
 });

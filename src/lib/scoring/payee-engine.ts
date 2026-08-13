@@ -56,6 +56,20 @@ const DRAIN_HIGH_RATIO = 0.8;
  */
 const DEGRADED_SCORE_CEILING = SCORE_THRESHOLDS.warn - 1;
 
+/**
+ * Ceiling for a verdict where SOME inputs were measured and some were not.
+ *
+ * The middle case the engine used to collapse into "unavailable" (2026-08-13,
+ * operator ruling). A wallet whose USDC outflow we read completely but whose
+ * ETH outflow we could not still has a real measurement behind it, and
+ * throwing that away is discarding evidence, not being careful. But a partial
+ * reading must never clear the ALLOW gate, so it is capped one point under
+ * SCORE_THRESHOLDS.allow: the best a partially-read wallet can be told is
+ * WARN, while a surviving leg that looks BAD still produces its own BLOCK on
+ * the merits. The legs that were not read are named in `signalsUnavailable`.
+ */
+const PARTIAL_SCORE_CEILING = SCORE_THRESHOLDS.allow - 1;
+
 export type DataDepth = "thin" | "moderate" | "rich";
 
 export type PayeeSignals = {
@@ -77,6 +91,9 @@ export type PayeeSignals = {
     outgoingCount: number;
     incomingCount: number;
     score: number;
+    /** Asset legs that could not be read, e.g. ["native_drain"]. Empty when
+     *  both assets were assessed. */
+    unmeasured: string[];
   };
   outcomeHistory: {
     types: string[];
@@ -98,6 +115,18 @@ export type PayeeScoreResult = {
    * not read at all, and the two used to be indistinguishable to callers.
    */
   degraded: boolean;
+  /**
+   * Every input that could not be read on this request, named — e.g.
+   * ["native_drain"], ["wallet_metrics"], ["outcome_history"]. Empty means the
+   * whole assessment was measured.
+   *
+   * The disclosure half of the partial-measurement rule (2026-08-13): when
+   * this is non-empty but `degraded` is false, the score IS backed by real
+   * measurements, just not all of them, and it has been capped below ALLOW
+   * for exactly that reason. Callers that must not act on an incomplete view
+   * can refuse on this field alone, without inferring it from the score.
+   */
+  signalsUnavailable: string[];
   signals: PayeeSignals;
   scoredAt: string;
   cacheExpiresAt: string;
@@ -125,11 +154,22 @@ async function withTimeout<T>(promise: Promise<T>): Promise<T> {
   ]);
 }
 
+/** Machine-readable names for the asset legs, reported in signalsUnavailable. */
+const NATIVE_LEG = "native_drain";
+const USDC_LEG = "usdc_drain";
+
 type DrainSignal = {
   detected: boolean;
   drainRatio: number | null;
   outgoingCount: number;
   incomingCount: number;
+  /**
+   * Asset legs we could not read, e.g. ["native_drain"]. A leg that failed is
+   * named rather than averaged away: the wallet was assessed on the legs that
+   * DID answer, and the caller is told which view is missing.
+   */
+  unmeasured: string[];
+  /** True only when NO leg could be read — nothing was measured at all. */
   unavailable: boolean;
 };
 
@@ -219,59 +259,95 @@ async function fetchErc20Balance(address: Address, token: Address): Promise<bigi
  * wallets this API scores). Detection fires if either asset shows the drain
  * shape; the reported ratio is the worst (highest) among assets the wallet
  * has actually received.
+ *
+ * THE LEGS ARE READ INDEPENDENTLY (2026-08-13, operator ruling). They used to
+ * share one try/catch and one Promise.all, so a failure on either asset threw
+ * the other asset's completed measurement away. Measured that day:
+ * base.blockscout.com's v2 `/addresses/{a}/transactions` returned HTTP 500 on
+ * 10 of 10 requests while `/token-transfers` on the same host answered — the
+ * native leg was dead and the USDC leg, the one that actually matters for an
+ * x402 payee, was fully readable. Discarding it produced a "we know nothing"
+ * verdict out of data we did in fact have.
+ *
+ * Discarding a real measurement is not failing closed, it is failing blind.
+ * The fail-closed half lives one level up, in scorePayeeWallet: a partially
+ * measured wallet is capped below ALLOW no matter how good the surviving leg
+ * looks, and the missing leg is named in `unmeasured` so it can be disclosed
+ * rather than quietly averaged away.
  */
+async function assessNativeLeg(
+  address: Address,
+  addressLower: string,
+): Promise<AssetDrainAssessment> {
+  const [txs, balance] = await Promise.all([
+    withTimeout(fetchWalletTransfersV2(address, { limit: 100 })),
+    withTimeout(fetchNativeBalance(address)),
+  ]);
+  return assessAssetDrain(txs, balance, addressLower, DRAIN_MIN_VALUE_WEI);
+}
+
+async function assessUsdcLeg(
+  address: Address,
+  addressLower: string,
+): Promise<AssetDrainAssessment> {
+  const [txs, balance] = await Promise.all([
+    withTimeout(fetchTokenTransfersV2(address, BASE_USDC_ADDRESS, { limit: 100 })),
+    withTimeout(fetchErc20Balance(address, BASE_USDC_ADDRESS)),
+  ]);
+  return assessAssetDrain(txs, balance, addressLower, DRAIN_MIN_VALUE_USDC);
+}
+
 async function detectDrainPattern(address: Address): Promise<DrainSignal> {
-  const empty: DrainSignal = {
+  const nothing: DrainSignal = {
     detected: false,
     drainRatio: null,
     outgoingCount: 0,
     incomingCount: 0,
-    unavailable: false,
+    unmeasured: [NATIVE_LEG, USDC_LEG],
+    unavailable: true,
   };
 
-  if (isSkipChainReadsEnabled()) {
-    return { ...empty, unavailable: true };
+  if (isSkipChainReadsEnabled()) return nothing;
+
+  const addressLower = address.toLowerCase();
+  // 2026-08-13: these reads were all Blockscout v1 and fired together. The v1
+  // limiter answers three back-to-back requests and then refuses for 95+
+  // seconds, renewing the lockout on every request made while limited (see the
+  // header of lib/chain/blockscout.ts) — so this check could not succeed even
+  // on its own, and it starved fetchWalletMetrics' v1 walk of the same budget.
+  // History now comes from v2 (separate, permissive limiter) and the balances
+  // from the RPC. Zero v1 requests here.
+  const settled = await Promise.allSettled([
+    assessNativeLeg(address, addressLower),
+    assessUsdcLeg(address, addressLower),
+  ]);
+
+  const measured: AssetDrainAssessment[] = [];
+  const unmeasured: string[] = [];
+  for (const [index, name] of [NATIVE_LEG, USDC_LEG].entries()) {
+    const leg = settled[index]!;
+    if (leg.status === "fulfilled") {
+      measured.push(leg.value);
+    } else {
+      unmeasured.push(name);
+      logServerError(`payee_drain_${name}`, leg.reason);
+    }
   }
 
-  try {
-    // 2026-08-13: these four reads were all Blockscout v1, fired together.
-    // The v1 limiter answers three back-to-back requests and then refuses for
-    // 95+ seconds, renewing the lockout on every request made while limited
-    // (measured; see the header of lib/chain/blockscout.ts) — so this check
-    // could not succeed even on its own, and it starved fetchWalletMetrics'
-    // v1 walk of the same budget. Production sat permanently on
-    // drain_check_unavailable as a result.
-    //
-    // History now comes from v2 (separate, permissive limiter) and the two
-    // balances from the RPC, which is what an RPC is actually good at: a
-    // single current-state read, no indexer pagination, no shared budget.
-    // Zero v1 requests here now.
-    const [txs, balance, usdcTxs, usdcBalance] = await Promise.all([
-      withTimeout(fetchWalletTransfersV2(address, { limit: 100 })),
-      withTimeout(fetchNativeBalance(address)),
-      withTimeout(fetchTokenTransfersV2(address, BASE_USDC_ADDRESS, { limit: 100 })),
-      withTimeout(fetchErc20Balance(address, BASE_USDC_ADDRESS)),
-    ]);
+  if (measured.length === 0) return { ...nothing, unmeasured };
 
-    const addressLower = address.toLowerCase();
-    const native = assessAssetDrain(txs, balance, addressLower, DRAIN_MIN_VALUE_WEI);
-    const usdc = assessAssetDrain(usdcTxs, usdcBalance, addressLower, DRAIN_MIN_VALUE_USDC);
+  const ratios = measured
+    .map((leg) => leg.drainRatio)
+    .filter((ratio): ratio is number => ratio !== null);
 
-    const ratios = [native.drainRatio, usdc.drainRatio].filter(
-      (ratio): ratio is number => ratio !== null,
-    );
-
-    return {
-      detected: native.detected || usdc.detected,
-      drainRatio: ratios.length > 0 ? Math.max(...ratios) : null,
-      outgoingCount: native.outgoingCount + usdc.outgoingCount,
-      incomingCount: native.incomingCount + usdc.incomingCount,
-      unavailable: false,
-    };
-  } catch (error) {
-    logServerError("payee_drain_check", error);
-    return { ...empty, unavailable: true };
-  }
+  return {
+    detected: measured.some((leg) => leg.detected),
+    drainRatio: ratios.length > 0 ? Math.max(...ratios) : null,
+    outgoingCount: measured.reduce((sum, leg) => sum + leg.outgoingCount, 0),
+    incomingCount: measured.reduce((sum, leg) => sum + leg.incomingCount, 0),
+    unmeasured,
+    unavailable: false,
+  };
 }
 
 function scoreReceiving(stats: PayeeStats): number {
@@ -399,12 +475,23 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
   // could not complete must therefore land in the degraded class, not read as
   // "this wallet has no history" — see getOutcomesForWallet's own note.
   let outcomes: WalletOutcomeRow[] = [];
+  let outcomeHistoryRead = true;
   try {
     outcomes = await getOutcomesForWallet(addrLower);
   } catch (error) {
     logServerError("payee_outcome_history", error);
+    outcomeHistoryRead = false;
     flags.push("outcome_history_unavailable");
   }
+
+  // Every input we did not manage to read, named for the caller. Assembled
+  // from what actually happened above rather than parsed back out of `flags`,
+  // so the disclosure cannot drift from the reads it describes.
+  const signalsUnavailable = [
+    ...(walletMetrics ? [] : ["wallet_metrics"]),
+    ...drainSignal.unmeasured,
+    ...(outcomeHistoryRead ? [] : ["outcome_history"]),
+  ];
 
   const rawWalletScore = normalizeWalletScore({
     ageDays: walletMetrics?.ageDays ?? 0,
@@ -450,7 +537,17 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
   // purpose — a local `.endsWith("_unavailable")` re-implementation is exactly
   // how the two sides drifted apart in the first place.
   const degraded = hasUnavailableInput(flags);
-  const score = degraded ? Math.min(measuredScore, DEGRADED_SCORE_CEILING) : measuredScore;
+  // The middle case: real measurements, but not all of them. Not degraded (we
+  // did measure something), and not clean either — capped below ALLOW so a
+  // partial view can never clear the gate, while a surviving leg that looks
+  // bad still lands its own BLOCK on the merits.
+  const partiallyMeasured = !degraded && signalsUnavailable.length > 0;
+  const ceiling = degraded
+    ? DEGRADED_SCORE_CEILING
+    : partiallyMeasured
+      ? PARTIAL_SCORE_CEILING
+      : 100;
+  const score = Math.min(measuredScore, ceiling);
   // Stated, not inferred from the ceiling: if DEGRADED_SCORE_CEILING were ever
   // moved above the block line, the refusal must not quietly turn into a WARN.
   const recommendation: Recommendation = degraded ? "BLOCK" : toRecommendation(score, false);
@@ -462,6 +559,7 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
     recommendation,
     dataDepth,
     degraded,
+    signalsUnavailable,
     signals: {
       receiving: {
         paymentCount: stats.paymentCount,
@@ -481,6 +579,7 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
         outgoingCount: drainSignal.outgoingCount,
         incomingCount: drainSignal.incomingCount,
         score: drainScore,
+        unmeasured: drainSignal.unmeasured,
       },
       outcomeHistory: {
         types: outcomeTypes,
@@ -497,8 +596,11 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
   };
 
   // A verdict the engine is not confident enough to cache is one nobody
-  // downstream may pin either (tests/verdict-consistency.test.ts).
-  if (!degraded) {
+  // downstream may pin either (tests/verdict-consistency.test.ts). A partial
+  // reading counts: it is capped below ALLOW because of an upstream outage,
+  // and pinning it for five minutes would keep the cap in place long after
+  // the missing leg came back.
+  if (!degraded && !partiallyMeasured) {
     cache.set(addrLower, { result, expiresAt: now + CACHE_TTL_MS });
   }
 

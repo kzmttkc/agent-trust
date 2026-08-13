@@ -21,6 +21,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { Address } from "viem";
+import { BASE_USDC_ADDRESS } from "@/lib/chain/config";
 import { resetBlockscoutRateGate } from "@/lib/chain/blockscout";
 import { invalidateWalletMetricsCache } from "@/lib/chain/wallet-metrics";
 import { invalidatePayeeScoreCache, scorePayeeWallet } from "@/lib/scoring/payee-engine";
@@ -102,6 +103,7 @@ function v2UsdcTransfers(addr: string) {
       from: { hash: addr },
       to: { hash: "0x000000000000000000000000000000000000feed" },
       total: { decimals: "6", value: "1000000000" }, // paid out 1,000 USDC
+      token: { address_hash: BASE_USDC_ADDRESS },
     },
     {
       transaction_hash: "0xa",
@@ -110,6 +112,7 @@ function v2UsdcTransfers(addr: string) {
       from: { hash: "0x000000000000000000000000000000000000cafe" },
       to: { hash: addr },
       total: { decimals: "6", value: "5000000000" }, // received 5,000 USDC
+      token: { address_hash: BASE_USDC_ADDRESS },
     },
   ];
 }

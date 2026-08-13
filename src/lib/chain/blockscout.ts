@@ -527,7 +527,7 @@ export async function fetchAddressTransactionCount(
  * source; there is no second source here.
  */
 type BlockscoutV2Page = {
-  items?: unknown[];
+  items: unknown[];
   next_page_params?: Record<string, string | number | null> | null;
 };
 
@@ -561,11 +561,28 @@ async function blockscoutV2GetOnce<T extends BlockscoutV2Page>(
     );
   }
 
+  let data: unknown;
   try {
-    return (await response.json()) as T;
+    data = await response.json();
   } catch (error) {
     throw new BlockscoutUnavailableError("blockscout_v2_invalid_json", error);
   }
+
+  // A 200 whose body is not the paged shape we asked for is a read we did not
+  // complete, exactly like a body we could not parse — and it used to be the
+  // asymmetry in this function: unparseable JSON threw, but well-formed JSON
+  // with no `items` fell through to `data.items ?? []` in the caller and was
+  // served as EMPTY HISTORY. Empty history is not a neutral value here: it
+  // means no incoming transfers, which means no drain ratio, which scores a
+  // near-neutral 60 with no `*_unavailable` flag anywhere. A proxy answering
+  // with its own error envelope, a version bump that renames the field, or a
+  // BLOCKSCOUT_API_URL pointed somewhere unexpected would all have read as
+  // "we looked, and this wallet has moved nothing".
+  // Not retryable: a shape does not change on the second ask.
+  if (!data || typeof data !== "object" || !Array.isArray((data as BlockscoutV2Page).items)) {
+    throw new BlockscoutUnavailableError("blockscout_v2_bad_shape");
+  }
+  return data as T;
 }
 
 async function blockscoutV2Get<T extends BlockscoutV2Page>(
@@ -605,7 +622,7 @@ async function fetchV2Transfers<T>(
 
   for (let page = 1; page <= V2_MAX_PAGES; page++) {
     const data = await blockscoutV2Get<BlockscoutV2Page>(path, params, chainId);
-    const items = (data.items ?? []) as T[];
+    const items = data.items as T[];
     for (const item of items) {
       const tx = toTx(item);
       if (tx) out.push(tx);
@@ -638,6 +655,8 @@ type V2TokenTransfer = {
   total?: { value?: string } | null;
   from?: { hash?: string } | null;
   to?: { hash?: string } | null;
+  /** Blockscout names this `address_hash`; older builds use `address`. */
+  token?: { address_hash?: string; address?: string } | null;
 };
 
 function toEpochSeconds(iso: string | undefined): string {
@@ -676,20 +695,33 @@ export async function fetchWalletTransfersV2(
   );
 }
 
-/** ERC-20 transfers for one token, newest first — the v2 replacement for
- *  fetchTokenTransfers({ contractAddress }). The token filter is applied
- *  server-side by `token=`; items without a numeric total are dropped rather
- *  than counted as zero. */
+/**
+ * ERC-20 transfers for one token, newest first — the v2 replacement for
+ * fetchTokenTransfers({ contractAddress }).
+ *
+ * Filtered to the token BOTH server-side (`token=`, which Blockscout honors)
+ * and client-side, the same belt-and-braces the v1 version had. The client
+ * side is not redundant: `values` from different ERC-20s are in different
+ * decimal units, so a single foreign transfer slipping through would be summed
+ * raw against USDC's 6 decimals and could move the drain ratio by orders of
+ * magnitude. BLOCKSCOUT_API_URL is an operator-settable env var, and any proxy
+ * or older instance behind it that ignores `token=` would do exactly that.
+ * Items without a numeric total, or whose token cannot be identified, are
+ * dropped rather than counted.
+ */
 export async function fetchTokenTransfersV2(
   address: Address,
   contractAddress: Address,
   options: { limit?: number; chainId?: number } = {},
 ): Promise<BlockscoutTx[]> {
+  const wanted = contractAddress.toLowerCase();
   return fetchV2Transfers<V2TokenTransfer>(
     `/addresses/${address}/token-transfers`,
     { token: contractAddress, type: "ERC-20" },
     options.limit ?? 100,
     (item) => {
+      const token = (item.token?.address_hash ?? item.token?.address)?.toLowerCase();
+      if (token !== wanted) return null;
       const from = item.from?.hash;
       const to = item.to?.hash;
       const value = item.total?.value;
