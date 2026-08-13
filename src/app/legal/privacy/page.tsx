@@ -222,15 +222,15 @@ export default function PrivacyPage() {
         </section>
 
         {/* 2026-08-14 (legal compliance audit): the highest-risk area for this
-            product. We score third parties who never signed up, publish the
-            result, and keep corrections append-only ("none withdrawn" on
-            /corrections). That collides head-on with the erasure right (GDPR
-            Art. 17) and the objection right (Art. 21), and negative verdicts
-            carry defamation exposure. This section discloses the tension
-            honestly and gives the data subject a real route, WITHOUT asserting
-            that our legitimate-interest / freedom-of-expression position wins —
-            that determination is flagged for a qualified lawyer in the audit
-            report and must not be presented here as settled. */}
+            product. We score third parties who never signed up and publish the
+            result; negative verdicts carry defamation exposure, and the
+            corrections log collides with the erasure right (GDPR Art. 17) and
+            the objection right (Art. 21) if treated as absolute. Same-day B-1
+            interim decision (CEO/owner-approved): the log's old "none
+            withdrawn" absolutism was replaced with individual balancing +
+            Art. 18 restriction/annotation (see the paragraph comment below).
+            The lawyer-review flag on the underlying balance STANDS — nothing
+            here may be presented as a settled legal conclusion. */}
         <section id="scored-third-parties" className="scroll-mt-24 space-y-2">
           <h2 className="sec-head">People we score who are not our customers</h2>
           <p>
@@ -245,10 +245,16 @@ export default function PrivacyPage() {
             contact details, or off-chain identity to an address unless the person behind it gives
             them to us — for example by using the correction route.
           </p>
+          {/* 2026-08-14 (B-1 暫定実装・CEO判断/オーナー承認): 旧文は「append-only が
+              正当な利益で消去要求を上回りうる」という立場表明で止まっていた。
+              Art.17 単体で「絶対に消さない」は拒否根拠にならないため、運用を
+              明文化する: 個別衡量→(優越根拠あり) Art.18 制限＋注記＋訂正、
+              (根拠なし) 削除/匿名化。機械的拒否はしない。B-1 の弁護士レビュー
+              自体は据え置き——これは暫定の最適解であり確定法解釈ではない。 */}
           <p>
-            <strong>Your rights, and one honest tension.</strong> You can ask us to correct a score
-            built on a factual error, and you can object to our scoring your address. The free route
-            for both — no account, no fee — is{" "}
+            <strong>How we handle erasure and objection, concretely.</strong> You can ask us to
+            correct a score built on a factual error, and you can object to our scoring your
+            address. The free route for both — no account, no fee — is{" "}
             <a className="doc-link" href="/legal/terms#corrections">
               section 8 of the Terms
             </a>
@@ -256,17 +262,19 @@ export default function PrivacyPage() {
             <a className="doc-link" href="/corrections">
               corrections log
             </a>
-            . You also have the erasure right under Art. 17. Here is the tension we would rather name
-            than hide: our corrections log is append-only — once a correction is published it stays
-            published — because a record of our own mistakes that we can quietly delete is not a
-            record. Our position is that keeping a <em>correction</em> on the log, and continuing to
-            publish scores derived from already-public on-chain data, rests on our legitimate
-            interest in an accountable fraud-risk signal and on the public interest in that record,
-            which can outweigh an erasure request; but that balance depends on your situation and on
-            the law that applies to you, it is not automatic, and we will not pretend a request is
-            refused when the law says it is granted. Tell us your circumstances and we will weigh
-            them, tell you our decision and our reason, and point you to your data-protection
-            authority if you disagree.
+            . You also have the rights to erasure (Art. 17) and to restriction of processing (Art.
+            18), and we weigh every verified request <strong>individually</strong> — we do not
+            refuse by policy, and &quot;we never delete anything&quot; is not an answer we give.
+            Where a legal ground we may rely on — freedom of expression and information (Art. 85),
+            the establishment, exercise, or defense of legal claims, or fraud prevention — outweighs
+            your request in your specific situation, we respond with <strong>restriction rather
+            than nothing</strong>: we stop publishing or stop scoring the entry concerned, annotate
+            it, and correct anything inaccurate, instead of leaving it up unchanged. Where no such
+            ground prevails, we delete or anonymize the data. What we will not do is silently
+            rewrite our own record to hide a mistake we made — accountability for our errors and
+            your rights over your data are not in conflict, and we intend to honor both. Either
+            way we tell you our decision and our reasons, and if you disagree you can complain to
+            your data-protection authority.
           </p>
           <p>
             <strong>A score is an opinion, not an accusation of fact.</strong> A low score or a
@@ -283,12 +291,14 @@ export default function PrivacyPage() {
           <h2 className="sec-head">Your rights over your data</h2>
           <p>
             Depending on where you are, you may have the right to <strong>access</strong> the
-            personal data we hold about you, to have it <strong>corrected</strong> if it is wrong,
-            to have it <strong>deleted</strong>, to <strong>object to</strong> or ask us to{" "}
-            <strong>restrict</strong> a particular use of it, to receive it in a{" "}
-            <strong>portable</strong> format, and to <strong>withdraw consent</strong> where we
-            relied on consent. We do not make automated decisions with legal or similarly
-            significant effects about you as a user of this site.
+            personal data we hold about you (GDPR Art. 15), to have it <strong>corrected</strong>{" "}
+            if it is wrong (Art. 16), to have it <strong>deleted</strong> (Art. 17), to ask us to{" "}
+            <strong>restrict</strong> a particular use of it (Art. 18), to <strong>object to</strong>{" "}
+            processing based on our legitimate interests (Art. 21), to receive it in a{" "}
+            <strong>portable</strong> format (Art. 20), and to <strong>withdraw consent</strong>{" "}
+            where we relied on consent. We weigh each request on its own facts — none of these is
+            answered with a blanket policy — and we do not make automated decisions with legal or
+            similarly significant effects about you as a user of this site.
           </p>
           <p>
             To exercise any of these, email{" "}

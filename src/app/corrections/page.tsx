@@ -61,7 +61,7 @@ export default function CorrectionsPage() {
           </div>
           <div className="doc-head-col">
             <span>vet402</span>
-            <span>All corrections, none withdrawn</span>
+            <span>No silent edits, no silent removals</span>
             <span>Aggregate and per-subject</span>
           </div>
         </div>
@@ -71,10 +71,18 @@ export default function CorrectionsPage() {
 
         <div className="mt-8 flex flex-col gap-1 sm:flex-row sm:gap-0">
           <p className="shrink-0 text-brand-deep sm:w-[10ch]">Abstract</p>
+          {/* 2026-08-14 (legal compliance audit, B-1): 旧文は "Nothing is removed
+              from this list once it is on it."——絶対の append-only 宣言だった。
+              GDPR Art.17/18/21 の検証済みリクエストに対して「絶対に消さない」は
+              単体では拒否の正当根拠にならない。残すのは誠実さの核（自己都合の
+              無音書換え・削除をしない）だけで、データ主体の権利は honor する
+              運用へ改める。処理の実体は Privacy の scored-third-parties 節。 */}
           <p className="min-w-0 max-w-[62ch] text-brand">
             When vet402 publishes something about an address and gets it wrong, the correction is
-            published here with what was wrong and what changed. Nothing is removed from this list
-            once it is on it.
+            published here with what was wrong and what changed. We never silently edit or silently
+            remove an entry to make ourselves look better. What we will do is honor verified
+            data-protection requests: an entry can be restricted or annotated — see 2.4 below — but
+            the log is never quietly rewritten as if a mistake had not happened.
           </p>
         </div>
 
@@ -148,6 +156,23 @@ export default function CorrectionsPage() {
               <strong>Not: a disagreement we did not concede.</strong> A score is our opinion and
               sometimes we will disagree with the person challenging it. Those are answered
               directly, in writing, and are not corrections. The route stays open either way.
+            </p>
+          </div>
+          <div className="flex gap-4">
+            <span className="w-[4ch] shrink-0 text-brand-lift">2.4</span>
+            <p className="min-w-0 max-w-[64ch] text-brand">
+              <strong>Data-protection requests are honored, not logged away.</strong> If an entry
+              names an address that is personal data about you, you can ask us to erase it or to
+              restrict it, and we weigh each request individually — the grounds and the process are
+              in{" "}
+              <Link href="/legal/privacy#scored-third-parties" className="doc-link">
+                the privacy policy
+              </Link>
+              . Where a request is granted in part, the entry is restricted or annotated in place
+              rather than silently deleted: the log keeps the fact that a correction was issued,
+              without continuing to publish data we no longer have grounds to publish. Every entry
+              here states what we verified, in factual terms and with its date; the log does not
+              brand anyone a fraudster.
             </p>
           </div>
         </div>

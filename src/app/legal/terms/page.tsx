@@ -161,6 +161,33 @@ export default function TermsPage() {
             that the public record attached to that address, read through our published
             methodology, looks risky to us on the day we read it.
           </p>
+          {/* 2026-08-14 (B-2 暫定実装): 意見と事実の区別を運用方針として明文化。
+              意見は検証可能な事実的根拠（オンチェーン記録＋公開手法）に立脚し、
+              評価語(fraud/scam等)を人への事実断定として発しない。confirmed_fraud
+              等のラベルは outcome-writer.ts の実態（顧客報告/自動検出の分類）に
+              即して記述——裁定的認定と誤読されないように。 */}
+          <p>
+            The opinion is not free-floating: every verdict rests on <strong>verifiable factual
+            grounds</strong> — the on-chain record we read, which anyone can re-read, and the
+            methodology we publish at{" "}
+            <a className="doc-link" href="/accuracy">
+              /accuracy
+            </a>
+            . Our policy is to state the underlying facts as facts, the assessment as an
+            assessment, and never to assert an evaluative label — &quot;fraud,&quot;
+            &quot;scam,&quot; or anything like them — as a statement of fact about a person. Where
+            a category label such as <code className="text-brand-deep">confirmed_fraud</code>{" "}
+            appears in our data or API, it is the name of an outcome category — how the customer
+            who ran the transaction reported it, or what an automated on-chain pattern check
+            recorded — kept to measure our own accuracy. It is not a finding by us that anyone
+            committed fraud, and it must not be quoted as one. Every published verdict carries the
+            same free, key-less challenge route (section 8), and corrections are published openly
+            on{" "}
+            <a className="doc-link" href="/corrections">
+              /corrections
+            </a>
+            .
+          </p>
           <p>
             A score is also not identity verification, KYC/AML screening, a sanctions check, a
             credit assessment, a background check, or any kind of certification or accreditation.
