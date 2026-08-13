@@ -53,13 +53,24 @@ export default async function PayeeIndexPage({
 }: {
   searchParams: Promise<{ address?: string | string[] }>;
 }) {
-  const raw = (await searchParams).address;
-  const submitted = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? "";
+  const rawParam = (await searchParams).address;
+  const raw = Array.isArray(rawParam) ? rawParam[0] : rawParam;
+  const submitted = raw?.trim() ?? "";
 
   if (submitted && isValidAddress(submitted)) {
     redirect(`/payee/${submitted.toLowerCase()}`);
   }
+
+  // 2026-08-13 全盲ペルソナ監査 R2【イライラ級】: 空のまま送信すると `?address=`
+  // へ遷移するだけで、フォーカスは BODY・role="alert" 無し・aria-invalid 無し。
+  // 「何も起きなかったのか処理されたのか」が判別できない完全な無音だった。
+  // 無効値の側（42文字必要／あなたは14文字）は既に十分なので、空だけ同じ水準へ
+  // 揃える。`raw !== undefined` は「フォームから戻ってきた」ことを意味する
+  // ——初回訪問には address パラメータ自体が無い。
+  const attempted = raw !== undefined;
+  const empty = attempted && submitted.length === 0;
   const invalid = submitted.length > 0;
+  const errored = empty || invalid;
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
@@ -101,15 +112,21 @@ export default async function PayeeIndexPage({
               spellCheck={false}
               defaultValue={submitted}
               placeholder="0x0000000000000000000000000000000000000000"
-              aria-describedby={invalid ? "address-error" : "address-hint"}
-              aria-invalid={invalid || undefined}
+              aria-describedby={errored ? "address-error" : "address-hint"}
+              aria-invalid={errored || undefined}
+              // 2026-08-13 全盲ペルソナ監査 R2: 空送信をブラウザ側でも止める。
+              // 制約検証は JS 無しでも効くので、この頁の「JS を足さない」方針を
+              // 崩さずに、無音の遷移そのものを起こさせない。下の empty 分岐は
+              // それでも `?address=` に着地した場合（直リンク・古いブックマーク）
+              // の受け皿として残す。
+              required
               // 2026-08-13 アクセシビリティ監査 [E3]: バリデーション失敗後、
               // document.activeElement が BODY に落ちていた。role="alert" で
               // 読み上げは出るのに、直す対象の入力欄まではヘッダから Tab を
               // 打ち直すしかない。JS を足さずに済ませるため、失敗して再描画
               // された時だけ autofocus を付ける（正常時は付かないので、
               // 初回訪問でモバイルのキーボードが勝手に開くことはない）。
-              autoFocus={invalid}
+              autoFocus={errored}
               // 枠線は brand-lift (#55688c・白地 5.61:1)。入力欄の唯一の境界表現
               // なので WCAG 1.4.11 の 3:1 が要る（2026-08-12 の是正と同じ理由）。
               className="min-w-0 flex-1 rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-[0.8125rem] text-brand-deep placeholder:text-brand-lift"
@@ -119,7 +136,13 @@ export default async function PayeeIndexPage({
             </button>
           </div>
 
-          {invalid ? (
+          {empty ? (
+            <p id="address-error" role="alert" className="mt-3 text-[0.8125rem] text-brand-deep">
+              Nothing was submitted &mdash; the address field was empty. Enter a Base address:{" "}
+              <code>0x</code> followed by 40 hexadecimal characters, 42 characters in total. The
+              field is focused, or pick one of the examples below.
+            </p>
+          ) : invalid ? (
             <p id="address-error" role="alert" className="mt-3 text-[0.8125rem] text-brand-deep">
               That is not a Base address. An address is <code>0x</code> followed by 40 hexadecimal
               characters &mdash; 42 characters in total. You entered {submitted.length}.

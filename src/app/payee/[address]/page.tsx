@@ -202,12 +202,18 @@ export default async function PayeePage({
             redirect なので完全な再読込になり、フォーカスは BODY に落ちていた）。
             tabIndex={-1} は見出しを Tab 順に入れずにプログラム的なフォーカス先に
             するための標準の作法で、SiteChrome の #main-content と同じ。 */}
+        {/* 2026-08-13 全盲ペルソナ監査 R2【イライラ級】: この h1 は 42 桁の生 hex
+            1個だけだった。/payee のフォームから届いた読者はここにフォーカスが
+            落ちるので、着地して最初に聞くのが大小混在の 42 文字で、自分が何の
+            ページに居るのかが分からない。見えている面は変えずに、読み上げにだけ
+            「何の頁のどのアドレスか」を前置きする。 */}
         <FocusOnArrival targetId="payee-subject" fromPathPrefix="/payee" />
         <h1
           id="payee-subject"
           tabIndex={-1}
           className="mt-10 break-all text-center text-[clamp(0.8125rem,2.6vw,1.125rem)] text-brand-deep"
         >
+          <span className="sr-only">Payee verification result for wallet </span>
           {checksummed}
         </h1>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
@@ -261,9 +267,15 @@ export default async function PayeePage({
             // outage, on a site whose masthead is "Nothing on this site is an
             // estimate." So the page says the one true thing instead.
             <>
-              <p className="mt-3 font-[family-name:var(--font-display)] text-[1.375rem] font-semibold leading-tight text-brand-deep">
+              {/* 2026-08-13 全盲ペルソナ監査 R2【イライラ級】: 肝心の判定が
+                  ただの <p> だったので、この頁の見出しは h1（生アドレス）1個きり
+                  だった。見出しジャンプで結論に届かず、毎回全文を矢印で流すしか
+                  なかった。判定行そのものを h2 にする（組版クラスは据え置き。
+                  Tailwind の preflight が見出しの既定字級・余白を潰しているので、
+                  要素名を変えても紙面は1px も動かない）。 */}
+              <h2 className="mt-3 font-[family-name:var(--font-display)] text-[1.375rem] font-semibold leading-tight text-brand-deep">
                 Not verifiable right now
-              </p>
+              </h2>
               <p className="mt-2 text-[0.8125rem] text-brand-lift">
                 One or more upstream checks could not be completed, so no score is published for
                 this wallet. This is not a finding against it. Callers of the API receive a
@@ -286,7 +298,12 @@ export default async function PayeePage({
                 aria-label は "out of 100" と言っているのに、目で見える面には
                 裸の 37 しか出ていない — 100点満点なのか1000点満点なのかが
                 視認面から分からない状態だった。"/ 100" を字面にも出す。 */}
-            <p className="mt-3 font-[family-name:var(--font-display)] text-[1.75rem] font-semibold leading-none text-brand-deep">
+            {/* 2026-08-13 全盲ペルソナ監査 R2【イライラ級】: 判定行を h2 へ。
+                見出し名は内側の role="img" の aria-label から算出されるので、
+                見出しジャンプで聞こえるのは
+                "Trust score 37 out of 100, recommendation BLOCK" ——
+                結論だけで自足する1行になる。 */}
+            <h2 className="mt-3 font-[family-name:var(--font-display)] text-[1.75rem] font-semibold leading-none text-brand-deep">
               <span
                 role="img"
                 aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
@@ -298,7 +315,7 @@ export default async function PayeePage({
                 </span>{" "}
                 <VerdictBadge verdict={score.recommendation} className="align-middle" />
               </span>
-            </p>
+            </h2>
             {/* データの厚みは「判定」ではなく「どれだけ材料があったか」なので、
                 判定行から降ろして自分の1行にした。thin/moderate/rich の閾値は
                 エンジン側の determineDataDepth と同じものを写している。 */}
@@ -322,7 +339,8 @@ export default async function PayeePage({
             ) : null}
           </>
           ) : (
-            <p className="mt-3 text-brand-lift">Score unavailable right now.</p>
+            // 判定が出せなかった時も、見出しの並びに穴を空けない。
+            <h2 className="mt-3 text-brand-lift">Score unavailable right now.</h2>
           )}
           {/* 2026-08-13 UX監査R1 [A5][A6]: 測定時刻とエンジン名を、数字と同じ
               囲みの中に置く。「いつ・どの物差しで」が数字から離れると、離れた

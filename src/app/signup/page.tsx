@@ -6,6 +6,7 @@ import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { track } from "@/lib/analytics";
 import { signupAction, type SignupState } from "./actions";
 import { buttonClass } from "@/components/ui/Button";
+import CodeBlock from "@/components/docs/CodeBlock";
 import { SITE_URL } from "@/lib/site-url";
 
 // 2026-08-06 growth: failure-reason allowlist for the signup_failed event.
@@ -31,14 +32,69 @@ function signupFailureReason(code: unknown): string {
 
 const INITIAL_STATE: SignupState = { status: "idle" };
 
+/**
+ * 制約検証に落ちた入力欄を、その欄の言葉で説明する（2026-08-13 全盲ペルソナ監査 R2）。
+ *
+ * ブラウザ既定の validationMessage（"このチェックボックスをオンにしてください"）でも
+ * 内容は正しいが、ネイティブの吹き出しは (1) 数秒で消える (2) 次のキー入力で消える
+ * (3) 読み上げの実装がブラウザごとに割れている、の3点で当てにできない。
+ * 同じ内容を role="alert" の中へ自前で出し、フォーカスをその欄へ落とす。
+ */
+function invalidFieldMessage(field: HTMLInputElement): string {
+  if (field.name === "acceptedTerms") {
+    return "You need to agree to the Terms of Service and the Privacy Policy before an account can be created. The checkbox is now focused — press Space to tick it.";
+  }
+  if (field.name === "email") {
+    return field.validity.valueMissing
+      ? "Enter the email address the API key should be tied to. The email field is now focused."
+      : "That is not an email address we can send to — it needs an @ and a domain, like you@example.com. The email field is now focused.";
+  }
+  if (field.name === "inviteCode") {
+    return "Enter the invite code you were given. The invite code field is now focused.";
+  }
+  // 将来ここに欄が増えた時に無言にならないための受け皿。ブラウザの文面をそのまま出す。
+  return field.validationMessage || "Something in this form is not filled in correctly.";
+}
+
 export default function SignupPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [inviteRequired, setInviteRequired] = useState(false);
   // 2026-08-06 (L5 legal review): explicit clickwrap consent — an unticked-by-
-  // default checkbox that blocks submission is the form courts uphold. Kept in
-  // client state only to drive the disabled button; the `required` attribute
-  // gates the native (no-JS) submit and the Server Action re-checks server-side.
+  // default checkbox that blocks submission is the form courts uphold. The
+  // `required` attribute gates the native (no-JS) submit and the Server Action
+  // re-checks server-side.
+  //
+  // 2026-08-13 全盲ペルソナ監査 R2【離脱級】: この state は以前 submit ボタンの
+  // `disabled` を駆動していた。disabled なボタンはフォーカス不能で AX ツリーにも
+  // 出ないので、**この製品で唯一お金に繋がる段が、スクリーンリーダ利用者の世界
+  // からは存在しないページ**になっていた。しかも HTML の暗黙送信は既定ボタンが
+  // disabled だと何もしないので、email 欄で Enter を押しても無反応（遷移も
+  // エラーも通知も無し）という完全な行き止まりだった。
+  // いまはボタンを常に有効に保ち、同意が無いまま送信された時に role="alert" で
+  // 理由を告げてチェックボックスへフォーカスを移す（下の handleInvalid）。
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+
+  // クライアント側の検証エラー。nonce は同じ文面を2回目に出す時にも role="alert"
+  // を鳴らすため（同一テキストのまま残った要素は再読み上げされない）。
+  const [formError, setFormError] = useState<{ text: string; nonce: number } | null>(null);
+  const errorNonce = useRef(0);
+  // 1回の検証パスで複数の欄が invalid になる（email 未入力 かつ 同意なし 等）。
+  // 報告するのは DOM 順で最初の1件だけにする。
+  const reportingInvalid = useRef(false);
+
+  function handleInvalid(event: React.FormEvent<HTMLInputElement>) {
+    // ネイティブの吹き出しを止めて、こちらの role="alert" に一本化する。
+    event.preventDefault();
+    if (reportingInvalid.current) return;
+    reportingInvalid.current = true;
+    queueMicrotask(() => {
+      reportingInvalid.current = false;
+    });
+    const field = event.currentTarget;
+    errorNonce.current += 1;
+    setFormError({ text: invalidFieldMessage(field), nonce: errorNonce.current });
+    field.focus();
+  }
 
   // 2026-08-06 (UX audit item 7): the form is now driven by a Server Action via
   // useActionState. Without JS the browser POSTs to the action natively and the
@@ -118,9 +174,20 @@ export default function SignupPage() {
           <p className="doc-p">
             Score any wallet address (replace the placeholder below with a real one):
           </p>
-          <pre className="mt-4 overflow-x-auto rounded-[2px] bg-brand-deep p-4 text-xs leading-relaxed text-ground">
-            <code>{curlExample}</code>
-          </pre>
+          {/* 2026-08-13 全盲ペルソナ監査 R2: ここは素の <pre className="overflow-x-auto">
+              だった。サイト内の他 24 個のコードブロックには role="region" +
+              tabIndex + 説明的 aria-label + コピーボタンが付いているのに、この1個
+              だけ付いていない——横スクロールする領域にキーボードで入れず、
+              axe も scrollable-region-focusable (serious) を出す。
+              この画面が誰にも到達できなかった間、それが見つからなかっただけ
+              （送信ボタンが disabled で、キーボード利用者はここへ来られなかった）。
+              docs と同じ CodeBlock に寄せる。鍵を配る画面なのでコピーボタンが
+              付くこと自体も効く。 */}
+          <CodeBlock
+            className="mt-4"
+            label="First lookup: score a wallet with your new API key"
+            code={curlExample}
+          />
           <p className="doc-p">
             Prefer the browser? Open any public{" "}
             <Link href="/payee" className="doc-link">
@@ -189,7 +256,18 @@ export default function SignupPage() {
 
       <form
         action={formAction}
-        onSubmit={() => track("signup_started")}
+        onSubmit={(event) => {
+          // 2026-08-13: ボタンは pending 中も aria-disabled で残す（disabled に
+          // するとフォーカスが body へ落ちて、送信した本人が現在地を失う）。
+          // 実際の二重送信はここで止める。
+          if (pending) {
+            event.preventDefault();
+            return;
+          }
+          // ここへ来た＝制約検証を通過した。前回の検証エラーは用済み。
+          setFormError(null);
+          track("signup_started");
+        }}
         className="mt-10 space-y-5 border-t border-brand-deep pt-8"
       >
         {/* 2026-08-12: 入力欄の枠線は白地 3:1 を満たす階調でなければならない。
@@ -209,6 +287,7 @@ export default function SignupPage() {
             autoComplete="email"
             className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
             required
+            onInvalid={handleInvalid}
           />
         </label>
 
@@ -230,6 +309,7 @@ export default function SignupPage() {
               onChange={(e) => setInviteCode(e.target.value)}
               className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
               required
+              onInvalid={handleInvalid}
             />
           </label>
         )}
@@ -248,9 +328,14 @@ export default function SignupPage() {
             name="acceptedTerms"
             type="checkbox"
             checked={acceptedTerms}
-            onChange={(e) => setAcceptedTerms(e.target.checked)}
+            onChange={(e) => {
+              setAcceptedTerms(e.target.checked);
+              // 直したものについてのエラーを読み上げ続けない。
+              if (e.target.checked) setFormError(null);
+            }}
             className="mt-0.5 h-4 w-4 shrink-0 rounded-[2px] border-brand-lift accent-brand-deep"
             required
+            onInvalid={handleInvalid}
           />
           <span>
             I have read and agree to the{" "}
@@ -265,14 +350,41 @@ export default function SignupPage() {
           </span>
         </label>
 
-        {state.status === "error" && state.error && (
+        {/* 検証エラー（クライアント）とサーバ側の失敗を1つの alert 口に束ねる。
+            key に nonce を混ぜているのは、同じ文面をもう一度出した時にも要素を
+            付け替えて role="alert" を鳴らすため。 */}
+        {formError ? (
+          <p
+            key={`client-${formError.nonce}`}
+            role="alert"
+            className="border-l-[3px] border-red-700 bg-red-50 px-4 py-3 text-[0.8125rem] text-red-800"
+          >
+            {formError.text}
+          </p>
+        ) : state.status === "error" && state.error ? (
           <p role="alert" className="border-l-[3px] border-red-700 bg-red-50 px-4 py-3 text-[0.8125rem] text-red-800">{state.error.replaceAll("_", " ")}</p>
-        )}
+        ) : null}
 
+        {/* 2026-08-13 全盲ペルソナ監査 R2: 同意が前提であることを、送信して失敗する
+            前に伝える。ボタンにフォーカスが載った時点で読み上げられる。視覚面は
+            チェックボックスの文言が既に同じことを言っているので、こちらは
+            読み上げ専用にして紙面を増やさない。 */}
+        <span id="signup-terms-note" className="sr-only">
+          Creating an account requires ticking the agreement checkbox above.
+        </span>
+
+        {/* pending 中も disabled にしない — disabled はフォーカスを body へ落とす。
+            押せないことは aria-disabled と地色で伝え、実際の二重送信は
+            form の onSubmit で止める。 */}
         <button
           type="submit"
-          disabled={pending || !acceptedTerms}
-          className={buttonClass({ size: "md", className: "w-full" })}
+          aria-disabled={pending || undefined}
+          aria-describedby="signup-terms-note"
+          className={buttonClass({
+            size: "md",
+            className:
+              "w-full aria-disabled:bg-ground aria-disabled:text-brand aria-disabled:ring-1 aria-disabled:ring-hair aria-disabled:cursor-default",
+          })}
         >
           {pending ? "Creating..." : "Create account"}
         </button>

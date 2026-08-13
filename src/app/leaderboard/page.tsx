@@ -27,6 +27,37 @@ function SeedTag() {
 }
 
 /**
+ * 表のセルの中で SeedTag の前に置く、視覚に出ない読点（2026-08-13 全盲ペルソナ
+ * 監査 R2【イライラ級】）。
+ *
+ * `ml-2` は視覚的な余白でしかなく、読み上げには何の隙間も作らない。実測では
+ * セルの本文が `0x3304…566aBENCHMARK` と1語に繋がって聞こえていた。
+ * SeedTag 自身に持たせないのは、上の説明文（"Rows marked [benchmark] are
+ * operator benchmark entries"）では読点が文法を壊すため——区切りが要るのは
+ * 「識別子のすぐ後ろに付く」表の中だけ。
+ */
+function SeedGap() {
+  return <span className="sr-only">, </span>;
+}
+
+/**
+ * 順位表の Subject セル用クラス（2026-08-13 全盲ペルソナ監査 R2【イライラ級】）。
+ *
+ * この列は `<td>` だった。行見出しが1つも無いので、表移動で聞こえるのは
+ * 「SCORE、49」だけ——**どのアドレスの 49 なのかが分からない**。行の主キーは
+ * Subject なので、ここを `th scope="row"` にする。
+ *
+ * ただし globals.css の `.fact-table th` は見出し行（大文字・0.6875rem・字間
+ * 0.08em・下罫は紺・vertical-align:bottom）向けに書かれていて、そのまま当たると
+ * 本文行の組版が崩れる。globals.css は他部門が並行で触っているので、打ち消しは
+ * ユーティリティ側で行う（`@layer components` はユーティリティに負けるよう
+ * 意図的に置かれている——globals.css 257行目の注記）。値は `.fact-table td` の
+ * 実測値をそのまま写したもので、見た目は 1px も変わらない。
+ */
+const SUBJECT_CELL =
+  "font-[family-name:var(--font-sans)] font-normal normal-case tracking-[normal] whitespace-normal align-top border-b border-hair py-[0.6875rem] pr-5 text-[0.8125rem] text-brand";
+
+/**
  * 既定で紙面に載せる行数。
  *
  * 2026-08-13 UX監査R1 [A1]: ヘッダは "Rows: 25 of 25" と刷っていたが、窓の中に
@@ -196,19 +227,33 @@ export default async function LeaderboardPage({
                         /payee/:address というプロフィールページが実在するのに一覧から
                         辿れず行き止まりだった。順位表の主キーである Subject を
                         その行の詳細へ繋ぐ。 */}
-                    <td className="font-[family-name:var(--font-sans)] font-normal">
-                      {r.agentId || r.wallet ? (
-                        <Link
-                          href={r.agentId ? `/agent/${r.agentId}` : `/payee/${r.wallet}`}
-                          className="doc-link"
-                        >
-                          {r.agentId ? `Agent #${r.agentId}` : shortWallet(r.wallet)}
+                    {/* 行見出し。Score / Verdict / Scored の各セルは、これが
+                        scope="row" であることによって「どの被検体の値か」を
+                        伴って読み上げられる。 */}
+                    <th scope="row" className={SUBJECT_CELL}>
+                      {r.agentId ? (
+                        <Link href={`/agent/${r.agentId}`} className="doc-link">
+                          Agent #{r.agentId}
+                        </Link>
+                      ) : r.wallet ? (
+                        // 2026-08-13 全盲ペルソナ監査 R2: 字面は `0x3304…566a` の
+                        // 短縮形のままにする（紙面の列幅がこの表の可読性そのもの）。
+                        // ただし短縮形からは音声でフルアドレスを復元できないので、
+                        // 読み上げ側には 42 桁を丸ごと渡す。
+                        <Link href={`/payee/${r.wallet}`} className="doc-link">
+                          <span aria-hidden="true">{shortWallet(r.wallet)}</span>
+                          <span className="sr-only">Wallet {r.wallet}</span>
                         </Link>
                       ) : (
                         <span>{shortWallet(r.wallet)}</span>
                       )}
-                      {r.seeded ? <SeedTag /> : null}
-                    </td>
+                      {r.seeded ? (
+                        <>
+                          <SeedGap />
+                          <SeedTag />
+                        </>
+                      ) : null}
+                    </th>
                     <td className="num text-brand-deep">{r.trustScore}</td>
                     <td>
                       <VerdictBadge verdict={r.recommendation} />
