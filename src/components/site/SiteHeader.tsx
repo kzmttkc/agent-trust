@@ -35,10 +35,15 @@ const NAV_ITEMS: NavItem[] = [
   { label: "FAQ", href: "/faq" },
 ];
 
-// モバイルの抽斗にだけ出す二次動線。デスクトップではフッタの索引が担う。
+// モバイルの抽斗にだけ出す二次動線。デスクトップではフッタの索引/奥付が担う。
+// 2026-08-14: 非開発者ペルソナ（P2/P3/P6）が「誰が運営しているか」に辿り着け
+// なかった。デスクトップはフッタ Operator 欄に Legal Notice があるが、モバイルの
+// [menu] には運営者への導線が1本も無かったので About（=運営者情報の Legal
+// Notice）を足す。新規ページは作らず既存の /legal/notice へ繋ぐだけ。
 const NAV_SECONDARY: NavItem[] = [
   { label: "Leaderboard", href: "/leaderboard" },
   { label: "Blog", href: "/blog" },
+  { label: "About", href: "/legal/notice" },
 ];
 
 export function SiteHeader() {

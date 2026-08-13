@@ -70,7 +70,9 @@ export function SiteFooter() {
         <div className="mt-10 grid gap-8 sm:grid-cols-2">
           <nav aria-label="Document index">
             <p className="doc-caption">Index</p>
-            <ul className="mt-4 space-y-2 text-[0.8125rem]">
+            {/* 2026-08-14: 索引/奥付の文字を 13px → 14px。AA は 13px でも
+                達していたが「小さくて疲れる」という所見に応えて 1px 上げる。 */}
+            <ul className="mt-4 space-y-2 text-sm">
               {INDEX_LINKS.map((item) => (
                 <li key={item.href}>
                   <Link href={item.href} className="text-brand hover:text-brand-deep">
@@ -83,7 +85,7 @@ export function SiteFooter() {
 
           <nav aria-label="Legal and operator information">
             <p className="doc-caption">Operator</p>
-            <ul className="mt-4 space-y-2 text-[0.8125rem]">
+            <ul className="mt-4 space-y-2 text-sm">
               {OPERATOR_LINKS.map((item) => (
                 <li key={item.href}>
                   <Link href={item.href} className="text-brand hover:text-brand-deep">
@@ -95,14 +97,21 @@ export function SiteFooter() {
           </nav>
         </div>
 
-        <p className="mt-10 max-w-[72ch] text-xs leading-relaxed text-brand-lift">
+        {/* 2026-08-14: 免責と奥付を 12px → 13px。長文の免責が一番小さい字だった
+            ので、疲労所見に合わせて 1px 上げる（AA は据え置きで達成）。 */}
+        <p className="mt-10 max-w-[72ch] text-[0.8125rem] leading-relaxed text-brand-lift">
           vet402 is offered for B2B API use by agent and service operators. Verification results and
           scores are informational only and do not constitute a guarantee, credit assessment, or
           legal certification.
         </p>
 
-        <div className="mt-6 border-t border-hair pt-5 text-xs text-brand-lift">
-          <p>© {year} vet402 (KIZUNA Creation)</p>
+        {/* 2026-08-14: 運営者名の視認性を少し上げる。行を 13px にし、社名だけは
+            本文色（brand・地に対し高コントラスト）で置く。奥付そのものは薄い
+            まま、責任主体の名前だけを読み取りやすくする。 */}
+        <div className="mt-6 border-t border-hair pt-5 text-[0.8125rem] text-brand-lift">
+          <p>
+            © {year} vet402 (<span className="text-brand">KIZUNA Creation</span>)
+          </p>
         </div>
       </div>
     </footer>

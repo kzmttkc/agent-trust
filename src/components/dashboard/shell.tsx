@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { dashboardLogout } from "@/lib/dashboard/client";
 import { buttonClass } from "@/components/ui/Button";
+import { SiteFooter } from "@/components/site/SiteFooter";
 
 const nav = [
   { href: "/dashboard", label: "Overview" },
@@ -65,8 +66,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     router.push("/dashboard/login");
   }
 
+  // 2026-08-14 完全性の穴（本番精査）: /dashboard 系は自前シェルで SiteChrome を
+  // 迂回するため、他の全ページに出るフッタ（Legal Notice / Privacy / Terms /
+  // Contact）がここだけ欠けていた。特にログイン画面は法務/連絡先への導線が皆無
+  // だった。既存の SiteFooter を流用して全状態の末尾に置く（新規コピー無し）。
   if (isLogin) {
-    return <>{children}</>;
+    return (
+      <div className="flex min-h-screen flex-col">
+        <div className="flex-1">{children}</div>
+        <SiteFooter />
+      </div>
+    );
   }
 
   if (!ready) {
@@ -110,7 +120,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900">
+    <div className="flex min-h-screen flex-col bg-zinc-50 text-zinc-900">
       {/* Skip link — the dashboard has its own chrome (SiteChrome is bypassed
           here), so it needs its own. Eight sidebar links otherwise sit between
           the top of the tab order and the page content on every view. */}
@@ -141,7 +151,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[220px_1fr]">
+      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-6 px-6 py-6 lg:grid-cols-[220px_1fr]">
         <nav className="space-y-1">
           {nav.map((item) => {
             const active = pathname === item.href;
@@ -164,6 +174,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      <SiteFooter />
     </div>
   );
 }

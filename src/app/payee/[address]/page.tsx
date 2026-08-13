@@ -155,6 +155,43 @@ export default async function PayeePage({
             ? "low"
             : "unknown";
 
+  // 2026-08-14 UX（プロ/YC/ベテランエンジニアの所見）: 同じアドレスに公開スコアが
+  // 2つ出る（この payee エンジンと /leaderboard の agent/wallet エンジン）ため、
+  // 買い手が最初に問う「このウォレットに支払っていいか」がノイズに埋もれていた。
+  // 頁の頭にその一語の答え（Go / Caution / Stop）を最大字級で置き、数値の内訳と
+  // 二エンジンの差は下の枠・折りたたみへ降ろす。degraded は判定ではなく計測不能
+  // なので、名指しの告発になる BLOCK 語を出さず「保留(Hold)」に寄せる —— 下の
+  // 枠の "Not verifiable right now" と同じ方針。
+  const decision: { word: string; verdict: string | null; gloss: string } = !score
+    ? {
+        word: "Unavailable",
+        verdict: null,
+        gloss: "No score can be computed for this wallet right now.",
+      }
+    : score.degraded
+      ? {
+          word: "Hold",
+          verdict: null,
+          gloss:
+            "A check could not be completed, so callers receive a fail-closed hold. This is not a finding against the wallet.",
+        }
+      : score.recommendation === "ALLOW"
+        ? { word: "Go", verdict: "ALLOW", gloss: "Every check cleared. Clear to pay." }
+        : score.recommendation === "WARN"
+          ? {
+              word: "Caution",
+              verdict: "WARN",
+              gloss:
+                "Not cleared and not condemned. Decide deliberately rather than by default.",
+            }
+          : score.recommendation === "BLOCK"
+            ? { word: "Stop", verdict: "BLOCK", gloss: "Adverse signals. Do not pay this wallet." }
+            : {
+                word: "Review",
+                verdict: score.recommendation,
+                gloss: "Read the signals below before paying.",
+              };
+
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
@@ -217,6 +254,23 @@ export default async function PayeePage({
           {checksummed}
         </h1>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        {/* 2026-08-14 UX: 買い手の一語の答えを頁の頭・最大字級で。ALLOW/WARN/BLOCK
+            と Go/Caution/Stop を並べ、判定バッジ（同製品唯一の判定表示体）を添える。
+            数値・データの厚み・二エンジン差は下の枠へ降ろす。 */}
+        <section aria-labelledby="pay-decision" className="mt-8">
+          <p className="doc-caption">Should your agent pay this wallet?</p>
+          <p
+            id="pay-decision"
+            className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-[family-name:var(--font-display)] text-[2rem] font-semibold leading-none text-brand-deep"
+          >
+            <span>{decision.word}</span>
+            {decision.verdict ? (
+              <VerdictBadge verdict={decision.verdict} className="align-middle" />
+            ) : null}
+          </p>
+          <p className="doc-note mt-3 max-w-[60ch]">{decision.gloss}</p>
+        </section>
 
         {entry ? (
           <div className="mt-8 border-l-[3px] border-emerald-700 bg-emerald-50 px-5 py-4">
@@ -348,12 +402,27 @@ export default async function PayeePage({
           {scoredAtLabel ? (
             <p className="doc-note mt-4">
               Payee engine, computed on this request at{" "}
-              <span className="text-brand-deep">{scoredAtLabel}</span>. The register at{" "}
-              <Link href="/leaderboard" className="doc-link">
-                /leaderboard
-              </Link>{" "}
-              runs a different engine, so it can carry a different number for this address.
+              <span className="text-brand-deep">{scoredAtLabel}</span>.
             </p>
+          ) : null}
+          {/* 2026-08-14 UX: 同一アドレスに数字が2つ出る理由は、支払うか否かの判断に
+              要らない補足なので折りたたむ（プロ複数が「2スコアで混乱」と所見）。
+              頁の頭の一語の答えを主役にし、内訳の差はここで開けば読める。 */}
+          {scoredAtLabel ? (
+            <details className="doc-note mt-2">
+              <summary className="doc-link cursor-pointer">
+                Why /leaderboard may show a different number
+              </summary>
+              <p className="mt-2 max-w-[60ch]">
+                This page runs the payee engine (&ldquo;should my agent pay this wallet?&rdquo;). The
+                register at{" "}
+                <Link href="/leaderboard" className="doc-link">
+                  /leaderboard
+                </Link>{" "}
+                runs the agent/wallet engine, so it can carry a different number for the same
+                address. Neither is stale &mdash; they answer different questions.
+              </p>
+            </details>
           ) : null}
           <p className="doc-note mt-4">
             {/* 2026-08-06 a11y (WCAG 2.4.4): the link text used to be the bare

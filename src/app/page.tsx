@@ -269,6 +269,24 @@ export default async function Home() {
           </TrackedLink>
         </div>
 
+        {/* 2026-08-14 UX: x402 の平易な定義をヒーロー直下へ昇格。この分野の外から
+            来た読者（非開発者ペルソナ P2/P3/P6）は、定義が §1 の中ほど＝fold の
+            下にあると最初の一画面で降りていた。定義そのものは /faq Q1 の承認済み
+            文（faq-data.ts が正典）で、新しいコピーは足していない —— §1 にあった
+            同じ枠を、二本の入口の直下へ動かしただけ。fold の CTA 行より後ろに
+            置いているので、承認済みの第1面（表題／タグライン／マーク／Abstract／
+            二本の入口）の並びと寸法はそのまま。 */}
+        <div className="dashbox mt-8 max-w-[64ch]">
+          <p className="doc-caption">{X402_DEFINITION.question}</p>
+          <p className="mt-3 text-brand">{X402_DEFINITION.answer}</p>
+          <p className="doc-note mt-3">
+            <Link href="/faq" className="doc-link">
+              ERC-8004, what the score is, and what it is not
+            </Link>{" "}
+            &mdash; the rest of the questions.
+          </p>
+        </div>
+
         {/* ================= Table of contents ================= */}
         <nav aria-label="Table of contents" className="mt-14">
           <p className="doc-caption">Contents</p>
@@ -290,23 +308,10 @@ export default async function Home() {
           <span>The problem this memo addresses</span>
         </h2>
 
-        {/* 2026-08-13 UX監査R1 [C1][C2]: このページは "x402" を12回使って一度も
-            定義していなかった（実測: 定義 0回）。この分野の外から来た読者は
-            §1.1 の最初の行で降りる。定義は /faq の Q1 に承認済みの文章として
-            既に在ったので、新しいコピーを書かず、そこから引用して FAQ へ
-            繋ぐ（本文から /faq へのリンクは、これ以前は1本も無かった —
-            ヘッダのナビだけだった）。 */}
-        <div className="dashbox mt-6 max-w-[64ch]">
-          <p className="doc-caption">{X402_DEFINITION.question}</p>
-          <p className="mt-3 text-brand">{X402_DEFINITION.answer}</p>
-          <p className="doc-note mt-3">
-            <Link href="/faq" className="doc-link">
-              ERC-8004, what the score is, and what it is not
-            </Link>{" "}
-            &mdash; the rest of the questions.
-          </p>
-        </div>
-
+        {/* 2026-08-13 UX監査R1 [C1][C2]: "x402" を定義しないまま12回使っていた穴は、
+            定義枠をヒーロー直下（第1面の二本の入口の直後）へ昇格して塞いだ
+            ——枠の本体はこの上、fold 付近に置いてある。§1 はそのまま本題（1.1〜）へ
+            入る。 */}
         <div className="mt-6 space-y-5">
           <div className="flex gap-4">
             <span className="w-[4ch] shrink-0 text-brand-lift">1.1</span>

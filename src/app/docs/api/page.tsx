@@ -370,7 +370,7 @@ export default function ApiDocsPage() {
           </p>
           <CodeBlock
             label="curl: preview the canonical payee-verify message"
-            code={`curl "${SITE_URL}/api/v1/payees/verify?wallet=0x4200000000000000000000000000000000000006&name=Acme%20API"`}
+            code={`curl "${SITE_URL}/api/v1/payees/verify?wallet=0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045&name=Acme%20API"`}
           />
           <p className="mt-1 text-sm text-brand-lift">
             Returns{" "}
@@ -387,7 +387,7 @@ export default function ApiDocsPage() {
           <CodeBlock
             label="curl: score a payee wallet"
             code={`curl -H "Authorization: Bearer vouch_live_…" \\
-  "${SITE_URL}/api/v1/payees/0x4200000000000000000000000000000000000006/score"`}
+  "${SITE_URL}/api/v1/payees/0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045/score"`}
           />
           <p className="mt-1 text-sm text-brand-lift">
             The buyer-side question.{" "}
@@ -395,6 +395,29 @@ export default function ApiDocsPage() {
               Get a key
             </Link>{" "}
             &mdash; the free tier is 1,000 lookups a month.
+          </p>
+        </div>
+
+        {/* 2026-08-14 UX（ハッカソン/YC ペルソナ）: 鍵無しで叩ける
+            GET /api/demo/score を「任意アドレスを採点するデモ」と読み、「何を
+            入れても同じ数字が返る」と報告された。この口は仕様として固定エージェント
+            （DEMO_AGENT_ID）を1体だけライブ採点する——リクエストの中身は採点対象を
+            選ばない（openapi.yaml にも明記）。その事実と、任意アドレスの照会先を
+            1文で示して誤解を消す。 */}
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
+            Note &mdash; the key-less demo scorer
+          </p>
+          <p className="text-sm text-brand-lift">
+            <code className="text-brand-deep">GET /api/demo/score</code> scores one fixed demo
+            agent chosen server-side, so anyone can watch a real verdict get computed without a
+            key. Nothing in the request selects what it scores &mdash; it is a demo, not a free
+            lookup, so it returns the same agent whatever you pass it. To score an address{" "}
+            <em>you</em> choose, open{" "}
+            <Link href="/payee" className="doc-link">
+              /payee
+            </Link>{" "}
+            or call the payee-score endpoint above (example 3).
           </p>
         </div>
       </section>
