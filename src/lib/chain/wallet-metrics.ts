@@ -4,6 +4,8 @@ import { LruCache } from "@/lib/util/lru-cache";
 import { getPublicClient } from "./client";
 import { WALLET_METRICS_CACHE_TTL_MS } from "./config";
 import { fetchAddressTransactionCount, fetchWalletHistoryHead } from "./blockscout";
+import { alchemyBudgetMs, fetchAlchemyHistoryHead, isAlchemyEnabled } from "./alchemy";
+import { logServerError } from "@/lib/util/log";
 
 export type WalletMetrics = {
   address: Address;
@@ -129,35 +131,10 @@ async function fetchWalletMetricsUncoalesced(
   chainId?: number,
 ): Promise<WalletMetrics> {
   try {
-    // Ask the cheap, separately-rate-limited v2 counter first: an address with
-    // no history on this chain needs no walk at all, and 25 of the benchmark's
-    // 42 addresses are exactly that. Only a definite zero short-circuits — a
-    // null (v2 unreachable) falls through to the walk, which still fails closed.
-    //
-    // 2026-08-13: "falls through to the walk" is what this always claimed and
-    // what it did NOT do. fetchAddressTransactionCount swallows its own errors
-    // into a null, but the withTimeout wrapped around it here did not — a
-    // counter that was merely SLOW rejected inside the try below and became
-    // wallet_metrics_unavailable, i.e. a fail-closed BLOCK produced by an
-    // optional optimisation. Measured the same day: 70,972ms on a cold counter
-    // for 0xd8dA…6045 against an 8,000ms wrapper. A budget this read cannot
-    // meet must return null, exactly like a 500 from it does.
-    const totalTxCount = await fetchAddressTransactionCount(
-      address,
-      chainId,
-      counterBudgetMs(),
-    ).catch(() => null);
-
-    // ONE walk, not two. These used to be concurrent calls over the same
-    // endpoint for the same wallet — which spent two thirds of Blockscout's
-    // burst budget on every single score. See fetchWalletHistoryHead.
-    const head =
-      totalTxCount === 0
-        ? { firstTx: null, incoming: null, nonSelfTxCount: 0 }
-        : await withTimeout(fetchWalletHistoryHead(address, chainId));
+    const head = await readHistoryHead(address, chainId);
     const txCount = await resolveTransactionCount(head.nonSelfTxCount, address, chainId);
 
-    const firstTxTimestamp = head.firstTx ? Number(head.firstTx.timeStamp) : null;
+    const firstTxTimestamp = head.firstTxTimestamp;
     const ageDays =
       firstTxTimestamp !== null
         ? Math.max(0, Math.floor((Date.now() - firstTxTimestamp * 1000) / (24 * 60 * 60 * 1000)))
@@ -194,6 +171,95 @@ async function fetchWalletMetricsUncoalesced(
     console.error(`[vouch] wallet_metrics_unavailable ${address}: ${detail.slice(0, 300)}`);
     throw new Error("wallet_metrics_unavailable", { cause: error });
   }
+}
+
+/**
+ * The wallet's history head, from whichever provider can answer.
+ *
+ * ALCHEMY FIRST (2026-08-13). The Blockscout walk below is the read that
+ * could not complete for busy wallets — v1 answers three back-to-back requests
+ * and then penalty-boxes the client, and the hosted gateway times the query
+ * out server-side. Alchemy answered the same question for 0xd8dA…6045 in
+ * 1.3-2.2s on 3 of 3 attempts. Its history head is THREE parallel reads
+ * (see fetchAlchemyHistoryHead) rather than a paged walk, so it neither
+ * touches the v1 burst budget nor scales with how much history the wallet has.
+ *
+ * FALL THROUGH ON EMPTY, NOT JUST ON FAILURE. Alchemy indexes transfers of
+ * value; Blockscout's `txlist` counts transactions, 0-value contract calls
+ * included. A wallet whose entire life is 0-value contract interaction is
+ * therefore invisible to the first provider and would read as brand-new —
+ * ageDays 0, which is the `new_burner_wallet` shape. Conservative, but wrong
+ * about a checkable fact, so an empty Alchemy answer is treated as "no answer"
+ * and the Blockscout path runs. A wallet that genuinely has no history costs
+ * exactly what it cost before: one /counters read that returns 0.
+ *
+ * A FAILURE HERE STILL THROWS. Both providers refusing is not "a wallet with
+ * no history" — it propagates, the caller flags wallet_metrics_unavailable,
+ * and the verdict fails closed.
+ */
+type HistoryHead = {
+  firstTxTimestamp: number | null;
+  incoming: { funder: Address; blockNumber: bigint; timestamp: number } | null;
+  nonSelfTxCount: number;
+};
+
+async function readHistoryHead(address: Address, chainId?: number): Promise<HistoryHead> {
+  if (isAlchemyEnabled(chainId)) {
+    try {
+      const head = await fetchAlchemyHistoryHead(address, {
+        chainId,
+        budgetMs: alchemyBudgetMs(),
+      });
+      if (!head.empty) {
+        return {
+          firstTxTimestamp: head.firstTxTimestamp,
+          incoming: head.incoming,
+          nonSelfTxCount: head.nonSelfTxCount,
+        };
+      }
+    } catch (error) {
+      logServerError("wallet_metrics_alchemy", error);
+    }
+  }
+  return readBlockscoutHistoryHead(address, chainId);
+}
+
+async function readBlockscoutHistoryHead(
+  address: Address,
+  chainId?: number,
+): Promise<HistoryHead> {
+  // Ask the cheap, separately-rate-limited v2 counter first: an address with
+  // no history on this chain needs no walk at all, and 25 of the benchmark's
+  // 42 addresses are exactly that. Only a definite zero short-circuits — a
+  // null (v2 unreachable) falls through to the walk, which still fails closed.
+  //
+  // 2026-08-13: "falls through to the walk" is what this always claimed and
+  // what it did NOT do. fetchAddressTransactionCount swallows its own errors
+  // into a null, but the withTimeout wrapped around it here did not — a
+  // counter that was merely SLOW rejected inside the caller's try and became
+  // wallet_metrics_unavailable, i.e. a fail-closed BLOCK produced by an
+  // optional optimisation. Measured the same day: 70,972ms on a cold counter
+  // for 0xd8dA…6045 against an 8,000ms wrapper. A budget this read cannot
+  // meet must return null, exactly like a 500 from it does.
+  const totalTxCount = await fetchAddressTransactionCount(
+    address,
+    chainId,
+    counterBudgetMs(),
+  ).catch(() => null);
+
+  // ONE walk, not two. These used to be concurrent calls over the same
+  // endpoint for the same wallet — which spent two thirds of Blockscout's
+  // burst budget on every single score. See fetchWalletHistoryHead.
+  const head =
+    totalTxCount === 0
+      ? { firstTx: null, incoming: null, nonSelfTxCount: 0 }
+      : await withTimeout(fetchWalletHistoryHead(address, chainId));
+
+  return {
+    firstTxTimestamp: head.firstTx ? Number(head.firstTx.timeStamp) : null,
+    incoming: head.incoming,
+    nonSelfTxCount: head.nonSelfTxCount,
+  };
 }
 
 /**

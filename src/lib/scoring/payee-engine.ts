@@ -1,6 +1,6 @@
 import { erc20Abi, type Address } from "viem";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
-import { fetchTokenTransferWindow, fetchWalletTransferWindow } from "@/lib/chain/blockscout";
+import { fetchErc20TransferWindow, fetchNativeTransferWindow } from "@/lib/chain/transfer-window";
 import { getPublicClient, isValidAddress } from "@/lib/chain/client";
 import { BASE_USDC_ADDRESS, SCORE_THRESHOLDS } from "@/lib/chain/config";
 import { fetchWalletMetrics } from "@/lib/chain/wallet-metrics";
@@ -332,7 +332,7 @@ async function assessNativeLeg(
 ): Promise<AssetDrainAssessment> {
   const legBudget = envBudget("PAYEE_LEG_BUDGET_MS", LEG_BUDGET_MS);
   const [window, balance] = await Promise.all([
-    withTimeout(fetchWalletTransferWindow(address, windowOptions()), legBudget),
+    withTimeout(fetchNativeTransferWindow(address, windowOptions()), legBudget),
     withTimeout(fetchNativeBalance(address)),
   ]);
   return assessAssetDrain(window.transfers, balance, addressLower, DRAIN_MIN_VALUE_WEI);
@@ -344,7 +344,7 @@ async function assessUsdcLeg(
 ): Promise<AssetDrainAssessment> {
   const legBudget = envBudget("PAYEE_LEG_BUDGET_MS", LEG_BUDGET_MS);
   const [window, balance] = await Promise.all([
-    withTimeout(fetchTokenTransferWindow(address, BASE_USDC_ADDRESS, windowOptions()), legBudget),
+    withTimeout(fetchErc20TransferWindow(address, BASE_USDC_ADDRESS, windowOptions()), legBudget),
     withTimeout(fetchErc20Balance(address, BASE_USDC_ADDRESS)),
   ]);
   return assessAssetDrain(window.transfers, balance, addressLower, DRAIN_MIN_VALUE_USDC);
@@ -368,8 +368,16 @@ async function detectDrainPattern(address: Address): Promise<DrainSignal> {
   // seconds, renewing the lockout on every request made while limited (see the
   // header of lib/chain/blockscout.ts) — so this check could not succeed even
   // on its own, and it starved fetchWalletMetrics' v1 walk of the same budget.
-  // History now comes from v2 (separate, permissive limiter) and the balances
-  // from the RPC. Zero v1 requests here.
+  // History now comes from Alchemy first and Blockscout v2/v1 only as the
+  // fallback (lib/chain/transfer-window.ts), and the balances from the RPC.
+  // Zero v1 requests here on the healthy path.
+  //
+  // THE LEGS STAY INDEPENDENT even though Alchemy could serve both assets in a
+  // single request. On 2026-08-13 Blockscout answered the USDC leg while the
+  // native leg returned HTTP 500 on 10 of 10 requests, and keeping the leg
+  // that DID answer is what turned a "we know nothing" refusal back into a
+  // real, disclosed, capped verdict. One shared request would make every
+  // provider hiccup a double failure again.
   const settled = await Promise.allSettled([
     assessNativeLeg(address, addressLower),
     assessUsdcLeg(address, addressLower),
