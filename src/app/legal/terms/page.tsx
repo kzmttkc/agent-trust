@@ -51,7 +51,7 @@ export default function TermsPage() {
             <span>Instrument: terms of service</span>
             <span>
               {/* この頁のシアン1点。改訂日という事実。 */}
-              Revision: <span className="text-signal">August 13, 2026</span>
+              Revision: <span className="text-signal">August 14, 2026</span>
             </span>
           </div>
           <div className="doc-head-col">
@@ -62,7 +62,7 @@ export default function TermsPage() {
         </div>
         <h1 className="doc-title mt-10">Terms of Service</h1>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
-        <p className="doc-note text-center">Last updated: August 13, 2026</p>
+        <p className="doc-note text-center">Last updated: August 14, 2026</p>
 
         <section className="space-y-2">
           <h2 className="sec-head">
@@ -167,6 +167,15 @@ export default function TermsPage() {
             Addresses are pseudonymous: the same address may be controlled by different parties over
             time, one party may control many addresses, and we generally do not know who is behind
             any of them.
+          </p>
+          <p>
+            Our methodology uses public lists — including the US Treasury OFAC list of sanctioned
+            digital-currency addresses — as one benchmark of known-bad addresses to measure our
+            scoring against. Using that list as a benchmark is not us making a sanctions
+            determination: we do not decide who is on it, we do not screen for sanctions compliance,
+            and a low score or a BLOCK is not a statement that an address is sanctioned or that
+            transacting with it is unlawful. If you have a sanctions- or AML-compliance obligation,
+            meet it with a service built and licensed for that purpose; vet402 is not one.
           </p>
           <p>
             ALLOW, WARN, and BLOCK are <strong>recommendations to the customer who asked</strong>,

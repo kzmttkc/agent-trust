@@ -20,7 +20,7 @@ export default function PrivacyPage() {
             <span>Instrument: privacy policy</span>
             <span>
               {/* この頁のシアン1点。改訂日という事実。 */}
-              Revision: <span className="text-signal">August 13, 2026</span>
+              Revision: <span className="text-signal">August 14, 2026</span>
             </span>
           </div>
           <div className="doc-head-col">
@@ -31,7 +31,7 @@ export default function PrivacyPage() {
         </div>
         <h1 className="doc-title mt-10">Privacy Policy</h1>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
-        <p className="doc-note text-center">Last updated: August 13, 2026</p>
+        <p className="doc-note text-center">Last updated: August 14, 2026</p>
 
         <section className="space-y-2">
           <h2 className="sec-head">Contact / operator information</h2>
@@ -55,6 +55,22 @@ export default function PrivacyPage() {
             <li>API usage logs (agent IDs, wallet addresses queried, scores returned)</li>
             <li>Customer whitelist/blacklist entries you configure</li>
             <li>Billing metadata via Stripe (we do not store card numbers)</li>
+            <li>
+              Request metadata for security and rate-limiting — including the IP address a request
+              is made from — kept only as long as needed to run those controls
+            </li>
+            <li>
+              The public blockchain addresses and ERC-8004 agent identifiers we score, together
+              with the on-chain activity we read about them and the scores we derive (see{" "}
+              <a className="doc-link" href="#scored-third-parties">
+                people we score who are not our customers
+              </a>{" "}
+              below)
+            </li>
+            <li>
+              If you ask us to correct a score, whatever you send us to make that case — which may
+              include an email address and a wallet signature you provide voluntarily
+            </li>
           </ul>
         </section>
 
@@ -66,6 +82,46 @@ export default function PrivacyPage() {
           </p>
         </section>
 
+        {/* 2026-08-14 (legal compliance audit): the policy listed data-subject
+            rights but never stated a lawful basis for any processing, which is
+            a required disclosure under GDPR Art. 6 / UK GDPR and the first gap
+            a reviewer flags. The bases below describe how the operator intends
+            to rely on the law; the legitimate-interest basis for scoring third
+            parties in particular is a position, not a settled ruling, and is
+            called out for legal review in the audit report rather than asserted
+            here as certain. */}
+        <section className="space-y-2">
+          <h2 className="sec-head">Legal basis (GDPR / UK GDPR)</h2>
+          <p>
+            Where the EU or UK GDPR applies, we rely on the following lawful bases. If you are in a
+            jurisdiction with a different framework (for example Japan&apos;s APPI or a US state law),
+            equivalent bases apply under that law.
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              <strong>Performance of a contract</strong> (Art. 6(1)(b)) — creating and running your
+              account, authenticating API keys, metering usage, and answering support.
+            </li>
+            <li>
+              <strong>Legitimate interests</strong> (Art. 6(1)(f)) — scoring public blockchain
+              addresses and agent identifiers so that operators can assess payment risk, together
+              with securing the service and preventing abuse. The interest is providing an
+              independent fraud-risk signal for on-chain payments; the data is already public
+              on-chain; and anyone scored has a free route to object and to have factual errors
+              corrected (see below). You can ask us for our balancing assessment.
+            </li>
+            <li>
+              <strong>Legal obligation</strong> (Art. 6(1)(c)) — keeping billing and tax records for
+              the period the law requires.
+            </li>
+            <li>
+              <strong>Consent</strong> (Art. 6(1)(a)) — we do not currently rely on consent for any
+              processing (our analytics is cookieless and needs none). If that ever changes we will
+              ask for it separately and you will be able to withdraw it.
+            </li>
+          </ul>
+        </section>
+
         <section className="space-y-2">
           <h2 className="sec-head">Retention</h2>
           <p>
@@ -74,22 +130,71 @@ export default function PrivacyPage() {
           </p>
         </section>
 
+        {/* 2026-08-14 (legal compliance audit): the previous version named the
+            categories ("hosting, database, RPC, Stripe") but not the actual
+            subprocessors, which is the first thing a GDPR/procurement reviewer
+            asks for. The list below is measured from the codebase (package.json
+            dependencies and the env vars each integration reads), not assumed —
+            in particular there is no email-delivery subprocessor because the
+            service sends no email; support runs from a human inbox. */}
         <section className="space-y-2">
-          <h2 className="sec-head">Third parties</h2>
+          <h2 className="sec-head">Subprocessors and third parties</h2>
           <p>
-            We use infrastructure providers (hosting, database, RPC, Stripe) to operate the service.
-            Data is processed according to their respective policies.
+            We use the providers below to run the service. Each processes only the data its function
+            needs, under its own data-processing terms. We do not sell personal data, and we do not
+            share it with anyone for their own marketing.
           </p>
-          {/* 2026-08-06 audit: the site loads Plausible and the CSP explicitly
-              allows connect-src to plausible.io, i.e. we were sending analytics
-              events while this list did not mention analytics at all. Disclosed
-              now. Plausible is cookieless and does not collect personal data,
-              but the omission was still a gap between what we do and what we
-              say. */}
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              <strong>Vercel</strong> (US) — application hosting and edge delivery; sees request
+              metadata including IP addresses.
+            </li>
+            <li>
+              <strong>Neon</strong> (US) — the PostgreSQL database that stores accounts, API keys,
+              usage logs, and scores.
+            </li>
+            <li>
+              <strong>Stripe</strong> (US) — billing and payment processing for paid plans; holds
+              card data directly, which we never see or store.
+            </li>
+            <li>
+              <strong>Alchemy</strong> (US) — Base blockchain RPC and indexing; receives the public
+              wallet addresses we read on-chain data for.
+            </li>
+            <li>
+              <strong>Blockscout</strong> — block-explorer API used to read public on-chain data;
+              receives the public wallet addresses we query.
+            </li>
+            <li>
+              <strong>Plausible Analytics</strong> (EU) — aggregate traffic statistics. Plausible is
+              cookieless, sets no persistent identifier, and does not collect personal data or track
+              visitors across sites.
+            </li>
+          </ul>
           <p>
-            We use Plausible Analytics for aggregate traffic statistics. Plausible is
-            cookieless, sets no persistent identifier, and does not collect personal data or track
-            visitors across sites.
+            This list can change as the service evolves; the current list lives on this page, and we
+            will update it here before a new subprocessor starts handling personal data. If you need
+            it confirmed in writing for a procurement review, ask us by email.
+          </p>
+        </section>
+
+        {/* 2026-08-14 (legal compliance audit): cookies were undisclosed. The
+            only cookie the site sets is the dashboard login session — verified
+            in src/lib/dashboard/session.ts: httpOnly, secure, sameSite=strict.
+            It is strictly necessary for authentication, so under the ePrivacy
+            Directive it needs no consent banner; analytics is cookieless. This
+            section states that plainly rather than leaving it implied. */}
+        <section className="space-y-2">
+          <h2 className="sec-head">Cookies</h2>
+          <p>
+            We use one cookie, and only after you log in to the dashboard: a strictly-necessary
+            session cookie that keeps you signed in. It is set{" "}
+            <code className="text-brand-deep">httpOnly</code>,{" "}
+            <code className="text-brand-deep">secure</code>, and{" "}
+            <code className="text-brand-deep">sameSite=strict</code>, and it is used for nothing but
+            authentication. Because it is strictly necessary, it needs no consent. We set no
+            advertising or cross-site tracking cookies, and our analytics (Plausible) is cookieless,
+            so there is no consent banner to click through.
           </p>
         </section>
 
@@ -113,6 +218,64 @@ export default function PrivacyPage() {
             contractual clauses where they apply, for those transfers. If you need the specific
             hosting region confirmed in writing before approving vet402 internally, ask us by email
             and we will tell you.
+          </p>
+        </section>
+
+        {/* 2026-08-14 (legal compliance audit): the highest-risk area for this
+            product. We score third parties who never signed up, publish the
+            result, and keep corrections append-only ("none withdrawn" on
+            /corrections). That collides head-on with the erasure right (GDPR
+            Art. 17) and the objection right (Art. 21), and negative verdicts
+            carry defamation exposure. This section discloses the tension
+            honestly and gives the data subject a real route, WITHOUT asserting
+            that our legitimate-interest / freedom-of-expression position wins —
+            that determination is flagged for a qualified lawyer in the audit
+            report and must not be presented here as settled. */}
+        <section id="scored-third-parties" className="scroll-mt-24 space-y-2">
+          <h2 className="sec-head">People we score who are not our customers</h2>
+          <p>
+            vet402 scores blockchain addresses and agent identifiers that belong to third parties —
+            people and businesses who never opened an account with us. If one of those addresses can
+            be traced to you, the data-protection law where you live may treat our score as personal
+            data about you, and you have rights over it even though you are not our customer.
+          </p>
+          <p>
+            The data involved is the public on-chain address, the public transaction activity we
+            read about it, and the score we derive from that activity. We do not attach names,
+            contact details, or off-chain identity to an address unless the person behind it gives
+            them to us — for example by using the correction route.
+          </p>
+          <p>
+            <strong>Your rights, and one honest tension.</strong> You can ask us to correct a score
+            built on a factual error, and you can object to our scoring your address. The free route
+            for both — no account, no fee — is{" "}
+            <a className="doc-link" href="/legal/terms#corrections">
+              section 8 of the Terms
+            </a>
+            , and every factual correction we make is published on our{" "}
+            <a className="doc-link" href="/corrections">
+              corrections log
+            </a>
+            . You also have the erasure right under Art. 17. Here is the tension we would rather name
+            than hide: our corrections log is append-only — once a correction is published it stays
+            published — because a record of our own mistakes that we can quietly delete is not a
+            record. Our position is that keeping a <em>correction</em> on the log, and continuing to
+            publish scores derived from already-public on-chain data, rests on our legitimate
+            interest in an accountable fraud-risk signal and on the public interest in that record,
+            which can outweigh an erasure request; but that balance depends on your situation and on
+            the law that applies to you, it is not automatic, and we will not pretend a request is
+            refused when the law says it is granted. Tell us your circumstances and we will weigh
+            them, tell you our decision and our reason, and point you to your data-protection
+            authority if you disagree.
+          </p>
+          <p>
+            <strong>A score is an opinion, not an accusation of fact.</strong> A low score or a
+            BLOCK is our read of a public record on a given day, not a statement that any person is a
+            criminal or a fraudster; the distinction, and why we draw it, is set out in{" "}
+            <a className="doc-link" href="/legal/terms">
+              sections 6 and 7 of the Terms
+            </a>
+            .
           </p>
         </section>
 
