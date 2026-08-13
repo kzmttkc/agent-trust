@@ -4,12 +4,12 @@ export default function PrivacyPage() {
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8 text-sm leading-relaxed text-zinc-700">
       <h1 className="text-3xl font-semibold text-zinc-900">Privacy Policy</h1>
-      <p>Last updated: August 6, 2026</p>
+      <p>Last updated: August 13, 2026</p>
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">Contact / operator information</h2>
         <p>
-          Vouch is operated by an individual proprietor. See our{" "}
+          vet402 is operated by an individual proprietor. See our{" "}
           <a className="underline" href="/legal/notice">
             Legal Notice
           </a>{" "}
@@ -78,13 +78,13 @@ export default function PrivacyPage() {
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">Where your data is stored</h2>
         <p>
-          Vouch is hosted on Vercel, with its database on Neon — both are US-headquartered
+          vet402 is hosted on Vercel, with its database on Neon — both are US-headquartered
           providers — and the operator administers the service from Japan. Your data is therefore
           stored and accessed outside your own country in most cases, and personal data
           originating in the EEA or UK may be transferred to and processed in third countries. We
           rely on our providers&apos; standard data-processing terms, including standard
           contractual clauses where they apply, for those transfers. If you need the specific
-          hosting region confirmed in writing before approving Vouch internally, ask us by email
+          hosting region confirmed in writing before approving vet402 internally, ask us by email
           and we will tell you.
         </p>
       </section>
@@ -116,7 +116,7 @@ export default function PrivacyPage() {
           Two things we cannot do, and would rather say plainly than leave you to discover.
           First, we cannot erase the blockchain: wallet addresses and their transaction history
           are public records on Base that we read, not records we created or control, so deleting
-          your Vouch account does not remove anything from the chain. Second, if you believe a
+          your vet402 account does not remove anything from the chain. Second, if you believe a
           trust <em>score</em> about an address is wrong — which is a different problem from a
           privacy request — the route for that is in{" "}
           <a className="underline" href="/legal/terms">

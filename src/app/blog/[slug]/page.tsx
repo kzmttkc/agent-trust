@@ -20,7 +20,7 @@ export async function generateMetadata({
   if (!post) return {};
 
   return {
-    title: `${post.title} — Vouch`,
+    title: `${post.title} — vet402`,
     description: post.description,
     alternates: { canonical: `${SITE_URL}/blog/${post.slug}` },
     openGraph: {
@@ -52,7 +52,7 @@ export default async function BlogPostPage({
     datePublished: post.publishedAt,
     dateModified: post.updatedAt,
     mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}/blog/${post.slug}` },
-    publisher: { "@type": "Organization", name: "Vouch", url: SITE_URL },
+    publisher: { "@type": "Organization", name: "vet402", url: SITE_URL },
     url: `${SITE_URL}/blog/${post.slug}`,
   };
 
@@ -69,7 +69,7 @@ export default async function BlogPostPage({
       />
 
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
+        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">vet402</p>
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">{post.title}</h1>
         <p className="text-sm text-zinc-500">
           Published {post.publishedAt}

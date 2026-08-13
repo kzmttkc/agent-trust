@@ -4,7 +4,8 @@ import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
  * Terms of Service.
  *
  * 2026-08-06 (L4 legal review). Sections 0-5 were the whole document and left
- * three gaps that mattered more for Vouch than for a normal B2B API:
+ * three gaps that mattered more for vet402 (then named Vouch) than for a
+ * normal B2B API:
  *
  *  1. No governing law, no venue, no dispute process at all.
  *  2. Liability was one sentence ("not liable for losses arising from
@@ -33,12 +34,12 @@ export default function TermsPage() {
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8 text-sm leading-relaxed text-zinc-700">
       <h1 className="text-3xl font-semibold text-zinc-900">Terms of Service</h1>
-      <p>Last updated: August 6, 2026</p>
+      <p>Last updated: August 13, 2026</p>
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">0. Business use only</h2>
         <p>
-          Vouch is offered for business-to-business (B2B) use by agent and service operators
+          vet402 (formerly Vouch) is offered for business-to-business (B2B) use by agent and service operators
           integrating trust scores into their own products. It is not marketed or sold to
           consumers for personal use. See our{" "}
           <a className="underline" href="/legal/notice">
@@ -51,7 +52,7 @@ export default function TermsPage() {
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">1. Service</h2>
         <p>
-          Vouch provides agent trust scores and recommendations for informational purposes only.
+          vet402 provides agent trust scores and recommendations for informational purposes only.
           Scores do not constitute a guarantee, credit assessment, investment advice, or legal
           certification.
         </p>
@@ -61,7 +62,7 @@ export default function TermsPage() {
         <h2 className="text-lg font-semibold text-zinc-900">2. Your responsibility</h2>
         <p>
           You are solely responsible for decisions to allow, warn, or block agents or wallets
-          based on Vouch output. Final access control remains with you.
+          based on vet402 output. Final access control remains with you.
         </p>
       </section>
 
@@ -105,7 +106,7 @@ export default function TermsPage() {
           6. What a score is — and what it is not
         </h2>
         <p>
-          A Vouch score is our <strong>opinion</strong>, expressed as a number and a
+          A vet402 score is our <strong>opinion</strong>, expressed as a number and a
           recommendation, about the risk profile of a blockchain address or an ERC-8004 agent
           identifier, based on data that is already public on-chain. It is not a statement of fact
           about any person or business, and it is not an accusation. A low score does not say
@@ -122,7 +123,7 @@ export default function TermsPage() {
         </p>
         <p>
           ALLOW, WARN, and BLOCK are <strong>recommendations to the customer who asked</strong>,
-          not instructions and not decisions. Vouch never accepts, refuses, delays, or reverses
+          not instructions and not decisions. vet402 never accepts, refuses, delays, or reverses
           anyone&apos;s payment — we have no custody, no signing authority, and no place in the
           transaction. If a payment of yours was refused, or accepted and then went wrong, the
           decision was made by the business you were transacting with, applying its own policy.
@@ -148,8 +149,8 @@ export default function TermsPage() {
         <p>
           These terms are an agreement between us and the customer who holds the API key. Nobody
           else acquires rights under them. In particular, a person or business that is
-          <em> scored</em> by Vouch, or that is on the other side of a transaction where our
-          customer used Vouch, is not a party to this agreement and is not an intended third-party
+          <em> scored</em> by vet402, or that is on the other side of a transaction where our
+          customer used vet402, is not a party to this agreement and is not an intended third-party
           beneficiary of it. Our customers cannot promise, on our behalf, that a score is accurate,
           current, or fit for anything.
         </p>
@@ -223,18 +224,18 @@ export default function TermsPage() {
           funds sent to a wallet that scored well and misbehaved anyway.
         </p>
         <p>
-          Our total liability for all claims relating to Vouch, taken together, will not exceed
+          Our total liability for all claims relating to vet402, taken together, will not exceed
           the greater of (a) the amount you paid us for the service in the twelve months before
           the claim and (b) US$100 (or its equivalent in Japanese yen). On the Free plan (a) is
           zero, so the US$100 floor is what applies. On Pro that ceiling is at most US$588, and on
           Scale at most US$2,388.
         </p>
         <p>
-          We would rather state that plainly than bury it. Vouch is run by one person and priced
+          We would rather state that plainly than bury it. vet402 is run by one person and priced
           between US$0 and US$199 a month; it cannot carry exposure larger than the revenue an
           account actually produced, and pretending otherwise would be a promise we could not
           keep. Size your reliance accordingly: if a single wrong verdict would cost you more than
-          the cap, Vouch should be one input into your decision and not the decision. If you need
+          the cap, vet402 should be one input into your decision and not the decision. If you need
           cover beyond this, talk to us <em>before</em> you build it into a payment path — the
           answer may be no, but you will have it in writing and in advance.
         </p>
@@ -242,7 +243,7 @@ export default function TermsPage() {
           Nothing in these terms limits or excludes liability that cannot be limited or excluded
           under the law that applies to you — including liability for fraud or fraudulent
           misrepresentation, for our own intentional misconduct or gross negligence, or for death
-          or personal injury. Vouch is offered for business use only (section 0), so this section
+          or personal injury. vet402 is offered for business use only (section 0), so this section
           is written for a business counterparty rather than a consumer; if mandatory
           consumer-protection rules nonetheless apply to you, they apply whether or not this
           document says so, and this section takes effect only as far as those rules allow.
@@ -252,7 +253,7 @@ export default function TermsPage() {
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">10. Your responsibility to us</h2>
         <p>
-          If a third party brings a claim against us because of how you used Vouch — because you
+          If a third party brings a claim against us because of how you used vet402 — because you
           used it unlawfully or in breach of these terms, because you presented a score as
           something it is not (a certification, a fraud determination, a KYC or sanctions result,
           a statement of fact about a person), because you republished or resold score output in a
@@ -270,7 +271,7 @@ export default function TermsPage() {
           11. Governing law, venue, and language
         </h2>
         <p>
-          These terms, and any dispute arising out of them or out of your use of Vouch — including
+          These terms, and any dispute arising out of them or out of your use of vet402 — including
           non-contractual disputes — are governed by the laws of Japan, without regard to
           conflict-of-law rules. That is because the operator is an individual proprietor
           established in Japan; the product being about on-chain payments between parties anywhere
@@ -279,11 +280,11 @@ export default function TermsPage() {
         <p>
           For any dispute that reaches a court, the Japanese district court with jurisdiction over
           the operator&apos;s principal place of business will be the exclusive court of first
-          instance. Vouch is a B2B service (section 0), so this is written as a
+          instance. vet402 is a B2B service (section 0), so this is written as a
           business-to-business venue clause and there is no consumer carve-out; if you are
-          somehow using Vouch in a capacity where mandatory local rules give you a forum in your
+          somehow using vet402 in a capacity where mandatory local rules give you a forum in your
           own country, those rules apply on their own terms regardless of this clause. If you need
-          to know the specific court by name before you can approve Vouch internally, ask us by
+          to know the specific court by name before you can approve vet402 internally, ask us by
           email and we will tell you in writing.
         </p>
         <p>
@@ -298,15 +299,16 @@ export default function TermsPage() {
         <h2 className="text-lg font-semibold text-zinc-900">12. Changes, and the rest</h2>
         <p>
           We may update these terms as the product changes. Material changes will be reflected on
-          this page with an updated date before they take effect; continuing to use Vouch after
+          this page with an updated date before they take effect; continuing to use vet402 after
           that means the updated terms apply. If any part of these terms turns out to be
           unenforceable, the rest stays in force and that part is read as narrowly as needed to
           make it valid. If we do not enforce something immediately, we have not given it up.
-          Sections 5 through 11 survive after you stop using the service. Together with the{" "}
+          Sections 5 through 11, and sections 13 through 15, survive after you stop using the
+          service. Together with the{" "}
           <a className="underline" href="/legal/privacy">
             Privacy Policy
           </a>
-          , these terms are the whole agreement between you and us about Vouch. You may not
+          , these terms are the whole agreement between you and us about vet402. You may not
           transfer your rights under them; we may transfer ours if the project moves to a company
           or is acquired, and we will say so on this page if that happens.
         </p>
@@ -316,6 +318,139 @@ export default function TermsPage() {
             {SUPPORT_EMAIL}
           </a>
           .
+        </p>
+      </section>
+
+      {/* --- 13-15: verification results (added 2026-08-13 with the vet402
+          rename). A verification result is a record of a measurement, not an
+          opinion like a score, so it gets its own sections: what a result is
+          (13), decisions it must not be used for (14), and the badge license
+          (15). Section numbers 0-12 above are unchanged. --- */}
+
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-zinc-900">
+          13. Verification results — what they are, and what they are not
+        </h2>
+        <p>
+          Alongside trust scores, vet402 publishes verification results for x402 endpoints. A
+          verification result is different in kind from a score, so it gets its own section. A
+          score is our opinion (section 6). A verification result is a record of a measurement:
+          at the moment shown on the result, we paid the endpoint&apos;s published price with
+          real funds, following our published methodology, and we recorded what happened. We
+          publish the record, the transaction hash, and the timestamp, and we describe what we
+          observed in plain factual terms.
+        </p>
+        <p>
+          A verification result is a snapshot, and only a snapshot. It states what that endpoint
+          did at the recorded time, measured the recorded way. It is not a statement about what
+          the endpoint is doing now, will do tomorrow, or did for anyone else. It is not a
+          representation or warranty of the operator&apos;s reliability, solvency, honesty, or
+          future performance, and it is not an endorsement of, or a recommendation to transact
+          with, anyone. A &quot;pass&quot; means the endpoint delivered what it charged for when
+          we tested it — nothing more. A &quot;fail&quot; means it did not deliver when we
+          tested it — and a temporary outage can produce the same record as a permanent one,
+          which is why we re-test before confirming any fail and show an &quot;as of&quot;
+          timestamp on everything.
+        </p>
+        <p>
+          &quot;Unverified&quot; is not a negative assessment. Most endpoints start unverified,
+          and an endpoint can be unverified simply because we have not tested it yet, because it
+          opted out of test purchases, or because a result could not be determined. We do not
+          treat &quot;unknown&quot; as &quot;bad,&quot; and neither should you.
+        </p>
+        <p>
+          Results age. We re-test on a published cadence and update results automatically, but
+          between measurements the world can change faster than we do. Always read a result
+          together with its timestamp, and treat the live result page — not any copy,
+          screenshot, or badge — as the only current statement.
+        </p>
+        <p>
+          If you operate an endpoint and believe a result about it is wrong, the challenge route
+          in section 8 applies to verification results exactly as it applies to scores: it is
+          free, needs no account, and one person reads that inbox. We will re-test within a
+          stated period, publish corrections openly, and record them in a corrections log.
+        </p>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-zinc-900">
+          14. Decisions you may not base on results
+        </h2>
+        <p>
+          Scores and verification results are informational. They exist to help a business
+          decide how much friction to apply before accepting a payment or calling an endpoint.
+          They are not built, tested, or represented as suitable for anything else, and some
+          uses are expressly off the table:
+        </p>
+        <ul className="list-disc space-y-2 pl-5">
+          <li>
+            <strong>Investment decisions.</strong> Nothing we publish is investment advice, a
+            research report, a solicitation, or a recommendation to buy, sell, or hold any
+            token, security, or other asset, and nothing we publish says anything about the
+            value or prospects of any project or business. Do not use scores or verification
+            results to make, justify, or market an investment decision.
+          </li>
+          <li>
+            <strong>
+              Credit, insurance, employment, housing, and similar decisions about people.
+            </strong>{" "}
+            Scores and results describe addresses and endpoints, not people (section 6), and
+            they must not be used as a factor in deciding whether a person gets a loan, a
+            policy, a job, a home, or any similar benefit. They are not a consumer report and we
+            are not a consumer reporting agency.
+          </li>
+          <li>
+            <strong>Clipped or altered republication.</strong> If you quote a result, you must
+            keep its &quot;as of&quot; timestamp and a link to the live result page, and you
+            must not alter, truncate, or reframe it in a way that changes what it says —
+            including presenting a past &quot;pass&quot; as current, or presenting a
+            &quot;fail&quot; without the timestamp and re-test context the result page carries.
+          </li>
+        </ul>
+        <p>
+          Using the service for any of these is a breach of section 4 (acceptable use), and
+          section 10 (your responsibility to us) applies to claims that arise from it. We wrote
+          this section because a snapshot that is accurate on the day it is taken becomes a
+          false statement when someone strips the date off and waves it around; we do not want
+          our measurements doing that to anyone.
+        </p>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-zinc-900">15. Badges</h2>
+        <p>
+          We may offer verification badges — small images or SVG embeds that show an
+          endpoint&apos;s current verification status. If we do, this section is the license for
+          them.
+        </p>
+        <p>
+          <strong>What we grant.</strong> If an endpoint you operate has a current verification
+          result, we grant you a limited, non-exclusive, non-transferable, non-sublicensable,
+          revocable permission to display the badge for that endpoint on your own site and
+          materials. The badge is ours; this is permission to display it, not a transfer of any
+          right in it, and it does not license our name or logo for any other use.
+        </p>
+        <p>
+          <strong>Display conditions.</strong> A badge must be embedded so that it reflects the
+          current result — use the live embed we serve rather than a saved copy, because a
+          screenshot of Tuesday&apos;s badge is a statement about Tuesday that starts lying the
+          moment things change, and if you freeze it, the lie is yours: keeping a stale badge on
+          display is the displayer&apos;s responsibility, not ours. The badge must link back to
+          its live result page on vet402, must be reproduced without modification — no edits to
+          its wording, marks, colors, or proportions, and no cropping the timestamp — and must
+          not be displayed in a way that suggests we endorse your business, audited anything
+          beyond the tested endpoint, or guarantee future performance. &quot;Verified by
+          vet402&quot; means exactly what section 13 says a result means, and a badge may not be
+          used to imply more.
+        </p>
+        <p>
+          <strong>Revocation.</strong> We may withdraw permission for a badge at any time — in
+          particular when the underlying result changes, goes stale, or is corrected, or when a
+          badge is being displayed in breach of this section. The live embed updates or goes
+          blank on its own. If you have displayed the badge any other way and we ask you to
+          remove it, you will do so within 5 business days. Continuing to display a badge after
+          the permission behind it has ended is use of our mark without a license, and section
+          10 applies to claims that arise from a badge displayed in breach of this section.
         </p>
       </section>
     </main>

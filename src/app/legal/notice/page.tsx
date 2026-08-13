@@ -1,5 +1,6 @@
-// Legal Notice — Vouch's operator-disclosure page (2026-07-20).
-// Vouch is a pseudonymous, individually-operated Web3 product (mode B
+// Legal Notice — vet402's operator-disclosure page (2026-07-20; the product
+// was renamed from Vouch in August 2026).
+// vet402 is a pseudonymous, individually-operated Web3 product (mode B
 // minimal disclosure, see legal_requirements.md). It is offered as a B2B
 // API product (agent/service operators integrating trust scores), which is
 // the primary reason full communication-sales disclosure (e.g. Japan's
@@ -13,8 +14,8 @@ import type { Metadata } from "next";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
 
 export const metadata: Metadata = {
-  title: "Legal Notice | Vouch",
-  description: "Operator disclosure and contact information for Vouch.",
+  title: "Legal Notice | vet402",
+  description: "Operator disclosure and contact information for vet402.",
 };
 
 export default function LegalNoticePage() {
@@ -22,14 +23,15 @@ export default function LegalNoticePage() {
     <main className="mx-auto max-w-3xl space-y-8 p-8 text-sm leading-relaxed text-zinc-700">
       <div>
         <h1 className="text-3xl font-semibold text-zinc-900">Legal Notice</h1>
-        <p className="mt-2 text-zinc-500">Last updated: July 2026</p>
+        <p className="mt-2 text-zinc-500">Last updated: August 2026</p>
       </div>
 
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-zinc-900">How Vouch is operated</h2>
+        <h2 className="text-lg font-semibold text-zinc-900">How vet402 is operated</h2>
         <p>
-          Vouch is developed and operated by an individual proprietor, trading as KIZUNA
-          Creation. It is offered as a business-to-business (B2B) API product for agent and
+          vet402 (formerly known as Vouch) is developed and operated by an individual
+          proprietor, trading as KIZUNA Creation. The product was renamed in August 2026; the
+          operator, the service, and these pages are otherwise unchanged. It is offered as a business-to-business (B2B) API product for agent and
           service operators who need to verify agents before accepting payment — it is not
           marketed or sold as a consumer product.
         </p>
@@ -38,7 +40,7 @@ export default function LegalNoticePage() {
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">Why disclosure is minimal today</h2>
         <p>
-          Because Vouch has no live consumer billing and is used B2B, statutes that require full
+          Because vet402 has no live consumer billing and is used B2B, statutes that require full
           public disclosure of the operator&apos;s legal name, home address, and phone number for
           consumer mail-order sales (such as Japan&apos;s Act on Specified Commercial
           Transactions) do not currently apply. We keep the operator&apos;s personal details out

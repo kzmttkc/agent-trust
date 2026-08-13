@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { getAllPosts } from "@/lib/blog";
 
 export const metadata: Metadata = {
-  title: "Blog — Vouch",
+  title: "Blog — vet402",
   description: "Notes on agent-to-agent payments, x402, and trust scoring on Base.",
   alternates: { canonical: "https://agent-trust-tawny.vercel.app/blog" },
 };
@@ -14,7 +14,7 @@ export default function BlogIndexPage() {
   return (
     <main className="mx-auto max-w-3xl space-y-8 p-8">
       <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Vouch</p>
+        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">vet402</p>
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">Blog</h1>
         <p className="text-zinc-600">Notes on agent-to-agent payments, x402, and trust scoring on Base.</p>
       </div>
