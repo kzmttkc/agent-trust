@@ -1,19 +1,19 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { SITE_URL } from "@/lib/site-url";
 import { safeJsonLd } from "@/lib/util/json-ld";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
 // 2026-08-13 UX監査R1 [C1]: 設問は src/components/site/faq-data.ts へ移した。
 // LP が Q1（x402 の定義）を引用するので、同じ文が2箇所に転記された状態を
 // 作らないため。中身は1文字も変えていない。
 import { FAQS } from "@/components/site/faq-data";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Frequently asked questions",
   description:
     "Answers on x402 machine payments, ERC-8004 agent identity, and how vet402's verification and scores work on Base.",
-  alternates: { canonical: `${SITE_URL}/faq` },
-};
+  path: "/faq",
+});
 
 export default async function FaqPage() {
   const nonce = (await headers()).get("x-nonce") ?? undefined;
@@ -29,6 +29,10 @@ export default async function FaqPage() {
       },
     })),
   };
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "FAQ", path: "/faq" },
+  ]);
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
@@ -41,6 +45,12 @@ export default async function FaqPage() {
           // otherwise trips a harmless React hydration-mismatch warning here.
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
         />
 
         <div className="doc-head">

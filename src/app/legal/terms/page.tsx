@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
+import { pageMetadata } from "@/lib/seo";
 
 /**
  * Terms of Service.
@@ -35,11 +36,12 @@ import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
 // 配下の terms と privacy を取り残していた。この2枚は既定の SITE_TITLE を
 // 名乗るので、タブ・検索結果・ブックマークのどこでも他ページと区別が付かない。
 // template が " | vet402" を付けるので、ここではサフィックスを書かない。
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Terms of Service",
   description:
     "Terms of service for the vet402 verification API, including how scores may be used and the free correction route for anyone who believes a score about them is wrong.",
-};
+  path: "/legal/terms",
+});
 
 export default function TermsPage() {
   return (

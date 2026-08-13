@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { getAllPosts, getPostBySlug } from "@/lib/blog";
 import { SITE_URL } from "@/lib/site-url";
 import { safeJsonLd } from "@/lib/util/json-ld";
+import { breadcrumbJsonLd } from "@/lib/seo";
 
 export function generateStaticParams() {
   return getAllPosts().map((post) => ({ slug: post.slug }));
@@ -31,8 +32,15 @@ export async function generateMetadata({
       title: post.title,
       description: post.description,
       url: `${SITE_URL}/blog/${post.slug}`,
+      siteName: "vet402",
       publishedTime: post.publishedAt,
       modifiedTime: post.updatedAt,
+    },
+    // 2026-08-14: twitter を未設定のままだと layout 既定（LP の題名）が出る。
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description: post.description,
     },
   };
 }
@@ -54,13 +62,29 @@ export default async function BlogPostPage({
     description: post.description,
     datePublished: post.publishedAt,
     dateModified: post.updatedAt,
+    // 2026-08-14: author/image は BlogPosting の推奨フィールド。author は
+    // 擬名運用なので発行主体の Organization を充てる（新しい主張は足さない）。
+    // image はファイル規約の og 画像（RFC 第1頁の組版）をそのまま指す。
+    author: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    image: `${SITE_URL}/opengraph-image.png`,
     mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}/blog/${post.slug}` },
     publisher: { "@type": "Organization", name: "vet402", url: SITE_URL },
     url: `${SITE_URL}/blog/${post.slug}`,
   };
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Blog", path: "/blog" },
+    { name: post.title, path: `/blog/${post.slug}` },
+  ]);
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8">
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
       <script
         type="application/ld+json"
         nonce={nonce}

@@ -6,15 +6,18 @@ import CodeBlock from "@/components/docs/CodeBlock";
 import DocsToc, { type TocItem } from "@/components/docs/DocsToc";
 import { TableScroll } from "@/components/site/TableScroll";
 import { SITE_URL } from "@/lib/site-url";
+import { pageMetadata } from "@/lib/seo";
 
 // 2026-08-13 UX監査2巡目 [m2]: このページには metadata が無く、layout の
 // default（LP と同じ長い表題）をそのまま名乗っていた。template "%s | vet402"
 // が効くので、ここは接尾辞なしの固有名だけを書く。
-export const metadata: Metadata = {
+// 2026-08-14: openGraph/twitter/canonical を pageMetadata で個別化。
+export const metadata: Metadata = pageMetadata({
   title: "API reference",
   description:
     "REST v1 reference for vet402: score a payee before paying it, register a verified payee, read the public accuracy ledger. Includes a key-less curl quickstart, rate limits, webhooks and error codes.",
-};
+  path: "/docs/api",
+});
 
 type Endpoint = {
   method: "GET" | "POST";

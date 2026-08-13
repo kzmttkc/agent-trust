@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isValidAddress } from "@/lib/chain/client";
 import TrackView from "@/components/site/TrackView";
 import { buttonClass } from "@/components/ui/Button";
+import { pageMetadata } from "@/lib/seo";
 
 /**
  * /payee — the entry point for the working demo.
@@ -42,11 +43,12 @@ const SAMPLE_PAYEES = [
   },
 ];
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Verify a payee",
   description:
     "Look up any Base wallet address: the signature-proven identity claim on file, if there is one, and a live payee score.",
-};
+  path: "/payee",
+});
 
 export default async function PayeeIndexPage({
   searchParams,

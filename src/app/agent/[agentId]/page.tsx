@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { pageMetadata } from "@/lib/seo";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -34,11 +35,13 @@ export async function generateMetadata({
   params: Promise<{ agentId: string }>;
 }): Promise<Metadata> {
   const { agentId } = await params;
-  return {
-    // 2026-08-13 [m2]: 二重サフィックス解消（template が " | vet402" を付ける）。
+  // 2026-08-13 [m2]: 二重サフィックス解消（template が " | vet402" を付ける）。
+  // 2026-08-14: openGraph/twitter/canonical を pageMetadata で個別化。
+  return pageMetadata({
     title: `Agent ${agentId} — trust passport`,
     description: "Verified AI agent: signature-proven identity claim plus a live trust score and x402 payment record.",
-  };
+    path: `/agent/${agentId}`,
+  });
 }
 
 export default async function AgentPage({

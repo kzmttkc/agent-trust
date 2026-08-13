@@ -3,15 +3,17 @@ import Link from "next/link";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { TableScroll } from "@/components/site/TableScroll";
 import { fetchLeaderboard } from "@/lib/db/leaderboard";
+import { pageMetadata } from "@/lib/seo";
 
 // N-17 — public agent leaderboard. Latest verdict per agent, aggregate only.
 // Honest empty state, same discipline as /accuracy.
 // 2026-08-13 vet402: typeset as a register of the memo.
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Register of recently verified subjects",
   description:
     "The highest-scoring ERC-8004 agents and wallets vet402 has recently verified: identity, reputation, wallet history and x402 settlement record, summarized as one score.",
-};
+  path: "/leaderboard",
+});
 export const revalidate = 600;
 
 // Short 0x… form for wallet-keyed rows (benchmark seeds have no agent id).

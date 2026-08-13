@@ -106,6 +106,20 @@ export default async function Home() {
     // （@vet402 は取得不可だったため下線入り）。
     sameAs: ["https://x.com/vet_402"],
   };
+  // 2026-08-14 SEO/AEO: WebSite ノードが欠けていた（Organization と
+  // SoftwareApplication はあった）。検索の sitelinks／エンティティ束ねに効く
+  // 基本ノードで、publisher で Organization に結ぶ。site 内検索は無いので
+  // potentialAction(SearchAction) は書かない（存在しない導線を主張しない）。
+  const webSiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "vet402",
+    url: SITE_URL,
+    description:
+      "Independent verification of the x402 agent-payment economy.",
+    publisher: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    inLanguage: "en",
+  };
   const softwareApplicationJsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -160,6 +174,12 @@ export default async function Home() {
         nonce={nonce}
         suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(webSiteJsonLd) }}
       />
       <script
         type="application/ld+json"

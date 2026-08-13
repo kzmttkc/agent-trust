@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
+import { pageMetadata } from "@/lib/seo";
 
 /**
  * /corrections — the log the site has been promising.
@@ -19,11 +20,12 @@ import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
  * DB テーブルを掘るのは、動いていることの証明にならない配管を1本増やすだけ。
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Corrections log",
   description:
     "Every correction vet402 has issued to a published score or verification result, with what was wrong and what changed. Empty until the first one is issued.",
-};
+  path: "/corrections",
+});
 
 type Correction = {
   /** 訂正を公開した日 (UTC, YYYY-MM-DD) */

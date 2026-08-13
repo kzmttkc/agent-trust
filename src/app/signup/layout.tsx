@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 
 /**
  * /signup の metadata の置き場所（2026-08-13 UX監査2巡目 [m2]）。
@@ -9,12 +10,14 @@ import type { Metadata } from "next";
  * layout の default —— LP と同じ長い表題 —— をそのまま名乗っていた。
  *
  * 接尾辞は書かない。ルート layout の template "%s | vet402" が付ける。
+ * 2026-08-14: openGraph/twitter/canonical を pageMetadata で個別化。
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Get an API key",
   description:
     "Create a vet402 API key. The free tier is 1,000 lookups a month — score a payee before your agent pays it.",
-};
+  path: "/signup",
+});
 
 export default function SignupLayout({ children }: { children: React.ReactNode }) {
   return children;

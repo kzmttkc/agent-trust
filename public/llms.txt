@@ -25,6 +25,7 @@ What the API returns today is a different, older thing: a 0–100 trust or payee
 - https://vet402.com/leaderboard — register of recently verified subjects, ranked
 - https://vet402.com/payee — verify a payee, or look one up
 - https://vet402.com/corrections — every correction issued to a published result, and what does not count as one
+- https://vet402.com/operator-log — public, append-only record of every global operator override (network-wide blacklist), with the address, stated reason, and date; customer-private lists never appear here
 - https://vet402.com/faq — x402, ERC-8004, and how scoring works
 - https://vet402.com/signup — get an API key (free tier: 1,000 lookups / month)
 - https://vet402.com/blog — notes on agent-to-agent payments, x402, and verification
@@ -106,7 +107,7 @@ Corrections that are issued are published at https://vet402.com/corrections — 
 - You may cite the content on this site (front page, API docs, FAQ, accuracy ledger, blog) as long as you credit the source with the corresponding vet402.com URL.
 - The same statement is published for human readers in section 4 of https://vet402.com/accuracy — this file is not the only place it exists.
 - Figures on the accuracy ledger are rolling 90-day aggregates; cite them with the retrieval date, or quote the `generatedAt` timestamp from `GET /api/v1/accuracy`.
-- Content current as of 2026-08-13.
+- Content current as of 2026-08-14.
 
 ## Legal
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
 import { listOperatorOverrides } from "@/lib/db/operator-overrides";
+import { pageMetadata } from "@/lib/seo";
 
 /**
  * /operator-log — the public, append-only record of every GLOBAL operator
@@ -22,11 +23,12 @@ import { listOperatorOverrides } from "@/lib/db/operator-overrides";
  * customer's risk decisions to everyone.
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Operator override log",
   description:
     "Every global override vet402's operator has applied to a score — the address, the stated reason, and when. Customer-scoped lists are private and never appear here. Empty until the first one.",
-};
+  path: "/operator-log",
+});
 
 // Read fresh on each request (append-only, low volume); the API route caches.
 export const dynamic = "force-dynamic";

@@ -12,12 +12,14 @@
 // billing-flag-linked tokushoho pattern.
 import type { Metadata } from "next";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   // 2026-08-13 [m2]: 二重サフィックス解消（template が " | vet402" を付ける）。
   title: "Legal Notice",
   description: "Operator disclosure and contact information for vet402.",
-};
+  path: "/legal/notice",
+});
 
 export default function LegalNoticePage() {
   return (

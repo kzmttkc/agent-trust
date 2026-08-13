@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { pageMetadata } from "@/lib/seo";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -48,10 +49,12 @@ export async function generateMetadata({
   params: Promise<{ address: string }>;
 }): Promise<Metadata> {
   const { address } = await params;
-  return {
+  // 2026-08-14: openGraph/twitter/canonical を pageMetadata で個別化。
+  return pageMetadata({
     title: `Payee ${address.slice(0, 10)}…`,
     description: "Verified x402 payee: signature-proven identity claim plus a live payee score.",
-  };
+    path: `/payee/${address}`,
+  });
 }
 
 export default async function PayeePage({

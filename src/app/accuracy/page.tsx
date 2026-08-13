@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { pageMetadata } from "@/lib/seo";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { TableScroll } from "@/components/site/TableScroll";
 import { computeAccuracyReport, type AccuracyReport } from "@/lib/scoring/accuracy";
@@ -26,11 +27,12 @@ import { fetchAccuracyRows, fetchBenchmarkRows } from "@/lib/db/outcome-reader";
  * measurement belongs in a column with the others.
  */
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Measured accuracy",
   description:
     "vet402 publishes what happened after its verdicts: the share of ALLOW verdicts that later showed adverse activity, and the share of BLOCK verdicts we got wrong.",
-};
+  path: "/accuracy",
+});
 
 export const revalidate = 600;
 
