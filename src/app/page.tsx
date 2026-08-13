@@ -183,8 +183,10 @@ export default async function Home() {
         <div className="mt-8 flex flex-col gap-1 sm:flex-row sm:gap-0">
           <p className="shrink-0 text-brand-deep sm:w-[10ch]">Abstract</p>
           <p className="min-w-0 max-w-[62ch] text-brand">
+            {/* 引用符は straight。RFC の原典はプレーンテキストで、curly quote は
+                存在しない。/faq と /legal も straight で統一されている。 */}
             vet402 buys what x402 endpoints actually sell, verifies fulfillment against the
-            seller&rsquo;s own declaration, and publishes the results with evidence. Every verdict
+            seller&apos;s own declaration, and publishes the results with evidence. Every verdict
             will carry a transaction hash, a timestamp and reproduction steps.{" "}
             <strong>Nothing on this site is an estimate.</strong>
           </p>
@@ -287,11 +289,21 @@ export default async function Home() {
             <caption className="sr-only">
               vet402 verification levels: what each level asks, how it is run, and what it outputs
             </caption>
+            {/* 列幅は「その列に入る一番長い1語」から決める。表示書体が列ごとに
+                違うので桁数だけでは決まらない（Level 列だけ Martian Mono の
+                0.70em、他は Fragment Mono の 0.618em）。
+                  Level    Conformance   11桁 × 0.70em × 13px = 100px (+20 pad)
+                  Question declaration?  12桁 × 0.618em × 13px = 96px (+20 pad)
+                  How      machine       7桁 = 56px (+20 pad)
+                  Output   unverified   10桁 = 80px（最終列は右パディング0）
+                24% は 1440px の紙面(665px)で 160px を Level 列に配り、
+                `Settle-through`(127px) すら1語のまま置ける。
+                .fact-table-fixed の min-width が下限を押さえている。 */}
             <colgroup>
-              <col style={{ width: "17%" }} />
-              <col style={{ width: "31%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "30%" }} />
+              <col style={{ width: "24%" }} />
+              <col style={{ width: "29%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "29%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -304,8 +316,18 @@ export default async function Home() {
             <tbody>
               {LEVELS.map((row) => (
                 <tr key={row.level}>
+                  {/* 段名を nowrap で括るのは、ハイフンでの分割を止めるため。
+                      列幅に入らない時、ブラウザは空白より先にハイフンで折る:
+                      `L1 Settle-through`(155px) が 140px の内寸に入らないと
+                      `L1 Settle-` / `through` になり、監査が拾った
+                      `L2 Conformanc / e` と同じ形に見える。nowrap にすると
+                      折れる場所が語間だけになり `L1` / `Settle-through` になる。
+                      1行に収める案（LEVEL 列 27%）も試したが、その幅を保つには
+                      表の下限が 648px になり、640–827px の画面で表が横スクロール
+                      する。語間で折るほうが安い。 */}
                   <td>
-                    {row.level} {row.name}
+                    <span className="whitespace-nowrap">{row.level}</span>{" "}
+                    <span className="whitespace-nowrap">{row.name}</span>
                   </td>
                   <td>{row.question}</td>
                   <td>{row.how}</td>
@@ -348,8 +370,8 @@ export default async function Home() {
           <div className="flex gap-4">
             <span className="w-[4ch] shrink-0 text-brand-lift">3.2</span>
             <p className="min-w-0 max-w-[64ch] text-brand">
-              Unverifiable is not a verdict. We say <strong>&ldquo;unverified&rdquo;</strong>, never
-              &ldquo;bad&rdquo;.
+              Unverifiable is not a verdict. We say <strong>&quot;unverified&quot;</strong>, never
+              &quot;bad&quot;.
             </p>
           </div>
           <div className="flex gap-4">

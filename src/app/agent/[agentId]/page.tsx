@@ -34,7 +34,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { agentId } = await params;
   return {
-    title: `Agent ${agentId} — trust passport | Vouch`,
+    title: `Agent ${agentId} — trust passport | vet402`,
     description: "Verified AI agent: signature-proven identity claim plus a live trust score and x402 payment record.",
   };
 }

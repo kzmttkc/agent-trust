@@ -47,13 +47,40 @@
    ============================================================================ */
 
 @theme {
+  /* 390px 級の画面と 480px 級の画面を分ける段。Tailwind 既定の最小段は sm(640px)
+     しか無く、iPhone 幅（390px）と小型タブレット幅の間で列を落とし分けられない。
+     /leaderboard の SCORED 列がこの段で消える（2026-08-13 監査是正 #6）。 */
+  --breakpoint-xs: 30rem;
+
   /* ---- 紺の4階調（2026-08-11 裁定・値は Soroi の LP 実装と同一）---- */
   --color-brand-deep: #233456;
   --color-brand: #3e537c;
   --color-brand-lift: #55688c;
   --color-brand-mist: #8f9cb2;
+
+  /* ---- シアンの2音（2026-08-13 確定・再発防止の注記）------------------
+     同じ hue に2つの値がある。取り違えると片方は AA 不合格、もう片方は
+     フォーカスリングが見えない、という別々の事故になるので用途を固定する。
+
+       --color-focus  #0891b2  **非テキスト専用**。:focus-visible のリング、
+                               実測点マーカー、罫線。白地 3.68:1・紺地 3.36:1 で
+                               WCAG 1.4.11 の 3:1 を満たすが、本文サイズの
+                               文字に使うと 4.5:1 に届かない。文字に使わない。
+       --color-signal #0e7490  **テキストと caret 専用**。白地 5.36:1 で AA。
+                               走り出しヘッダの Status 値（1画面1点）と
+                               入力欄の caret-color がこれ。
+
+     どちらも「1画面に1点」の規律の対象。増やす前に direction contract を読む。 */
   --color-focus: #0891b2;
   --color-signal: #0e7490;
+
+  /* ---- 判定の機能色（2026-08-13 CEO裁定・色相のみ承認）----------------
+     判定語 WARN / BLOCK が運ぶ意味の色。紺の階調へ寄せると「どちらの判定でも
+     同じ紺」になり、判定表示の意味が消える。色相は承認済みだが**造形は RFC 文法**
+     （1px 罫・地は紙のまま）に従う。ベタ塗りのピルにしない。
+     白地コントラスト: warn 7.09:1 / block 8.36:1（いずれも AA・AAA）。 */
+  --color-warn-ink: #973c00;
+  --color-block-ink: #9f0712;
 
   /* ---- 紙面 ---- */
   --color-paper: #ffffff;
@@ -113,6 +140,10 @@ html {
   /* ---- ブラウザが描く面もテーマに入れる（craft-floor「Browser surfaces」）---- */
   color-scheme: light;
   scrollbar-color: #8f9cb2 #eef0f3;
+  /* 紙は中央に置かれているので、スクロールバーの有無で紙面が左右に跳ぶ。
+     短い頁（/legal/notice）から長い頁（/legal/terms）へ移ると、承認された
+     組版が 1回のクリックで 6px ずれて見える。溝を常に確保して跳ねを消す。 */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -400,6 +431,19 @@ a {
      という配分になった（検分1回目の実測）。 */
   .fact-table-fixed {
     table-layout: fixed;
+    /* 2026-08-13 監査是正 #1。列幅を % で配ると、表の幅が縮んだぶんだけ全列が
+       比例して細り、どこかで「1語が列に入らない」点を必ず割る。1440px の紙面
+       (665px) で LEVEL 列が 113px になり、`Conformance`(11桁 × Martian Mono
+       0.70em × 13px = 100px) + 右パディング 20px = 120px に届かず、
+       td の overflow-wrap:break-word が語の途中で折って
+       「L2 Conformanc / e」を出していた。
+       割れる点を計算して、その手前で表の縮小を止める。39rem = 624px は
+       LEVEL 24% が 150px を保つ最小幅で、その列で一番長い1語
+       `Settle-through`(128px) + 右パディング 20px = 148px がちょうど入る。
+       これ未満の紙面では表自身が
+       .table-scroll の中で横スクロールする——語を割るより溢れさせる。
+       1440px の紙面は 665px なので、この下限に触れずに全幅で収まる。 */
+    min-width: 39rem;
   }
   .fact-table .num {
     text-align: right;
@@ -480,12 +524,18 @@ a {
     }
   }
 
-  /* ---- 判定・状態のインラインマーカー -------------------------------- */
+  /* ---- 判定・状態のインラインマーカー --------------------------------
+     この世界に持ち込める唯一の「囲み」。1px の罫と紙地だけで作る。
+     font-family と font-weight を明示しているのは、置かれる場所によって
+     継承が変わるため（/payee の判定チップは 28px・font-display・semibold の
+     段落の中に置かれていて、指定しないとチップだけ書体が変わる）。 */
   .marker {
     display: inline-block;
     border: 1px solid currentColor;
     border-radius: 2px;
     padding: 0.05em 0.45em;
+    font-family: var(--font-sans);
+    font-weight: 400;
     font-size: 0.6875rem;
     line-height: 1.5;
     letter-spacing: 0.06em;
@@ -503,6 +553,32 @@ a {
   .marker-plan {
     color: #55688c;
     border-style: dashed;
+  }
+
+  /* ---- 判定チップ（ALLOW / WARN / BLOCK）------------------------------
+     2026-08-13 監査是正 #2。それまでは Tailwind の 100/800 を使ったベタ塗りの
+     チップで、/leaderboard の25行のうち黄18・赤7がベタ面として並び、順位表の
+     本体（スコアと被検体）より先に目に入っていた。塗り面が「判定の重さ」ではなく
+     「行の数」に比例して増えるので、静かな登録簿にならない。
+
+     再造形の方針: 同じ頁の benchmark チップ（.marker-plan）と**同じ文法**にする。
+     1px の罫・紙地のまま・文字色だけが機能色。塗り面はゼロになり、色は文字と
+     罫の細線にしか乗らないので、行数が増えても紙面が支配されない。
+     色相は CEO 裁定（2026-08-13）の warn/block をそのまま使う。
+
+     ALLOW を紺にした理由: 承認された機能色は WARN と BLOCK の2つだけで、緑は
+     このパレットに無い。そして ALLOW は「旗が上がっていない」状態であって信号では
+     ないので、既定のインク（紺）が正しい。実装済み印（.marker-live）と同じ形に
+     なるのは偶然ではなく、どちらも「特記事項なし」を意味する。
+     未知の判定語は破線（.marker-plan と同じ）— 知らない値を ALLOW 側へ寄せない。 */
+  .marker-verdict-allow {
+    color: #233456;
+  }
+  .marker-verdict-warn {
+    color: var(--color-warn-ink);
+  }
+  .marker-verdict-block {
+    color: var(--color-block-ink);
   }
 
   /* ---- リンク --------------------------------------------------------- */

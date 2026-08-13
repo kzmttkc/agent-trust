@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { headers } from "next/headers";
 import Script from "next/script";
@@ -16,10 +16,19 @@ const PLAUSIBLE_DOMAIN = process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN;
    している。ここは承認ブランドが名指しした2書体そのものを配る。
    TTF から woff2 へ変換して src/fonts/ に置いてある（martian 45KB→17KB、
    fragment 109KB→40KB）。display:"swap" は本文が Fragment に切り替わるまで
-   等幅フォールバックで読める状態を保つため。 */
+   等幅フォールバックで読める状態を保つため。
+
+   adjustFontFallback:false が要る（2026-08-13 監査是正 #4）。next/font/local は
+   既定でこの値が "Arial" で、**Arial の字幅に合わせた size-adjust 付きの
+   ローカル代替フェイスを自動生成し、それを fallback 配列より前に差し込む**。
+   つまり書体が遮断された時に最初に出るのは下に書いた ui-monospace ではなく
+   プロポーショナルの Arial で、ch 基準の段幅・tabular-nums の桁揃え・事実の表の
+   列という RFC 骨格が全部崩れる。false にすると連鎖の先頭が ui-monospace になり、
+   遮断時も等幅のまま「刷りが薄い RFC」に見える。 */
 const martianMono = localFont({
   variable: "--font-martian",
   display: "swap",
+  adjustFontFallback: false,
   fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
   src: [
     { path: "../fonts/martian-400.woff2", weight: "400", style: "normal" },
@@ -31,6 +40,7 @@ const martianMono = localFont({
 const fragmentMono = localFont({
   variable: "--font-fragment",
   display: "swap",
+  adjustFontFallback: false,
   fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
   src: [{ path: "../fonts/fragment-400.woff2", weight: "400", style: "normal" }],
 });
@@ -92,6 +102,18 @@ export const metadata: Metadata = {
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
   },
+};
+
+// 2026-08-13 監査是正 #8: ブラウザが自分で塗る面（モバイルのアドレスバー・
+// タブ帯）が既定の白のままで、その下に続く地色 #eef0f3 と段差になっていた。
+// 値は globals.css の紙地トークン --color-ground / --background と同じ #eef0f3。
+// sticky ヘッダも bg-ground なので、画面最上部から地続きになる。
+// manifest.ts の theme_color(#233456) はこれとは別物で、インストール時のアプリ
+// 識別色（タスク切替の帯）。走っている頁の地色とは役割が違う。
+// themeColor は metadata ではなく viewport export に置く（Next.js 15 以降、
+// metadata 側に書くとビルド警告が出て出力されない）。
+export const viewport: Viewport = {
+  themeColor: "#eef0f3",
 };
 
 export default async function RootLayout({

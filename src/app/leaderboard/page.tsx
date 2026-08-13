@@ -113,7 +113,14 @@ export default async function LeaderboardPage() {
                     Score
                   </th>
                   <th scope="col">Verdict</th>
-                  <th scope="col" className="num">
+                  {/* 2026-08-13 監査是正 #6: 390px では5列が紙面に入らず、
+                      SCORED（日付）列が .table-scroll の外へ押し出されていた。
+                      横スクロールできること自体は手掛かりが無いので、
+                      「隠れている列がある」と気付けない。順位表の主眼は
+                      #・被検体・スコア・判定の4つで、日付は各行の詳細頁にも
+                      あるため、480px 未満ではこの列を落とす（表示しない列は
+                      display:none なので支援技術にも二重に出ない）。 */}
+                  <th scope="col" className="num hidden xs:table-cell">
                     Scored
                   </th>
                 </tr>
@@ -144,7 +151,7 @@ export default async function LeaderboardPage() {
                     <td>
                       <VerdictBadge verdict={r.recommendation} />
                     </td>
-                    <td className="num whitespace-nowrap text-brand-lift">
+                    <td className="num hidden xs:table-cell whitespace-nowrap text-brand-lift">
                       {r.scoredAt.slice(0, 10)}
                     </td>
                   </tr>

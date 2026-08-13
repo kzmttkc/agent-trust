@@ -264,6 +264,16 @@ export default function ApiDocsPage() {
           </code>
           .
         </p>
+        {/* 2026-08-13 監査是正 #3: 散文の旧名（Vouch）は vet402 へ統一したが、
+            発行済みのキー接頭辞と webhook のヘッダ名は動いている連携を壊すので
+            据え置いた。docs で名前が2つ出てくる理由をここで1行明示する。
+            これが無いと「ドキュメントが古い」ようにしか読めない。 */}
+        <p className="text-sm text-brand-lift">
+          API keys and webhook headers retain the{" "}
+          <code className="text-brand-deep">vouch_</code> /{" "}
+          <code className="text-brand-deep">Vouch-</code> prefixes for backward
+          compatibility.
+        </p>
         <p className="text-sm text-brand-lift">
           Full machine-readable schema:{" "}
           {/* 2026-08-06 growth: openapi_click — pulling the machine-readable
@@ -435,7 +445,7 @@ export default function ApiDocsPage() {
             written from src/lib/webhooks.ts, not from memory. */}
         <h2 className="sec-head">Webhooks</h2>
         <p className="text-sm text-brand">
-          Vouch is otherwise a pull API. Webhooks turn it into a monitoring
+          vet402 is otherwise a pull API. Webhooks turn it into a monitoring
           service: register an endpoint once and we POST you a signed event when
           something you care about changes — most importantly a watched target
           whose verdict moved (e.g. an <code>ALLOW</code> you gated a payment on
@@ -583,7 +593,7 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
             when the operating history and infrastructure justify a commitment. */}
         <h2 className="sec-head">Availability</h2>
         <p className="text-sm text-brand">
-          Vouch is in closed beta, run by a single operator. We publish our real
+          vet402 is in closed beta, run by a single operator. We publish our real
           operating posture rather than a contractual uptime figure we can&apos;t
           yet stand behind:
         </p>
@@ -632,7 +642,7 @@ function verify(secret, rawBody, header, toleranceSec = 300) {
             {/* 2026-08-06 a11y: caption + scope="col" bring this table up to the
                 same standard /accuracy and /leaderboard already meet, so a
                 screen reader announces the column a cell belongs to. */}
-            <caption className="sr-only">HTTP error codes returned by the Vouch API</caption>
+            <caption className="sr-only">HTTP error codes returned by the vet402 API</caption>
             <thead>
               <tr>
                 <th scope="col">Status</th>
