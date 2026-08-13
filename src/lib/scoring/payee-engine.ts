@@ -411,6 +411,15 @@ async function detectDrainPattern(address: Address): Promise<DrainSignal> {
   };
 }
 
+/**
+ * The payer-diversity bonus keys on distinct FUNDING SOURCES, not raw payer
+ * wallets (vet402 2026-08-13, ruling 4). Ten payers funded by one address are
+ * one sybil cluster, and paying the full ten-payer bonus for them let a payee
+ * inflate its receiving diversity from a single funder — the mirror of the
+ * payer-side funding_cluster check, which the seller side never had. When the
+ * funder index is empty/lagging, distinctFunders == distinctPayers, so this is
+ * identical to the old behavior until the index actually proves a cluster.
+ */
 function scoreReceiving(stats: PayeeStats): number {
   if (stats.paymentCount <= 0) return 50;
 
@@ -425,11 +434,27 @@ function scoreReceiving(stats: PayeeStats): number {
   else if (stats.uniqueDays >= 7) score += 8;
   else if (stats.uniqueDays >= 3) score += 4;
 
-  if (stats.distinctPayers >= 10) score += 18;
-  else if (stats.distinctPayers >= 5) score += 12;
-  else if (stats.distinctPayers >= 2) score += 6;
+  const independentPayers = independentPayerCount(stats);
+  if (independentPayers >= 10) score += 18;
+  else if (independentPayers >= 5) score += 12;
+  else if (independentPayers >= 2) score += 6;
 
   return clamp(score);
+}
+
+/**
+ * The number of payers that could not be traced to a shared funder — the
+ * funder-collapsed count, floored so a stale index never fabricates a penalty.
+ * Kept as a named helper so scoreReceiving and determineDataDepth agree on
+ * exactly what "an independent payer" means.
+ */
+function independentPayerCount(stats: PayeeStats): number {
+  return Math.min(stats.distinctPayers, stats.distinctFunders);
+}
+
+/** True when a funding cluster deflated the payer count — surfaced as a flag. */
+function payerFundingClusterDetected(stats: PayeeStats): boolean {
+  return stats.distinctFunders < stats.distinctPayers;
 }
 
 function scoreDrain(signal: DrainSignal): number {
@@ -442,10 +467,13 @@ function scoreDrain(signal: DrainSignal): number {
 }
 
 function determineDataDepth(stats: PayeeStats): DataDepth {
-  if (stats.paymentCount >= 10 && stats.uniqueDays >= 7 && stats.distinctPayers >= 3) {
+  // Depth keys on INDEPENDENT payers (funder-collapsed) for the same reason
+  // the diversity bonus does: a sybil cluster must not buy "rich" history.
+  const independentPayers = independentPayerCount(stats);
+  if (stats.paymentCount >= 10 && stats.uniqueDays >= 7 && independentPayers >= 3) {
     return "rich";
   }
-  if (stats.paymentCount >= 3 && stats.distinctPayers >= 2) {
+  if (stats.paymentCount >= 3 && independentPayers >= 2) {
     return "moderate";
   }
   return "thin";
@@ -623,6 +651,11 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
     );
   }
   if (walletScore.isBurner) flags.push("new_burner_wallet");
+  // vet402 2026-08-13: disclose when the payer-diversity bonus was collapsed
+  // because several payers share a funder. A flag, not a hard penalty — the
+  // deflated count already lowered the receiving score; this makes the reason
+  // legible rather than a silent drop.
+  if (payerFundingClusterDetected(stats)) flags.push("payer_funding_cluster");
 
   // ---- fail-closed gate ------------------------------------------------
   // The invariant verdict.ts documents for the seller-side engine, applied to

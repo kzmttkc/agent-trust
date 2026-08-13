@@ -121,6 +121,40 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "related_wallet_mismatch" }, { status: 400 });
   }
 
+  // vet402 2026-08-13 (ruling 7) — a partner cannot vouch for itself.
+  //
+  // This endpoint only ever reaches the caller's OWN verdicts: getTrustEventById
+  // scopes the SELECT by api_key_id, and the ownership check above re-asserts it.
+  // So a POSITIVE outcome reported here is always "I scored this wallet, and I
+  // now declare it legitimate" — self-lookup → self-affirmation. Because anyone
+  // can score any wallet, that let a key raise a wallet's payee score (via
+  // getOutcomesForWallet → applyOutcomeAdjustment's +8) purely by self-
+  // declaration, the exact self-attestation-raises-score pattern this whole
+  // change removes from the ledger. Reporter and subject are not separated on a
+  // self-generated verdict, so a self-affirming label carries no evidence.
+  //
+  // Minimal, documented enforcement: reject the score-RAISING outcome type from
+  // the partner endpoint. Positive signals must come from the auto-detector,
+  // which observes the chain (sustained_healthy_activity), not from the same key
+  // that asked for the verdict. NEGATIVE reports (confirmed_fraud,
+  // chargeback_dispute) stay open — a counterparty warning others about a wallet
+  // that harmed it is the legitimate use, and the subject-wallet check already
+  // pins it to the verdict's own wallet. A fuller model (proving the reporter
+  // was an actual counterparty, admitting third-party attestations) is the next
+  // step; until then no self-affirmation reaches scoring.
+  const SCORE_RAISING_PARTNER_OUTCOMES = new Set(["confirmed_legitimate"]);
+  if (SCORE_RAISING_PARTNER_OUTCOMES.has(outcomeType)) {
+    return NextResponse.json(
+      {
+        error: "self_affirmation_not_accepted",
+        detail:
+          "A positive outcome cannot be self-reported on your own verdict. " +
+          "Positive standing is earned from on-chain activity, not self-declared.",
+      },
+      { status: 422 },
+    );
+  }
+
   const resolvedWallet = trustEvent.wallet ?? null;
   const now = new Date();
   const windowMinutes = Math.max(

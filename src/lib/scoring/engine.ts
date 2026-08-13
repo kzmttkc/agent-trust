@@ -16,6 +16,7 @@ import {
   applyManualList,
   applySybilPenalty,
   buildScoreBreakdown,
+  capForVerifiableEvidence,
   computeWeightedScore,
   dampenReputationForSybil,
   normalizeWalletScore,
@@ -296,9 +297,24 @@ export async function scoreAgentById(
   const sybilRisk = assessSybilRisk(sybilFlags);
   reputationScore = dampenReputationForSybil(reputationScore, sybilFlags);
 
-  const prePolicyScore = applySybilPenalty(
-    computeWeightedScore(identityScore, reputationScore, walletScore.score, x402Score),
-    sybilFlags,
+  // vet402 2026-08-13: self-attestation (ERC-8004 registration + an unbacked
+  // reputation summary) must not clear ALLOW on its own. Cap the weighted+
+  // penalized score at WARN unless there is verifiable on-chain evidence — a
+  // signed USDC settlement, feedback from ≥3 distinct clients, or an
+  // established wallet. Applied to the pre-policy score so the breakdown, the
+  // cache and the recommendation all see the same capped number; a customer
+  // whitelist can still lift WARN→ALLOW downstream as the operator's own call.
+  const prePolicyScore = capForVerifiableEvidence(
+    applySybilPenalty(
+      computeWeightedScore(identityScore, reputationScore, walletScore.score, x402Score),
+      sybilFlags,
+    ),
+    {
+      x402PaymentCount: x402Stats.paymentCount,
+      uniqueFeedbackClients: feedbackStats.uniqueClients,
+      walletTxCount: walletMetrics?.txCount ?? 0,
+      walletAgeDays: walletMetrics?.ageDays ?? 0,
+    },
   );
 
   const chainSignals: Omit<TrustSignals, "manual"> = {
@@ -435,9 +451,21 @@ export async function scoreWallet(
   // into the breakdown so the API explains why an unregistered wallet caps out.
   const walletIdentityScore = 30;
   const walletReputationScore = 30;
-  const prePolicyScore = applySybilPenalty(
-    computeWeightedScore(walletIdentityScore, walletReputationScore, walletScore.score, x402Score),
-    sybilFlags,
+  // vet402 2026-08-13: same ALLOW-evidence gate as the agent path. A bare
+  // wallet has no ERC-8004 feedback, so its only routes above WARN are a signed
+  // USDC settlement or an established (≥20 tx, ≥30 day) wallet history — both
+  // on-chain and observed, never self-attested.
+  const prePolicyScore = capForVerifiableEvidence(
+    applySybilPenalty(
+      computeWeightedScore(walletIdentityScore, walletReputationScore, walletScore.score, x402Score),
+      sybilFlags,
+    ),
+    {
+      x402PaymentCount: x402Stats.paymentCount,
+      uniqueFeedbackClients: 0,
+      walletTxCount: walletMetrics.txCount,
+      walletAgeDays: walletMetrics.ageDays,
+    },
   );
 
   const chainSignals: Omit<TrustSignals, "manual"> = {

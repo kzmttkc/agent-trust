@@ -1,6 +1,57 @@
+import { verifyMessage } from "viem";
 import { isSkipChainReadsEnabled } from "@/lib/config/env";
 import { getPublicClient } from "./client";
 import { BASE_USDC_ADDRESS } from "./config";
+
+/**
+ * vet402 2026-08-13 — proof of control for a settlement write-back.
+ *
+ * The write path used to accept `wallet` as a bare claim in the request body:
+ * it confirmed the tx was real and originated from `wallet`, but not that the
+ * POSTER controls `wallet`. So any API key could take a stranger's real Base
+ * transfer (a known-scam wallet's, even) and post it as that stranger's
+ * settlement history, moving a third party's score. This is the same
+ * proof-of-control gate verified payees already use (payees/verify): a valid
+ * EIP-191 signature by `wallet` over a canonical, tx-specific message. Binding
+ * the tx hash into the signed text means one signature authorizes exactly one
+ * settlement write-back and cannot be replayed onto a different tx.
+ *
+ * A write-back WITHOUT a valid signature is still recorded (the ledger keeps
+ * the row) but marked ownership_verified=false, which excludes it from every
+ * score aggregate. Ownership is proven, not assumed.
+ */
+export function x402AttestationMessage(wallet: string, txHash: string): string {
+  return [
+    "Vouch x402 settlement attestation",
+    `wallet: ${wallet.toLowerCase()}`,
+    `tx: ${txHash.toLowerCase()}`,
+    "This signature only proves control of the wallet above for this settlement.",
+  ].join("\n");
+}
+
+/**
+ * True only when `signature` is a valid EIP-191 signature by `wallet` over the
+ * canonical attestation message for `txHash`. Any malformed input or recovery
+ * failure is FALSE (fail-closed): an unprovable claim of ownership is treated
+ * exactly like no claim at all. viem's verifyMessage also covers EIP-1271 /
+ * EIP-6492 smart-account signatures where the chain supports them.
+ */
+export async function verifyX402Ownership(
+  wallet: string,
+  txHash: string,
+  signature: string | null | undefined,
+): Promise<boolean> {
+  if (!signature) return false;
+  try {
+    return await verifyMessage({
+      address: wallet as `0x${string}`,
+      message: x402AttestationMessage(wallet, txHash),
+      signature: signature as `0x${string}`,
+    });
+  } catch {
+    return false;
+  }
+}
 
 /** keccak256("Transfer(address,address,uint256)") — standard ERC20 Transfer event. */
 const TRANSFER_TOPIC =
@@ -51,6 +102,10 @@ export type X402VerifyResult =
       /** Set when a declared amount did not match the chain — the caller is
        *  told which figure we kept. */
       amountMismatch?: { declared: string; onChain: string | null };
+      /** On-chain block time of the settlement tx (the receipt's block).
+       *  The authoritative time axis for uniqueDays — see x402_payments
+       *  .block_timestamp. null only when the block time could not be read. */
+      blockTimestamp: Date | null;
     }
   | {
       ok: false;
@@ -227,6 +282,7 @@ export async function verifyX402PaymentOnChain(
       payeeConfidence: "fallback",
       settlement: { token: null, onChainAmount: null, isUsdc: false },
       amountVerified: declaredAmount ? false : null,
+      blockTimestamp: null,
     };
   }
 
@@ -246,8 +302,20 @@ export async function verifyX402PaymentOnChain(
     return { ok: false, reason: "tx_not_success" };
   }
 
+  // Block time of the settlement, read once here (the receipt carries the
+  // block number but not its timestamp). A read failure degrades to null — the
+  // ledger falls back to created_at for the time axis — rather than failing the
+  // whole write-back, which is already fully verified on every other axis.
+  let blockTimestamp: Date | null = null;
+  try {
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    blockTimestamp = new Date(Number(block.timestamp) * 1000);
+  } catch {
+    blockTimestamp = null;
+  }
+
   if (receipt.from?.toLowerCase() === walletLower) {
-    return okWithPayee(receipt, walletLower, txHash, declaredAmount);
+    return okWithPayee(receipt, walletLower, txHash, declaredAmount, blockTimestamp);
   }
 
   const logMatches = receipt.logs.some((log) => {
@@ -259,7 +327,7 @@ export async function verifyX402PaymentOnChain(
   });
 
   if (logMatches) {
-    return okWithPayee(receipt, walletLower, txHash, declaredAmount);
+    return okWithPayee(receipt, walletLower, txHash, declaredAmount, blockTimestamp);
   }
 
   return { ok: false, reason: "wallet_mismatch" };
@@ -269,7 +337,8 @@ function okWithPayee(
   receipt: ReceiptLike,
   walletLower: string,
   txHash: string,
-  declaredAmount?: string | null,
+  declaredAmount: string | null | undefined,
+  blockTimestamp: Date | null,
 ): X402VerifyResult {
   const { payee, confidence, ...settlement } = extractSettlement(receipt, walletLower);
   if (confidence === "ambiguous") {
@@ -285,7 +354,15 @@ function okWithPayee(
     txHash,
   );
 
-  return { ok: true, payee, payeeConfidence: confidence, settlement, amountVerified, amountMismatch };
+  return {
+    ok: true,
+    payee,
+    payeeConfidence: confidence,
+    settlement,
+    amountVerified,
+    amountMismatch,
+    blockTimestamp,
+  };
 }
 
 /**

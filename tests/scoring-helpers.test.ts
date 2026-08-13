@@ -2,10 +2,11 @@
 // Vouch — scoring helpers. The number itself.
 //
 // Every published claim about what a Vouch score means reduces to these
-// functions: the weights (identity .2 / reputation .3 / wallet .2 / x402 .1,
-// divided by 0.8 because `manual` is a policy layer and not a signal), the
-// bootstrap neutral of 50 for agents with no x402 history, the burner penalty,
-// and the rule that a customer whitelist is a floor rather than a bypass.
+// functions: the weights (vet402 2026-08-13 — identity .05 / reputation .10 /
+// wallet .25 / x402 .40, divided by 0.8 because `manual` is a policy layer and
+// not a signal; forgery cost and weight now correlate), the bootstrap neutral
+// of 50 for agents with no x402 history, the burner penalty, and the rule that
+// a customer whitelist is a floor rather than a bypass.
 //
 // Two of these have a specific way of going wrong that no type checker sees:
 //   - weightSum. `manual: 0.2` sits in the same constant object as the four
@@ -152,14 +153,18 @@ test("weights: manual is a policy layer and is NOT in the divisor", () => {
 });
 
 test("weights: each signal moves the score by its own share", () => {
+  // vet402 2026-08-13: forgery cost and weight now correlate. The self-attested
+  // signals (identity, reputation) carry the LEAST, the chain-confirmed
+  // settlement (x402) the MOST. Shares are score×weight÷0.8.
   assert.equal(computeWeightedScore(0, 0, 0, 0), 0);
-  // identity .2/.8 = 25% of the total
-  assert.equal(computeWeightedScore(100, 0, 0, 0), 25);
-  // reputation .3/.8 = 37.5% → rounds to 38
-  assert.equal(computeWeightedScore(0, 100, 0, 0), 38);
-  assert.equal(computeWeightedScore(0, 0, 100, 0), 25);
-  // x402 .1/.8 = 12.5% → rounds to 13
-  assert.equal(computeWeightedScore(0, 0, 0, 100), 13);
+  // identity .05/.8 = 6.25% → rounds to 6
+  assert.equal(computeWeightedScore(100, 0, 0, 0), 6);
+  // reputation .10/.8 = 12.5% → rounds to 13
+  assert.equal(computeWeightedScore(0, 100, 0, 0), 13);
+  // wallet .25/.8 = 31.25% → rounds to 31
+  assert.equal(computeWeightedScore(0, 0, 100, 0), 31);
+  // x402 .40/.8 = 50% — the hardest-to-fake signal moves the score the most
+  assert.equal(computeWeightedScore(0, 0, 0, 100), 50);
 });
 
 test("weights: x402 defaults to the bootstrap neutral when omitted", () => {

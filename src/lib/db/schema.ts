@@ -401,6 +401,24 @@ export const x402Payments = pgTable(
     onchainAmount: text("onchain_amount"),
     token: text("token"),
     amountVerified: boolean("amount_verified"),
+    /**
+     * vet402 2026-08-13. The on-chain block time of the settlement tx (read
+     * from the receipt's block), NOT the DB insert time. uniqueDays and
+     * lastPaymentAt are computed from this so a caller cannot manufacture a
+     * multi-day settlement streak by dripping inserts of one day's txs across
+     * a fortnight — block time is not something the caller picks. NULL on rows
+     * that predate this column; readers coalesce to created_at for those.
+     */
+    blockTimestamp: timestamp("block_timestamp", { withTimezone: true }),
+    /**
+     * vet402 2026-08-13. TRUE only when the write-back carried a valid EIP-191
+     * signature by `wallet` (proof the poster controls the paying wallet — the
+     * same proof-of-control gate verified payees use). A row counts toward any
+     * score only when this is TRUE, so posting a stranger's real on-chain
+     * transfer records a row but cannot move that stranger's score. NULL on
+     * legacy rows (never TRUE → never score-eligible).
+     */
+    ownershipVerified: boolean("ownership_verified"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [

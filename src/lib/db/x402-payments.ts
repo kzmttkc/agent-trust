@@ -1,8 +1,39 @@
-import { count, countDistinct, desc, eq, gte, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "./client";
 import { isMissingSchemaError } from "./pg-errors";
-import { x402Payments } from "./schema";
+import { BASE_USDC_ADDRESS } from "@/lib/chain/config";
+import { funderWallets, x402Payments } from "./schema";
 import { logServerError } from "@/lib/util/log";
+
+/**
+ * vet402 2026-08-13 — score-eligibility. A payment row moves a trust score
+ * only when it is a genuine, chain-confirmed USDC settlement whose owner signed
+ * for it. Three columns, each closing a separate forgery:
+ *   token = BASE_USDC     the settlement leg actually moved USDC, not a token
+ *                         the payer minted themselves (the wallet-match alone
+ *                         was satisfied by any ERC20 Transfer).
+ *   amount_verified       the declared figure matched the on-chain USDC amount.
+ *   ownership_verified    the write-back carried a valid EIP-191 signature by
+ *                         the paying wallet — so a stranger's real transfer,
+ *                         posted by someone who does not control that wallet,
+ *                         records a row but never counts.
+ * Legacy rows (NULL on the new columns) are excluded, which is correct: that
+ * history was forgeable and must not keep counting.
+ */
+const scoreEligible = and(
+  eq(x402Payments.token, BASE_USDC_ADDRESS.toLowerCase()),
+  eq(x402Payments.amountVerified, true),
+  eq(x402Payments.ownershipVerified, true),
+);
+
+/**
+ * The on-chain block time is the authoritative day axis; created_at (DB insert
+ * time) is a caller-manipulable fallback used only for rows that predate the
+ * block_timestamp column. Dripping inserts of one day's txs across a fortnight
+ * no longer inflates uniqueDays, because block time is not something the caller
+ * picks.
+ */
+const settledAt = sql`coalesce(${x402Payments.blockTimestamp}, ${x402Payments.createdAt})`;
 
 export type X402PaymentStats = {
   paymentCount: number;
@@ -26,6 +57,11 @@ export type RecordX402PaymentInput = {
   token?: string | null;
   /** null = the caller declared no amount; false = declared but unconfirmed. */
   amountVerified?: boolean | null;
+  /** On-chain block time of the settlement tx (authoritative day axis). */
+  blockTimestamp?: Date | null;
+  /** vet402 2026-08-13: true only when a valid EIP-191 signature by `wallet`
+   *  accompanied the write-back. Rows without it are stored but never counted. */
+  ownershipVerified?: boolean | null;
 };
 
 /**
@@ -71,11 +107,15 @@ export async function recordX402Payment(
   // the payee fallback above: a migration lag must not take payment ingest
   // down, and every degradation is logged so the lag is visible rather than
   // permanent. (2026-08-05: onchain_amount / token / amount_verified —
-  // scripts/sql/2026-08-05-x402-amount-verification.sql.)
+  // scripts/sql/2026-08-05-x402-amount-verification.sql. 2026-08-13:
+  // block_timestamp / ownership_verified —
+  // scripts/sql/2026-08-13-x402-block-time-and-ownership.sql.)
   const verificationValues = {
     onchainAmount: input.onchainAmount ?? null,
     token: input.token ? input.token.toLowerCase() : null,
     amountVerified: input.amountVerified ?? null,
+    blockTimestamp: input.blockTimestamp ?? null,
+    ownershipVerified: input.ownershipVerified ?? null,
   };
 
   try {
@@ -121,40 +161,69 @@ export async function recordX402Payment(
  * rather than per-customer counters. Scoping this per API key would defeat
  * that cross-provider network effect.
  *
- * The integrity guarantee instead lives at write time: `POST
- * /v1/payments/x402` (src/app/api/v1/payments/x402/route.ts) now requires
- * `verifyX402PaymentOnChain` to confirm the tx is real, succeeded, and is
- * attributable to the claimed wallet before a row can ever be inserted here.
- * Only genuinely-settled payments can contribute to this aggregate.
+ * The integrity guarantee instead lives at write time AND in the filter here.
+ * `POST /v1/payments/x402` (src/app/api/v1/payments/x402/route.ts) confirms the
+ * tx is real, succeeded, and is attributable to the claimed wallet, and records
+ * whether the poster proved ownership of that wallet. This aggregate then
+ * counts ONLY score-eligible rows (`scoreEligible`): a genuine USDC settlement,
+ * amount-confirmed, owner-signed. A real transfer posted by someone who does
+ * not control the wallet, or in a token the payer minted, contributes nothing.
  */
 export async function getX402PaymentStats(wallet: string): Promise<X402PaymentStats> {
   const db = getDb();
-  if (!db) {
-    return { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null };
-  }
+  const empty: X402PaymentStats = { paymentCount: 0, uniqueDays: 0, lastPaymentAt: null };
+  if (!db) return empty;
 
   const walletLower = wallet.toLowerCase();
-  const rows = await db
-    .select({
-      paymentCount: count(),
-      uniqueDays: sql<number>`count(distinct date_trunc('day', ${x402Payments.createdAt}))`,
-      lastPaymentAt: sql<string | null>`max(${x402Payments.createdAt})`,
-    })
-    .from(x402Payments)
-    .where(eq(x402Payments.wallet, walletLower));
+  try {
+    const rows = await db
+      .select({
+        paymentCount: count(),
+        uniqueDays: sql<number>`count(distinct date_trunc('day', ${settledAt}))`,
+        lastPaymentAt: sql<string | null>`max(${settledAt})`,
+      })
+      .from(x402Payments)
+      .where(and(eq(x402Payments.wallet, walletLower), scoreEligible));
 
-  const row = rows[0];
-  return {
-    paymentCount: Number(row?.paymentCount ?? 0),
-    uniqueDays: Number(row?.uniqueDays ?? 0),
-    lastPaymentAt: row?.lastPaymentAt ?? null,
-  };
+    const row = rows[0];
+    return {
+      paymentCount: Number(row?.paymentCount ?? 0),
+      uniqueDays: Number(row?.uniqueDays ?? 0),
+      lastPaymentAt: row?.lastPaymentAt ?? null,
+    };
+  } catch (error) {
+    // Deploy-ordering safety (vet402 2026-08-13). The score-eligibility filter
+    // and block-time axis reference block_timestamp / ownership_verified. If
+    // the code ships before scripts/sql/2026-08-13-x402-block-time-and-ownership
+    // .sql is applied, those columns do not exist yet. Without this guard the
+    // query throws, the engine flags x402_unavailable, and assessSybilRisk turns
+    // that into a BLOCK for EVERY wallet — a fail-closed outage caused purely by
+    // migration lag. Degrade to "no eligible history" (a neutral x402 signal)
+    // instead, mirroring getPayeeStats and recordX402Payment's own tolerance.
+    if (!isMissingSchemaError(error)) throw error;
+    logServerError(
+      "x402_stats_column_missing",
+      new Error("block_timestamp/ownership_verified not migrated yet; reading as no eligible history"),
+    );
+    return empty;
+  }
 }
 
 export type PayeeStats = {
   paymentCount: number;
   uniqueDays: number;
   distinctPayers: number;
+  /**
+   * vet402 2026-08-13 — the number of distinct FUNDING SOURCES behind the
+   * distinct payers, not the raw payer count. Ten wallets all funded by one
+   * address are one sybil cluster wearing ten faces, not ten independent
+   * customers; counting them as ten let a payee buy a full receiving-diversity
+   * bonus from a single funder. Computed from the funder index (same source as
+   * the payer-side funding_cluster check); a payer whose funder is unknown
+   * counts as its own source, so an unpopulated index degrades to
+   * distinctFunders == distinctPayers (no penalty we cannot justify).
+   */
+  distinctFunders: number;
   firstPaymentAt: string | null;
   lastPaymentAt: string | null;
 };
@@ -172,6 +241,7 @@ export async function getPayeeStats(payee: string): Promise<PayeeStats> {
     paymentCount: 0,
     uniqueDays: 0,
     distinctPayers: 0,
+    distinctFunders: 0,
     firstPaymentAt: null,
     lastPaymentAt: null,
   };
@@ -182,19 +252,22 @@ export async function getPayeeStats(payee: string): Promise<PayeeStats> {
     const rows = await db
       .select({
         paymentCount: count(),
-        uniqueDays: sql<number>`count(distinct date_trunc('day', ${x402Payments.createdAt}))`,
+        uniqueDays: sql<number>`count(distinct date_trunc('day', ${settledAt}))`,
         distinctPayers: countDistinct(x402Payments.wallet),
-        firstPaymentAt: sql<string | null>`min(${x402Payments.createdAt})`,
-        lastPaymentAt: sql<string | null>`max(${x402Payments.createdAt})`,
+        firstPaymentAt: sql<string | null>`min(${settledAt})`,
+        lastPaymentAt: sql<string | null>`max(${settledAt})`,
       })
       .from(x402Payments)
-      .where(eq(x402Payments.payee, payeeLower));
+      .where(and(eq(x402Payments.payee, payeeLower), scoreEligible));
 
     const row = rows[0];
+    const distinctPayers = Number(row?.distinctPayers ?? 0);
+
     return {
       paymentCount: Number(row?.paymentCount ?? 0),
       uniqueDays: Number(row?.uniqueDays ?? 0),
-      distinctPayers: Number(row?.distinctPayers ?? 0),
+      distinctPayers,
+      distinctFunders: await countDistinctFunders(db, payeeLower, distinctPayers),
       firstPaymentAt: row?.firstPaymentAt ?? null,
       lastPaymentAt: row?.lastPaymentAt ?? null,
     };
@@ -205,6 +278,51 @@ export async function getPayeeStats(payee: string): Promise<PayeeStats> {
       new Error("payee column not migrated yet; returning empty stats"),
     );
     return empty;
+  }
+}
+
+/**
+ * vet402 2026-08-13 — collapse a payee's distinct payers down to their distinct
+ * funding sources. Sybil clusters share one funder, so counting funders instead
+ * of wallets stops a payee from manufacturing "many independent customers" out
+ * of one funded set. A payer with no funder row counts as its own source
+ * (coalesce to the wallet), so an empty/lagging funder index simply returns the
+ * raw payer count — the diversity bonus is never penalized on data we lack.
+ * Reads the same funder_wallets index the payer-side funding_cluster check
+ * uses (populated only by the trusted indexer, never by API scoring).
+ */
+async function countDistinctFunders(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  payeeLower: string,
+  distinctPayers: number,
+): Promise<number> {
+  if (distinctPayers === 0) return 0;
+  try {
+    const payers = db
+      .selectDistinct({ wallet: x402Payments.wallet })
+      .from(x402Payments)
+      .where(and(eq(x402Payments.payee, payeeLower), scoreEligible))
+      .as("payers");
+
+    const rows = await db
+      .select({
+        distinctFunders: sql<number>`count(distinct coalesce(${funderWallets.funder}, ${payers.wallet}))`,
+      })
+      .from(payers)
+      .leftJoin(funderWallets, sql`lower(${funderWallets.wallet}) = ${payers.wallet}`);
+
+    const value = Number(rows[0]?.distinctFunders ?? distinctPayers);
+    // Never report MORE funding sources than payers — a defensive floor in case
+    // a wallet somehow carries multiple funder rows in the index.
+    return Math.min(value, distinctPayers);
+  } catch (error) {
+    // The funder index is an optimization for a sybil discount, not a
+    // correctness gate: if it cannot be read (e.g. funder_wallets not migrated),
+    // fall back to the raw payer count rather than failing the whole payee read.
+    if (!isMissingSchemaError(error)) {
+      logServerError("payee_distinct_funders", error);
+    }
+    return distinctPayers;
   }
 }
 

@@ -47,13 +47,40 @@ export const IDENTITY_REGISTRY_FROM_BLOCK = BigInt(41_663_783);
 /**
  * Chain signal weights before manual WL/BL policy.
  * Manual remains a post-score policy layer (not mixed into this sum).
- * x402 settlement history starts at 10% (Phase 1.5); wallet reduced from 0.30 → 0.20.
+ *
+ * vet402 2026-08-13 — forgery cost and weight must correlate POSITIVELY.
+ * The old split (identity .2 + reputation .3 = .5 of the score) put HALF the
+ * weight on the two cheapest-to-fake signals: ERC-8004 registration is one
+ * Base tx of a few cents, and the reputation summary is self-attestable. The
+ * one signal that costs a real, chain-confirmed USDC settlement to fake —
+ * x402 — carried only .1. So the product rewarded exactly the signals an
+ * attacker controls and discounted the one it does not. Registering alone
+ * (0 settlements) reached 83/ALLOW while unregistered real companies capped at
+ * 49/WARN.
+ *
+ * The order below is now cheapest-to-fake → hardest-to-fake, LOW weight → HIGH
+ * weight:
+ *   identity   .05  self-attested: a registration tx anyone can send.
+ *   reputation .10  self-attestable summary; distinct-client feedback is what
+ *                   the sybil layer and the ALLOW-evidence gate actually trust.
+ *   wallet     .25  age + tx count: on-chain and observed, gameable but not
+ *                   free (a wallet has to actually exist and transact).
+ *   x402       .40  a chain-confirmed USDC settlement whose owner signed for
+ *                   it (getX402PaymentStats now counts only those). Hardest to
+ *                   fake, so it moves the score the most.
+ *
+ * The four still sum to 0.8 (manual is the .2 policy layer, excluded from
+ * computeWeightedScore), so the ÷0.8 normalization and every downstream
+ * breakdown are unchanged; only the distribution across the four moved.
+ * Self-attestation alone still cannot clear ALLOW — see hasVerifiableEvidence
+ * / SELF_ATTESTED_CEILING in scoring/helpers.ts, which caps a score with no
+ * verifiable evidence at WARN regardless of how the weights land.
  */
 export const SCORE_WEIGHTS = {
-  identity: 0.2,
-  reputation: 0.3,
-  wallet: 0.2,
-  x402: 0.1,
+  identity: 0.05,
+  reputation: 0.1,
+  wallet: 0.25,
+  x402: 0.4,
   /** Policy layer — not included in computeWeightedScore. */
   manual: 0.2,
 } as const;

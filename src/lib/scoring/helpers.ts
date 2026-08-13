@@ -1,6 +1,67 @@
 import type { Address } from "viem";
-import { SCORE_WEIGHTS } from "@/lib/chain/config";
+import { SCORE_THRESHOLDS, SCORE_WEIGHTS } from "@/lib/chain/config";
 import type { Recommendation, ScoreBreakdown } from "./types";
+
+/**
+ * vet402 2026-08-13 — ALLOW requires verifiable on-chain evidence, not just
+ * self-attestation.
+ *
+ * The exploit this closes: registering an ERC-8004 identity (one Base tx, a
+ * few cents, ZERO x402 settlements) reached 83/ALLOW, because identity +
+ * self-attestable reputation carried half the weight. Rebalancing the weights
+ * lowers that, but weights alone cannot state the rule the operator ruled on:
+ * "registration may LOWER a score but must never RAISE it above WARN on its
+ * own." A high wallet-age score could still push a bare registration over the
+ * line. So the gate is explicit and separate from the weights.
+ *
+ * `hasVerifiableEvidence` is TRUE when at least one signal that an attacker
+ * cannot mint for free is present:
+ *   - a verified x402 settlement (getX402PaymentStats now counts only USDC
+ *     payments whose owner signed for them — the hardest-to-fake signal), OR
+ *   - reputation backed by feedback from ≥3 DISTINCT clients (not a self-
+ *     attested summary value — distinct reviewers are what the sybil layer
+ *     already trusts; a velocity anomaly with few unique clients is flagged
+ *     separately), OR
+ *   - an established wallet: ≥20 txs AND ≥30 days old (on-chain history that
+ *     had to actually accrue over time).
+ *
+ * ERC-8004 registration and an unbacked reputation summary are deliberately
+ * NOT on this list: they are the self-attestation the ruling excludes. When
+ * none of the above holds, the engine caps the pre-policy score at
+ * SELF_ATTESTED_CEILING (one under the ALLOW line), so the best a self-attested
+ * agent can be told is WARN. A customer whitelist can still promote WARN→ALLOW
+ * — that is a deliberate OPERATOR decision, not the subject's own claim.
+ */
+export const SELF_ATTESTED_CEILING = SCORE_THRESHOLDS.allow - 1;
+
+export interface VerifiableEvidenceInputs {
+  /** Score-eligible x402 settlements (USDC + amount-verified + owner-signed). */
+  x402PaymentCount: number;
+  /** Distinct clients that left ERC-8004 feedback in the recent window. */
+  uniqueFeedbackClients: number;
+  walletTxCount: number;
+  walletAgeDays: number;
+}
+
+export function hasVerifiableEvidence(e: VerifiableEvidenceInputs): boolean {
+  if (e.x402PaymentCount > 0) return true;
+  if (e.uniqueFeedbackClients >= 3) return true;
+  if (e.walletTxCount >= 20 && e.walletAgeDays >= 30) return true;
+  return false;
+}
+
+/**
+ * Apply the ALLOW-evidence gate: a score with no verifiable evidence behind it
+ * cannot exceed WARN. Never RAISES a score (it is a Math.min), so a low score
+ * with no evidence is untouched — the cap only bites the case the ruling names,
+ * a self-attested agent whose weighted score would otherwise clear ALLOW.
+ */
+export function capForVerifiableEvidence(
+  score: number,
+  evidence: VerifiableEvidenceInputs,
+): number {
+  return hasVerifiableEvidence(evidence) ? score : Math.min(score, SELF_ATTESTED_CEILING);
+}
 
 // One definition, in the module that has no database import (./verdict).
 export { toRecommendation } from "./verdict";
