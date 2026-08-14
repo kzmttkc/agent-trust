@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import CodeBlock from "@/components/docs/CodeBlock";
 import DocsToc, { type TocItem } from "@/components/docs/DocsToc";
 import { TableScroll } from "@/components/site/TableScroll";
 import { SITE_URL } from "@/lib/site-url";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 // 2026-08-13 UX監査2巡目 [m2]: このページには metadata が無く、layout の
 // default（LP と同じ長い表題）をそのまま名乗っていた。template "%s | vet402"
@@ -240,7 +242,13 @@ const errorCodes = [
   { status: "429", meaning: "Rate limited", detail: `Two causes, told apart by the error string: "rate_limit_exceeded" is the monthly quota (retry next month), "rate_limited" is a one-minute IP throttle (retry after the reported seconds). See Two kinds of 429 above.` },
 ];
 
-export default function ApiDocsPage() {
+export default async function ApiDocsPage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "API reference", path: "/docs/api" },
+  ]);
+
   return (
     // 2026-08-06 (320px persona audit A-5): `p-8` had no breakpoint, so a 320px
     // screen lost 64px to the page gutter alone — stacked with the card's px-4
@@ -254,6 +262,12 @@ export default function ApiDocsPage() {
           growth_ledger.py (the true value moment, a scored API call, happens
           server-side and never reaches Plausible). */}
       <TrackView event="docs_view" />
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
 
       {/* 2026-08-11 UI監査5: このページはモバイル375pxで約21,000px の一枚岩で、
           「Webhooksの署名検証」を探す読者はスクロールし続ける以外の手段が無かった

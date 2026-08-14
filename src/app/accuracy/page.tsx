@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
+import { SITE_URL } from "@/lib/site-url";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { TableScroll } from "@/components/site/TableScroll";
 import { computeAccuracyReport, type AccuracyReport } from "@/lib/scoring/accuracy";
@@ -65,10 +68,49 @@ export default async function AccuracyPage() {
 
   const hasAnyData = report.observedVerdicts > 0;
   const hasBenchmarkData = benchmark.knownBad.total + benchmark.knownGood.total > 0;
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
+  const datasetJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    name: "vet402 accuracy ledger",
+    description:
+      "What happened after vet402's own verdicts: the share of ALLOW verdicts with later adverse activity, and the share of BLOCK verdicts later confirmed wrong, over a rolling 90-day window.",
+    url: `${SITE_URL}/accuracy`,
+    creator: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    temporalCoverage: "R/P90D",
+    distribution: {
+      "@type": "DataDownload",
+      encodingFormat: "application/json",
+      contentUrl: `${SITE_URL}/api/v1/accuracy`,
+    },
+    variableMeasured: [
+      "observed verdicts",
+      "ALLOW verdicts with adverse outcome",
+      "BLOCK verdicts confirmed wrong",
+    ],
+  };
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Accuracy", path: "/accuracy" },
+  ]);
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(datasetJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>

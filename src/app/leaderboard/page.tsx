@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { TableScroll } from "@/components/site/TableScroll";
 import { fetchLeaderboard } from "@/lib/db/leaderboard";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
+import { SITE_URL } from "@/lib/site-url";
 
 // N-17 — public agent leaderboard. Latest verdict per agent, aggregate only.
 // Honest empty state, same discipline as /accuracy.
@@ -103,10 +106,43 @@ export default async function LeaderboardPage({
     return acc;
   }, {});
   const hasSeeded = rows.some((r) => r.seeded);
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
+  const itemListJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "vet402 — recently verified subjects",
+    numberOfItems: total,
+    itemListElement: rows
+      .filter((r) => r.agentId || r.wallet)
+      .map((r, i) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        url: r.agentId ? `${SITE_URL}/agent/${r.agentId}` : `${SITE_URL}/payee/${r.wallet}`,
+        name: r.agentId ? `Agent #${r.agentId}` : shortWallet(r.wallet),
+      })),
+  };
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Leaderboard", path: "/leaderboard" },
+  ]);
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>

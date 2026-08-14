@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { isValidAddress } from "@/lib/chain/client";
 import TrackView from "@/components/site/TrackView";
 import { buttonClass } from "@/components/ui/Button";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 /**
  * /payee — the entry point for the working demo.
@@ -73,10 +75,21 @@ export default async function PayeeIndexPage({
   const empty = attempted && submitted.length === 0;
   const invalid = submitted.length > 0;
   const errored = empty || invalid;
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Verify a payee", path: "/payee" },
+  ]);
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <TrackView event="payee_lookup_view" />
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
       <article className="sheet">
         <div className="doc-head">
           <div className="doc-head-col">

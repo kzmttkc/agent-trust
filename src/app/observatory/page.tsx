@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
+import { SITE_URL } from "@/lib/site-url";
 import { TableScroll } from "@/components/site/TableScroll";
 import { getObservatoryOverview } from "@/lib/observatory/reader";
 
@@ -43,10 +46,44 @@ export default async function ObservatoryPage({
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   const overview = await getObservatoryOverview({ page });
   const totalPages = Math.max(1, Math.ceil(overview.totalEndpoints / overview.pageSize));
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
+  // ItemList reflects only this page's rows — position accounts for the
+  // page offset so it stays truthful about rank within the full register,
+  // not a re-numbered 1..N per page.
+  const itemListJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "x402 Observatory — observed endpoints",
+    numberOfItems: overview.totalEndpoints,
+    itemListElement: overview.rows.map((row, i) => ({
+      "@type": "ListItem",
+      position: (page - 1) * overview.pageSize + i + 1,
+      url: `${SITE_URL}/observatory/e/${row.id}`,
+      name: row.resourceKey,
+    })),
+  };
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Observatory", path: "/observatory" },
+  ]);
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>

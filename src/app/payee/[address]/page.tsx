@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -195,9 +197,22 @@ export default async function PayeePage({
                 gloss: "Read the signals below before paying.",
               };
 
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Verify a payee", path: "/payee" },
+    { name: `Payee ${checksummed.slice(0, 10)}…`, path: `/payee/${address}` },
+  ]);
+
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
         {/* payee_view: the two-sided loop's read side. referrer=external is the
             closest observable proxy for badge-embed inflow (the badge image on a
             payee's own site links here); the referring URL itself is never sent. */}

@@ -57,7 +57,9 @@ test(".vercelignore が既定の無視規則を取りこぼしていない", () 
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"));
-  for (const must of [".git", "node_modules", ".next", ".vercel", ".claude", "state", "logs"]) {
+  // state/logs は 2026-08-14 に先頭スラッシュ付きへ修正済み（無アンカー行が
+  // /observatory/state を誤って本番から消していたため）。ここもそれに追随する。
+  for (const must of [".git", "node_modules", ".next", ".vercel", ".claude", "/state", "/logs"]) {
     assert.ok(
       lines.includes(must),
       `.vercelignore に ${must} が無い。.gitignore は参照されないので、` +

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 import { TableScroll } from "@/components/site/TableScroll";
 import { getEndpointDetail } from "@/lib/observatory/reader";
 
@@ -44,10 +46,23 @@ export default async function ObservatoryEndpointPage({ params }: Props) {
   if (!detail) notFound();
 
   const { endpoint, probes, events, publishedVerdict, l1, purchases } = detail;
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Observatory", path: "/observatory" },
+    { name: endpoint.resourceKey, path: `/observatory/e/${id}` },
+  ]);
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>

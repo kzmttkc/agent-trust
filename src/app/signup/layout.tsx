@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 /**
  * /signup の metadata の置き場所（2026-08-13 UX監査2巡目 [m2]）。
@@ -19,6 +21,22 @@ export const metadata: Metadata = pageMetadata({
   path: "/signup",
 });
 
-export default function SignupLayout({ children }: { children: React.ReactNode }) {
-  return children;
+export default async function SignupLayout({ children }: { children: React.ReactNode }) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Get an API key", path: "/signup" },
+  ]);
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
+      {children}
+    </>
+  );
 }

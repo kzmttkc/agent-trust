@@ -1,7 +1,10 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { getAllPosts } from "@/lib/blog";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
+import { SITE_URL } from "@/lib/site-url";
 
 export const metadata: Metadata = pageMetadata({
   // 2026-08-13 [m2]: 接尾辞は layout の template "%s | vet402" が付ける。
@@ -11,11 +14,39 @@ export const metadata: Metadata = pageMetadata({
   path: "/blog",
 });
 
-export default function BlogIndexPage() {
+export default async function BlogIndexPage() {
   const posts = getAllPosts();
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const itemListJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "vet402 blog",
+    itemListElement: posts.map((post, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      url: `${SITE_URL}/blog/${post.slug}`,
+      name: post.title,
+    })),
+  };
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Blog", path: "/blog" },
+  ]);
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 p-8">
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
       <div className="space-y-2">
         <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">vet402</p>
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">Blog</h1>

@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 import {
   MIN_CONSECUTIVE_FAILS_TO_PUBLISH,
 } from "@/lib/observatory/l0-probe";
 import { SETTLE_DROP_MIN_PREV_CALLS, SETTLE_DROP_RATIO } from "@/lib/observatory/catalog-diff";
+import { SWEEP_WINDOW_DAYS } from "@/lib/observatory/l1-runner";
+import { MAX_PER_PURCHASE_UNITS } from "@/lib/observatory/x402-payer";
+import { DAILY_BUDGET_USD } from "@/lib/observatory/budget";
+
+const MAX_PER_PURCHASE_USD = Number(MAX_PER_PURCHASE_UNITS) / 1_000_000;
 
 /**
  * /observatory/methodology — the definitions page (design §5).
@@ -18,21 +25,35 @@ import { SETTLE_DROP_MIN_PREV_CALLS, SETTLE_DROP_RATIO } from "@/lib/observatory
 export const metadata: Metadata = pageMetadata({
   title: "Observatory methodology",
   description:
-    "Definitions behind the x402 Observatory: what pass, fail and unverified mean, what a no-purchase probe can and cannot measure, and how delisting is detected.",
+    "Definitions behind the x402 Observatory: L0 liveness probes, L1 real-money settle-through purchases, L2 structural conformance checks, and how delisting is detected.",
   path: "/observatory/methodology",
 });
 
 export const revalidate = 3600;
 
-export default function ObservatoryMethodologyPage() {
+export default async function ObservatoryMethodologyPage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Observatory", path: "/observatory" },
+    { name: "Methodology", path: "/observatory/methodology" },
+  ]);
+
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>
-            <span>Methodology: L0 observations</span>
-            <span>Version 1 · 2026-08-14</span>
+            <span>Methodology: L0, L1, L2</span>
+            <span>Version 2 · 2026-08-15</span>
           </div>
           <div className="doc-head-col">
             <span>vet402</span>
@@ -114,14 +135,59 @@ export default function ObservatoryMethodologyPage() {
         </h2>
         <p className="doc-p">
           Without purchasing, we cannot observe whether the endpoint actually delivers what it
-          sells, the quality of what it returns, or settlement behaviour after payment. Those are
-          higher observation levels with their own methodology, published separately when active.
-          An endpoint with <code>L0: pass</code> has a standing payment wall — nothing more is
-          claimed.
+          sells, the quality of what it returns, or settlement behaviour after payment. An
+          endpoint with <code>L0: pass</code> has a standing payment wall — nothing more is
+          claimed. L1 and L2 below cover settlement and conformance; L3, opinion on the quality of
+          what is delivered, is not built and nothing on this site presents one.
         </p>
 
         <h2 className="sec-head">
           <span className="sec-no">6.</span>
+          <span>What L1 measures</span>
+        </h2>
+        <p className="doc-p">
+          An L1 purchase is a real transaction: one covert purchase per endpoint, at most once per{" "}
+          {SWEEP_WINDOW_DAYS}-day window, targeting endpoints whose most recent L0 verdict is{" "}
+          <code>pass</code>, prioritised by real observed demand (30-day payer and call counts
+          reported by the catalog). We request unpaid first to read the <code>402</code> challenge,
+          then select a payment option and refuse to proceed unless every one of these holds:
+          scheme <code>exact</code>, network Base, asset canonical Base USDC, and a price that
+          matches what the catalog declared when we chose the target. Any deviation — a
+          different asset, a different chain, a higher price — is recorded as a refusal, never
+          paid. A hard per-purchase ceiling (${MAX_PER_PURCHASE_USD.toFixed(2)}) and a daily
+          budget (${DAILY_BUDGET_USD}) are checked against a database ledger, not memory, before
+          every signature, so a restart or a concurrent run cannot double-spend. Once we sign, the
+          spend is recorded whether or not the seller delivers — a signed EIP-3009 authorization
+          is live money the moment it exists.
+        </p>
+        <p className="doc-p">
+          <strong>settled</strong> — the paid request returned a settlement receipt confirming
+          success, with a transaction hash. <strong>delivered_no_receipt</strong> — the seller
+          returned <code>200</code> but the response carried no settlement receipt.{" "}
+          <strong>settle_failed</strong> — no successful paid response came back at all. Every
+          attempt, including refusals before any money moved, is visible on the endpoint&apos;s
+          page with its evidence.
+        </p>
+
+        <h2 className="sec-head">
+          <span className="sec-no">7.</span>
+          <span>What L2 measures</span>
+        </h2>
+        <p className="doc-p">
+          L2 runs only when the paid request in the same purchase returned <code>200</code>. It is
+          a minimal structural check, not a full JSON-Schema validation: the response must parse
+          as JSON and carry the top-level keys the catalog&apos;s own declared output schema marks
+          as required. <strong>no_declaration</strong> — the catalog entry does not declare an
+          output schema; never counted as a failure. <strong>match</strong> — the response parses
+          and every declared required key is present. <strong>mismatch</strong> — the body does
+          not parse as JSON, a required key is missing, or the content type is not JSON despite a
+          declaration. <strong>not_checked</strong> — the paid request did not return{" "}
+          <code>200</code>, so there was nothing to check. L2 does not verify that the values are
+          correct or that the content is any good — that judgement is L3, and L3 is not built.
+        </p>
+
+        <h2 className="sec-head">
+          <span className="sec-no">8.</span>
           <span>Fairness commitments</span>
         </h2>
         <p className="doc-p">

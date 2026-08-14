@@ -58,7 +58,7 @@ type Candidate = {
 const USDC_PER_USD = 1_000_000;
 
 /** Endpoints purchased within this window are not re-purchased (1判定1購買). */
-const SWEEP_WINDOW_DAYS = 6;
+export const SWEEP_WINDOW_DAYS = 6;
 
 function unitsToUsd(units: bigint): number {
   return Number(units) / USDC_PER_USD;

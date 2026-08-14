@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 import { VerdictBadge } from "@/components/site/VerdictBadge";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
@@ -127,8 +129,21 @@ export default async function AgentPage({
             ? "low"
             : "unknown";
 
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Leaderboard", path: "/leaderboard" },
+    { name: `Agent #${agentId.toString()}`, path: `/agent/${agentIdParam}` },
+  ]);
+
   return (
     <main className="mx-auto max-w-2xl px-5 py-16 md:px-8">
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
       <TrackView event="passport_view" props={{ band, verified: Boolean(entry) }} withReferrerType />
       <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">
         {entry ? "Verified agent" : "Agent"}

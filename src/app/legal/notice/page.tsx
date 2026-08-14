@@ -11,8 +11,10 @@
 // before any consumer-facing billing goes live, mirroring KoeWall's
 // billing-flag-linked tokushoho pattern.
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 export const metadata: Metadata = pageMetadata({
   // 2026-08-13 [m2]: 二重サフィックス解消（template が " | vet402" を付ける）。
@@ -21,10 +23,22 @@ export const metadata: Metadata = pageMetadata({
   path: "/legal/notice",
 });
 
-export default function LegalNoticePage() {
+export default async function LegalNoticePage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Legal Notice", path: "/legal/notice" },
+  ]);
+
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet space-y-8 text-sm text-brand">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>

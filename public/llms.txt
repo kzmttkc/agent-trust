@@ -8,7 +8,7 @@ Formerly named "Vouch"; renamed to vet402 in August 2026. The production URL is 
 
 ## Verification levels
 
-This is the published methodology. A result is labelled by the level that produced it and never moves up a level: an L0 probe cannot report settlement, and an L3 opinion is never folded into an L0–L2 fact. L0–L2 verdicts ship with the observatory (see "Being built" below) — they are not being published yet, and this file does not describe them as though they were.
+This is the published methodology. A result is labelled by the level that produced it and never moves up a level: an L0 probe cannot report settlement, and an L3 opinion is never folded into an L0–L2 fact. L0, L1 and L2 verdicts ship live in the observatory (see "Implemented and live" below): L0 and L1 are full measurements; L2 is a deliberately minimal structural check — parses the response as JSON and confirms the seller's own declared required keys are present, nothing deeper — described exactly as such on https://vet402.com/observatory/methodology. L3 is not built and no opinion is published anywhere on the site.
 
 - **L0 Liveness** — does the endpoint answer correctly? Probe, no purchase. Output: pass / fail / unverified.
 - **L1 Settle-through** — does payment settle and a response arrive? Real purchase. Output: n of m settled, latency.
@@ -20,6 +20,9 @@ What the API returns today is a different, older thing: a 0–100 trust or payee
 ## Primary
 
 - https://vet402.com/ — the memo: problem, verification levels, what is live, what is still being built
+- https://vet402.com/observatory — the L0 register: every catalog-listed x402 endpoint, probed daily against its own declared method, pass / fail / unverified with timestamped evidence
+- https://vet402.com/observatory/state — aggregate rates for the whole observed catalog, broken out by chain
+- https://vet402.com/observatory/methodology — full definitions for L0 Liveness, L1 Settle-through and L2 Conformance: what each level measures, what it cannot measure, and the publication gate that keeps one bad sample from branding an endpoint dead
 - https://vet402.com/docs/api — API reference, including copy-paste curl commands that need no key
 - https://vet402.com/accuracy — public accuracy ledger: past verdicts, outcomes, and misfire rate
 - https://vet402.com/leaderboard — register of recently verified subjects, ranked
@@ -30,7 +33,7 @@ What the API returns today is a different, older thing: a 0–100 trust or payee
 - https://vet402.com/signup — get an API key (free tier: 1,000 lookups / month)
 - https://vet402.com/blog — notes on agent-to-agent payments, x402, and verification
 
-Public per-subject pages: `https://vet402.com/payee/{address}` and `https://vet402.com/agent/{agentId}`.
+Public per-subject pages: `https://vet402.com/payee/{address}`, `https://vet402.com/agent/{agentId}`, and `https://vet402.com/observatory/e/{id}` (one endpoint's full L0/L1/L2 history).
 
 ## API — no key required
 
@@ -75,11 +78,11 @@ On npm, all from the same repository: `@vouchscore/sdk` (spend guard), `@vouchsc
 - Verified Payee: prove control of a wallet by signature, get a public page and an SVG badge
 - Drop-in x402 middleware, REST API, and MCP tool
 - Public accuracy ledger, published whether or not the numbers flatter us
+- The x402 Observatory: L0 liveness probes across the full public discovery catalog, multi-chain (see /observatory/state for the breakdown), with delisting alerts for claimed sellers; L1 settle-through — real USDC purchases on Base, budget-capped, one purchase per endpoint per sweep window, recording every settlement and every refusal; L2 — a minimal structural check of the response against the seller's own declared schema
 
 ## Being built (not measurements yet)
 
-- The observatory: a continuous catalog of x402 endpoints across chains, probed daily, with delisting alerts for claimed sellers
-- Writing verification records to the ERC-8004 Validation Registry
+- Writing verification records to the ERC-8004 Validation Registry — the registry itself is UNSTABLE upstream as of 2026-08-14 (per 8004scan's best-practices), so vet402 keeps its record format ready without writing to it yet
 
 ## Use cases
 
@@ -90,7 +93,9 @@ On npm, all from the same repository: `@vouchscore/sdk` (spend guard), `@vouchsc
 
 ## Chain
 
-Base (ERC-8004 agent identity / reputation) is the default and the chain everything is measured on. The agent-score endpoint accepts `?chain=` to select another enabled chain; an unknown or disabled chain is a 400 with the live list, never a silent fallback to a different chain.
+Base (ERC-8004 agent identity / reputation) is the default and the chain the scoring API measures on. The agent-score endpoint accepts `?chain=` to select another enabled chain; an unknown or disabled chain is a 400 with the live list, never a silent fallback to a different chain.
+
+The observatory is a separate system and is not Base-only: L0 probing runs across every chain present in the public x402 discovery catalog, and https://vet402.com/observatory/state reports the current per-chain breakdown. L1 purchases are Base-only for now (the wallet only signs Base USDC); a purchase on another chain is recorded as skipped, not silently paid on a substitute chain.
 
 ## Note on domain
 
@@ -107,7 +112,7 @@ Corrections that are issued are published at https://vet402.com/corrections — 
 - You may cite the content on this site (front page, API docs, FAQ, accuracy ledger, blog) as long as you credit the source with the corresponding vet402.com URL.
 - The same statement is published for human readers in section 4 of https://vet402.com/accuracy — this file is not the only place it exists.
 - Figures on the accuracy ledger are rolling 90-day aggregates; cite them with the retrieval date, or quote the `generatedAt` timestamp from `GET /api/v1/accuracy`.
-- Content current as of 2026-08-14.
+- Content current as of 2026-08-15.
 
 ## Legal
 

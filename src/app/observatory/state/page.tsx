@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { pageMetadata } from "@/lib/seo";
+import { headers } from "next/headers";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
+import { SITE_URL } from "@/lib/site-url";
 import { TableScroll } from "@/components/site/TableScroll";
 import { getObservatoryStats, getObservatoryStatsByChain } from "@/lib/observatory/reader";
 
@@ -34,10 +37,50 @@ export default async function ObservatoryStatePage() {
   const denom = stats.totalEndpoints;
   const snap = stats.latestSnapshot;
   const fetchComplete = snap ? snap.fetchedCount >= snap.totalCount : false;
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
+  const datasetJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    name: "State of x402",
+    description:
+      "Aggregate L0 liveness and L1 settle-through measurements over the full public x402 discovery catalog, broken out by chain.",
+    url: `${SITE_URL}/observatory/state`,
+    creator: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    temporalCoverage: snap?.snapshotDate ?? undefined,
+    variableMeasured: [
+      "endpoints on record",
+      "currently listed in catalog",
+      "delisted endpoints",
+      "L0 published pass",
+      "L0 published fail",
+      "L0 unverified",
+      "L1 paid purchase attempts",
+      "L1 settled with on-chain receipt",
+    ],
+  };
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Observatory", path: "/observatory" },
+    { name: "State of x402", path: "/observatory/state" },
+  ]);
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(datasetJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>

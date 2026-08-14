@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { safeJsonLd } from "@/lib/util/json-ld";
 
 // 2026-08-13 [m2] の続き: /legal/notice にだけ固有 title を付け、同じ legal/
 // 配下の terms と privacy を取り残していた。template が " | vet402" を付けるので、
@@ -12,10 +14,22 @@ export const metadata: Metadata = pageMetadata({
   path: "/legal/privacy",
 });
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Privacy Policy", path: "/legal/privacy" },
+  ]);
+
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <article className="sheet space-y-6 text-sm text-brand">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
         <div className="doc-head">
           <div className="doc-head-col">
             <span>Independent Measurement</span>
