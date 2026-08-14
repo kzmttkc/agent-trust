@@ -23,12 +23,13 @@ if (!TEST_DB) {
       "@/lib/observatory/reader"
     );
     const { getDb } = await import("@/lib/db/client");
+    const schema = await import("@/lib/db/schema");
     const { sql } = await import("drizzle-orm");
     const { parseCatalogItem } = await import("@/lib/observatory/catalog-source");
 
     const db = getDb()!;
     await db.execute(
-      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events`,
+      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_l1_purchases`,
     );
 
     // 3 endpoints: one healthy, one that will fail twice, one undeclared.
@@ -96,6 +97,41 @@ if (!TEST_DB) {
       assert.equal(stats.publishedPass, 1);
       assert.equal(stats.publishedUnverified, 1);
       assert.equal(stats.methodUndeclared, 1);
+    });
+
+    await t.test("L1 purchase history surfaces on detail and stats with the receipt", async () => {
+      const overview = await getObservatoryOverview();
+      const healthy = overview.rows.find((r) => r.resourceKey === "healthy.example/api")!;
+      await db.insert(schema.x402L1Purchases).values([
+        {
+          endpointId: healthy.id,
+          status: "settled",
+          amountUnits: "3000",
+          spentUnits: "3000",
+          txHash: "0xfeed",
+          httpStatusPaid: 200,
+          latencyMs: 420,
+          payloadNonEmpty: true,
+        },
+        {
+          endpointId: healthy.id,
+          status: "settle_failed",
+          amountUnits: "3000",
+          spentUnits: "3000",
+          latencyMs: 900,
+        },
+      ]);
+      const detail = await getEndpointDetail(healthy.id);
+      assert.ok(detail);
+      assert.equal(detail!.l1.attempts, 2);
+      assert.equal(detail!.l1.settled, 1);
+      assert.equal(detail!.purchases.length, 2);
+      assert.equal(detail!.purchases.some((p) => p.txHash === "0xfeed"), true);
+
+      const stats = await getObservatoryStats();
+      assert.equal(stats.l1.attempts, 2);
+      assert.equal(stats.l1.settled, 1);
+      assert.equal(stats.l1.endpointsAttempted, 1);
     });
 
     await t.test("detail rejects non-uuid ids without touching the DB", async () => {

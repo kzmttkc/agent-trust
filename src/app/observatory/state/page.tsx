@@ -147,6 +147,51 @@ export default async function ObservatoryStatePage() {
 
         <h2 className="sec-head">
           <span className="sec-no">2.</span>
+          <span>L1 — real purchases (covert)</span>
+        </h2>
+        {stats.l1.attempts === 0 ? (
+          <p className="doc-p text-brand-lift">
+            No purchases attempted yet. When active, this section reports settlement penetration
+            over real paid requests, each backed by an on-chain receipt.
+          </p>
+        ) : (
+          <TableScroll label="L1 covert-purchase measurements">
+            <table className="fact-table">
+              <caption className="sr-only">L1 covert-purchase measurements</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Measurement</th>
+                  <th scope="col" className="num">
+                    Count
+                  </th>
+                  <th scope="col" className="num">
+                    Share
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="text-brand">Paid purchase attempts (money signed and sent)</td>
+                  <td className="num">{stats.l1.attempts.toLocaleString()}</td>
+                  <td className="num">—</td>
+                </tr>
+                <tr>
+                  <td className="text-brand">Settled with an on-chain receipt</td>
+                  <td className="num">{stats.l1.settled.toLocaleString()}</td>
+                  <td className="num">{pct(stats.l1.settled, stats.l1.attempts)}</td>
+                </tr>
+                <tr>
+                  <td className="text-brand">Distinct endpoints purchased from</td>
+                  <td className="num">{stats.l1.endpointsAttempted.toLocaleString()}</td>
+                  <td className="num">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </TableScroll>
+        )}
+
+        <h2 className="sec-head">
+          <span className="sec-no">3.</span>
           <span>Listing-change events observed</span>
         </h2>
         <TableScroll label="Catalog listing-change events observed to date">
@@ -180,7 +225,7 @@ export default async function ObservatoryStatePage() {
         </TableScroll>
 
         <h2 className="sec-head">
-          <span className="sec-no">3.</span>
+          <span className="sec-no">4.</span>
           <span>Caveats</span>
         </h2>
         <p className="doc-p">

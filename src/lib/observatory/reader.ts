@@ -19,6 +19,7 @@ import {
   x402DelistingEvents,
   x402Endpoints,
   x402L0Probes,
+  x402L1Purchases,
 } from "@/lib/db/schema";
 import { publishedVerdict, MIN_CONSECUTIVE_FAILS_TO_PUBLISH } from "./l0-probe";
 
@@ -160,6 +161,17 @@ export type EndpointDetail = {
     newValue: unknown;
     createdAt: Date | null;
   }[];
+  /** L1 covert-purchase summary — attempts vs settles (the "n回中m回貫通" figure). */
+  l1: { attempts: number; settled: number };
+  purchases: {
+    attemptedAt: Date | null;
+    status: string;
+    amountUnits: string | null;
+    txHash: string | null;
+    httpStatusPaid: number | null;
+    latencyMs: number | null;
+    l2Schema: string | null;
+  }[];
 } | null;
 
 export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
@@ -198,7 +210,33 @@ export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
       .orderBy(desc(x402DelistingEvents.createdAt))
       .limit(30);
 
+    // L1 history is additive and may predate its migration — tolerate absence.
+    let purchases: NonNullable<EndpointDetail>["purchases"] = [];
+    try {
+      purchases = await db
+        .select({
+          attemptedAt: x402L1Purchases.attemptedAt,
+          status: x402L1Purchases.status,
+          amountUnits: x402L1Purchases.amountUnits,
+          txHash: x402L1Purchases.txHash,
+          httpStatusPaid: x402L1Purchases.httpStatusPaid,
+          latencyMs: x402L1Purchases.latencyMs,
+          l2Schema: x402L1Purchases.l2Schema,
+        })
+        .from(x402L1Purchases)
+        .where(eq(x402L1Purchases.endpointId, id))
+        .orderBy(desc(x402L1Purchases.attemptedAt))
+        .limit(20);
+    } catch (error) {
+      if (!isMissingSchemaError(error)) throw error;
+    }
+
     return {
+      l1: {
+        attempts: purchases.length,
+        settled: purchases.filter((p) => p.status === "settled").length,
+      },
+      purchases,
       endpoint: {
         id: e.id,
         resourceKey: e.resourceKey,
@@ -238,6 +276,8 @@ export type ObservatoryStats = {
   publishedUnverified: number;
   methodUndeclared: number;
   eventCounts: { delisted: number; relisted: number; settleDrop: number };
+  /** L1 covert purchases: attempts include refusals-after-sign only (spent money); settled = receipt received. */
+  l1: { attempts: number; settled: number; endpointsAttempted: number };
   latestSnapshot: { snapshotDate: string; totalCount: number; fetchedCount: number } | null;
 };
 
@@ -251,6 +291,7 @@ export async function getObservatoryStats(): Promise<ObservatoryStats> {
     publishedUnverified: 0,
     methodUndeclared: 0,
     eventCounts: { delisted: 0, relisted: 0, settleDrop: 0 },
+    l1: { attempts: 0, settled: 0, endpointsAttempted: 0 },
     latestSnapshot: null,
   };
   const db = getDb();
@@ -309,6 +350,31 @@ export async function getObservatoryStats(): Promise<ObservatoryStats> {
     }[];
     const ev = Object.fromEntries(evList.map((r) => [r.event_type, Number(r.n)]));
 
+    let l1 = { attempts: 0, settled: 0, endpointsAttempted: 0 };
+    try {
+      const l1Raw = await db.execute(sql`
+        SELECT count(*)::int AS attempts,
+               count(*) FILTER (WHERE status = 'settled')::int AS settled,
+               count(DISTINCT endpoint_id)::int AS endpoints
+        FROM x402_l1_purchases
+        WHERE status IN ('settled', 'settle_failed', 'delivered_no_receipt')
+      `);
+      const l1List = (Array.isArray(l1Raw) ? l1Raw : (l1Raw as { rows?: unknown[] }).rows ?? []) as {
+        attempts: number;
+        settled: number;
+        endpoints: number;
+      }[];
+      if (l1List[0]) {
+        l1 = {
+          attempts: Number(l1List[0].attempts),
+          settled: Number(l1List[0].settled),
+          endpointsAttempted: Number(l1List[0].endpoints),
+        };
+      }
+    } catch (error) {
+      if (!isMissingSchemaError(error)) throw error;
+    }
+
     const [snap] = await db
       .select({
         snapshotDate: x402CatalogSnapshots.snapshotDate,
@@ -320,6 +386,7 @@ export async function getObservatoryStats(): Promise<ObservatoryStats> {
       .limit(1);
 
     return {
+      l1,
       totalEndpoints: total,
       activeEndpoints: Number(agg.active ?? 0),
       delistedEndpoints: Number(agg.delisted ?? 0),

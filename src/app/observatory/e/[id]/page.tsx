@@ -43,7 +43,7 @@ export default async function ObservatoryEndpointPage({ params }: Props) {
   const detail = await getEndpointDetail(id);
   if (!detail) notFound();
 
-  const { endpoint, probes, events, publishedVerdict } = detail;
+  const { endpoint, probes, events, publishedVerdict, l1, purchases } = detail;
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
@@ -172,6 +172,70 @@ export default async function ObservatoryEndpointPage({ params }: Props) {
 
         <h2 className="sec-head">
           <span className="sec-no">3.</span>
+          <span>L1 — real purchases</span>
+        </h2>
+        {purchases.length === 0 ? (
+          <p className="doc-p text-brand-lift">
+            No covert purchases recorded for this endpoint yet.
+          </p>
+        ) : (
+          <>
+            <p className="doc-p">
+              {l1.settled} of {l1.attempts} paid attempts settled with a receipt. Each settled row
+              carries its on-chain transaction hash — the receipt is the evidence.
+            </p>
+            <TableScroll label="L1 purchase history, newest first">
+              <table className="fact-table">
+                <caption className="sr-only">L1 purchase history, newest first</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Attempted at</th>
+                    <th scope="col">Result</th>
+                    <th scope="col" className="num">
+                      Amount (units)
+                    </th>
+                    <th scope="col" className="num">
+                      HTTP
+                    </th>
+                    <th scope="col" className="num">
+                      Latency
+                    </th>
+                    <th scope="col">L2</th>
+                    <th scope="col">Receipt (tx)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchases.map((p, i) => (
+                    <tr key={i}>
+                      <td className="whitespace-nowrap">{fmt(p.attemptedAt)}</td>
+                      <td>{p.status}</td>
+                      <td className="num">{p.amountUnits ?? "—"}</td>
+                      <td className="num">{p.httpStatusPaid ?? "—"}</td>
+                      <td className="num">{p.latencyMs === null ? "—" : `${p.latencyMs} ms`}</td>
+                      <td>{p.l2Schema ?? "—"}</td>
+                      <td className="break-all">
+                        {p.txHash ? (
+                          <a
+                            href={`https://basescan.org/tx/${p.txHash}`}
+                            className="underline"
+                            rel="noopener noreferrer"
+                          >
+                            {p.txHash.slice(0, 18)}…
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
+          </>
+        )}
+
+        <h2 className="sec-head">
+          <span className="sec-no">4.</span>
           <span>Catalog listing events</span>
         </h2>
         {events.length === 0 ? (
