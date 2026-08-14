@@ -1,0 +1,41 @@
+// ============================================================
+// vet402 Observatory L0 — chain identity normalization.
+//
+// The catalog's raw `network` field is inconsistent: Bazaar items declare
+// the SAME chain both as its CAIP-2 id ("eip155:8453") and a legacy slug
+// ("base") — verified live 2026-08-14 (14,296 vs 455 rows for the identical
+// chain). Every consumer that needs a per-chain COUNT must go through
+// chainLabel() or it silently undercounts the chain with the split identity.
+// ============================================================
+
+const KNOWN: Record<string, string> = {
+  "eip155:1": "Ethereum",
+  "eip155:8453": "Base",
+  base: "Base",
+  "eip155:84532": "Base Sepolia",
+  "base-sepolia": "Base Sepolia",
+  "eip155:56": "BSC",
+  "eip155:42161": "Arbitrum",
+  "eip155:137": "Polygon",
+  "eip155:196": "X Layer",
+  "eip155:4663": "IoTeX",
+};
+
+/** Solana genesis hash (case-sensitive base58) — lower-casing would corrupt it, so match separately. */
+const SOLANA_MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+
+const TESTNET_LABELS = new Set(["Base Sepolia"]);
+
+/** Human label for a raw CAIP-2 / legacy network identifier. Never guesses — unknown ids pass through verbatim so nothing is silently mislabeled. */
+export function chainLabel(network: unknown): string {
+  if (typeof network !== "string" || network === "") return "unknown";
+  if (network === `solana:${SOLANA_MAINNET_GENESIS}`) return "Solana";
+  const key = network.toLowerCase();
+  if (KNOWN[key]) return KNOWN[key];
+  if (key.startsWith("algorand:")) return `Algorand (${network})`;
+  return network;
+}
+
+export function isTestnet(network: unknown): boolean {
+  return TESTNET_LABELS.has(chainLabel(network));
+}

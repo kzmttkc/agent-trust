@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { TableScroll } from "@/components/site/TableScroll";
-import { getObservatoryStats } from "@/lib/observatory/reader";
+import { getObservatoryStats, getObservatoryStatsByChain } from "@/lib/observatory/reader";
 
 /**
  * /observatory/state — the State of x402 headline numbers (design §7).
@@ -30,6 +30,7 @@ function pct(n: number, denom: number): string {
 
 export default async function ObservatoryStatePage() {
   const stats = await getObservatoryStats();
+  const chainStats = await getObservatoryStatsByChain();
   const denom = stats.totalEndpoints;
   const snap = stats.latestSnapshot;
   const fetchComplete = snap ? snap.fetchedCount >= snap.totalCount : false;
@@ -147,6 +148,57 @@ export default async function ObservatoryStatePage() {
 
         <h2 className="sec-head">
           <span className="sec-no">2.</span>
+          <span>By chain</span>
+        </h2>
+        <p className="doc-p">
+          L0 observation has always been chain-agnostic and costs nothing to run, so this table
+          covers every chain the public catalog lists an endpoint on — not only the chain L1
+          purchasing currently targets (Base). Mainnets only; testnet listings are excluded below.
+        </p>
+        {chainStats.length === 0 ? (
+          <p className="doc-p text-brand-lift">No chain data yet.</p>
+        ) : (
+          <TableScroll label="State of x402 by chain">
+            <table className="fact-table">
+              <caption className="sr-only">State of x402 by chain</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Chain</th>
+                  <th scope="col" className="num">
+                    Endpoints
+                  </th>
+                  <th scope="col" className="num">
+                    Listed
+                  </th>
+                  <th scope="col" className="num">
+                    Pass
+                  </th>
+                  <th scope="col" className="num">
+                    Fail
+                  </th>
+                  <th scope="col" className="num">
+                    Unverified
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {chainStats.map((c) => (
+                  <tr key={c.chain}>
+                    <td className="text-brand whitespace-nowrap">{c.chain}</td>
+                    <td className="num">{c.totalEndpoints.toLocaleString()}</td>
+                    <td className="num">{pct(c.activeEndpoints, c.totalEndpoints)}</td>
+                    <td className="num">{pct(c.publishedPass, c.totalEndpoints)}</td>
+                    <td className="num">{pct(c.publishedFail, c.totalEndpoints)}</td>
+                    <td className="num">{pct(c.publishedUnverified, c.totalEndpoints)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+        )}
+
+        <h2 className="sec-head">
+          <span className="sec-no">3.</span>
           <span>L1 — real purchases (covert)</span>
         </h2>
         {stats.l1.attempts === 0 ? (
@@ -191,7 +243,7 @@ export default async function ObservatoryStatePage() {
         )}
 
         <h2 className="sec-head">
-          <span className="sec-no">3.</span>
+          <span className="sec-no">4.</span>
           <span>Listing-change events observed</span>
         </h2>
         <TableScroll label="Catalog listing-change events observed to date">
@@ -225,7 +277,7 @@ export default async function ObservatoryStatePage() {
         </TableScroll>
 
         <h2 className="sec-head">
-          <span className="sec-no">4.</span>
+          <span className="sec-no">5.</span>
           <span>Caveats</span>
         </h2>
         <p className="doc-p">

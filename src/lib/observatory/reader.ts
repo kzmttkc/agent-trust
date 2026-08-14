@@ -22,6 +22,7 @@ import {
   x402L1Purchases,
 } from "@/lib/db/schema";
 import { publishedVerdict, MIN_CONSECUTIVE_FAILS_TO_PUBLISH } from "./l0-probe";
+import { chainLabel, isTestnet } from "./chains";
 
 export type ObservatoryListRow = {
   id: string;
@@ -403,6 +404,82 @@ export async function getObservatoryStats(): Promise<ObservatoryStats> {
     };
   } catch (error) {
     if (isMissingSchemaError(error)) return empty;
+    throw error;
+  }
+}
+
+export type ChainStats = {
+  chain: string;
+  totalEndpoints: number;
+  activeEndpoints: number;
+  publishedPass: number;
+  publishedFail: number;
+  publishedUnverified: number;
+};
+
+/**
+ * Per-chain L0 breakdown (design: chain-foundation grant outreach,
+ * 2026-08-14). L0 has always been chain-agnostic and $0 — this surfaces the
+ * first-mover claim ("we already measure x402 on your chain") per chain
+ * instead of only as one aggregate. Grouping happens in JS via chainLabel()
+ * because the raw catalog `network` field carries split aliases for the same
+ * chain (verified live: "eip155:8453" and "base" both mean Base) that SQL
+ * GROUP BY cannot collapse without duplicating the normalization logic.
+ */
+export async function getObservatoryStatsByChain(
+  options: { includeTestnets?: boolean } = {},
+): Promise<ChainStats[]> {
+  const db = getDb();
+  if (!db) return [];
+
+  try {
+    const raw = await db.execute(sql`
+      WITH latest AS (
+        SELECT e.id, e.status, e.network,
+               lp.verdicts AS verdicts
+        FROM x402_endpoints e
+        LEFT JOIN LATERAL (
+          SELECT array_agg(v.verdict) AS verdicts
+          FROM (
+            SELECT verdict FROM x402_l0_probes p
+            WHERE p.endpoint_id = e.id
+            ORDER BY probed_at DESC
+            LIMIT ${MIN_CONSECUTIVE_FAILS_TO_PUBLISH}
+          ) v
+        ) lp ON true
+      )
+      SELECT network, status, verdicts FROM latest
+    `);
+    const rows = (Array.isArray(raw) ? raw : (raw as { rows?: unknown[] }).rows ?? []) as {
+      network: string | null;
+      status: string;
+      verdicts: string[] | null;
+    }[];
+
+    const byChain = new Map<string, ChainStats>();
+    for (const row of rows) {
+      if (!options.includeTestnets && isTestnet(row.network)) continue;
+      const chain = chainLabel(row.network);
+      const entry = byChain.get(chain) ?? {
+        chain,
+        totalEndpoints: 0,
+        activeEndpoints: 0,
+        publishedPass: 0,
+        publishedFail: 0,
+        publishedUnverified: 0,
+      };
+      entry.totalEndpoints++;
+      if (row.status === "active") entry.activeEndpoints++;
+      const verdict = publishedVerdict(row.verdicts ?? []);
+      if (verdict === "pass") entry.publishedPass++;
+      else if (verdict === "fail") entry.publishedFail++;
+      else entry.publishedUnverified++;
+      byChain.set(chain, entry);
+    }
+
+    return [...byChain.values()].sort((a, b) => b.totalEndpoints - a.totalEndpoints);
+  } catch (error) {
+    if (isMissingSchemaError(error)) return [];
     throw error;
   }
 }
