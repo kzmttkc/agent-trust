@@ -665,3 +665,46 @@ export const x402PayeeWatchers = pgTable(
     index("x402_payee_watchers_wallet_idx").on(t.wallet),
   ],
 );
+
+/**
+ * Observatory L1 purchases (W3, 2026-08-14) — one row per real-purchase
+ * attempt. `spent_units` is the BUDGET truth: it is written the moment an
+ * authorization is signed and sent, whether or not settlement succeeded —
+ * a signed EIP-3009 authorization is live money until validBefore, so the
+ * conservative ledger counts it. The daily budget check sums this column.
+ * Facts only; `status` is a closed factual vocabulary.
+ */
+export const x402L1Purchases = pgTable(
+  "x402_l1_purchases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id").notNull(),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }).defaultNow(),
+    /** settled | settle_failed | delivered_no_receipt | no_402 | no_eligible_accept | price_mismatch | over_cap | budget_denied | request_error */
+    status: text("status").notNull(),
+    network: text("network"),
+    asset: text("asset"),
+    payTo: text("pay_to"),
+    /** USDC base units offered/signed for this attempt. */
+    amountUnits: text("amount_units"),
+    /** USDC base units counted against the daily budget (signed → counted). */
+    spentUnits: text("spent_units").notNull().default("0"),
+    /** Our paying wallet (rotates weekly by design). */
+    payer: text("payer"),
+    /** Settlement tx hash from PAYMENT-RESPONSE — the receipt evidence. */
+    txHash: text("tx_hash"),
+    /** HTTP status of the PAID retry (the delivery half of the measurement). */
+    httpStatusPaid: integer("http_status_paid"),
+    latencyMs: integer("latency_ms"),
+    payloadNonEmpty: boolean("payload_non_empty"),
+    contentTypeMatch: boolean("content_type_match"),
+    /** L2: match | mismatch | no_declaration | not_checked */
+    l2Schema: text("l2_schema"),
+    rawSettlement: jsonb("raw_settlement"),
+    rawResponseMeta: jsonb("raw_response_meta"),
+  },
+  (t) => [
+    index("x402_l1_purchases_endpoint_idx").on(t.endpointId, t.attemptedAt),
+    index("x402_l1_purchases_attempted_idx").on(t.attemptedAt),
+  ],
+);

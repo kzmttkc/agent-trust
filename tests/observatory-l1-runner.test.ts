@@ -1,0 +1,204 @@
+// ============================================================
+// vet402 Observatory L1 — purchase runner integration (W3).
+//
+// DB-backed. Properties under test:
+//  - fail-closed activation: flag off or no key → zero requests, zero rows;
+//  - budget ledger: spent = SIGNED attempts (not just settles), summed from
+//    the DB per UTC day, and the batch stops at the $25 line;
+//  - target selection: L0-passing, real-demand first, one purchase per
+//    endpoint per sweep window;
+//  - the full happy path records the receipt (tx hash) and the delivery
+//    facts; a price-mismatching seller is recorded, not paid.
+// Run: TEST_DATABASE_URL=postgres://localhost/vet402_observatory_test \
+//   npx tsx --test --test-force-exit --test-concurrency=1 tests/observatory-l1-runner.test.ts
+// ============================================================
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+const TEST_DB = process.env.TEST_DATABASE_URL;
+
+if (!TEST_DB) {
+  test("observatory l1 runner (skipped: TEST_DATABASE_URL not set)", { skip: true }, () => {});
+} else {
+  process.env.DATABASE_URL = TEST_DB;
+
+  const TEST_PK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+  // Valid 20-byte addresses derived from the seller number (viem validates).
+  const payToFor = (n: string | number) => `0x${String(n).repeat(40).slice(0, 40)}`;
+
+  test("L1 purchase runner", async (t) => {
+    const { runL1Batch } = await import("@/lib/observatory/l1-runner");
+    const { syncCatalog } = await import("@/lib/observatory/catalog-sync");
+    const { runL0ProbeBatch } = await import("@/lib/observatory/probe-runner");
+    const { parseCatalogItem } = await import("@/lib/observatory/catalog-source");
+    const { BASE_USDC } = await import("@/lib/observatory/x402-payer");
+    const { getDb } = await import("@/lib/db/client");
+    const schema = await import("@/lib/db/schema");
+    const { sql } = await import("drizzle-orm");
+
+    const db = getDb()!;
+    await db.execute(
+      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_payee_watchers, x402_l1_purchases`,
+    );
+
+    const savedEnabled = process.env.OBSERVATORY_L1_ENABLED;
+    const savedKey = process.env.OBSERVATORY_WALLET_PRIVATE_KEY;
+    t.after(() => {
+      if (savedEnabled === undefined) delete process.env.OBSERVATORY_L1_ENABLED;
+      else process.env.OBSERVATORY_L1_ENABLED = savedEnabled;
+      if (savedKey === undefined) delete process.env.OBSERVATORY_WALLET_PRIVATE_KEY;
+      else process.env.OBSERVATORY_WALLET_PRIVATE_KEY = savedKey;
+    });
+
+    // Seed: two sellers with declared price 3000 units, one with high demand.
+    const mk = (n: number, calls: number) =>
+      parseCatalogItem({
+        resource: `https://seller${n}.example/api`,
+        accepts: [
+          { amount: "3000", asset: BASE_USDC, network: "eip155:8453", payTo: payToFor(n) },
+        ],
+        extensions: { bazaar: { info: { input: { method: "GET" } } } },
+        quality: { l30DaysTotalCalls: calls, l30DaysUniquePayers: Math.ceil(calls / 10) },
+      });
+    await syncCatalog({
+      fetchResult: {
+        items: [mk(1, 900), mk(2, 100)],
+        totalCount: 2,
+        fetchedCount: 2,
+        complete: true,
+      },
+      today: "2026-08-14",
+    });
+
+    // Challenge whose payTo matches the catalog row for that URL — the L0
+    // probe cross-checks metadata, so a fixture mismatch reads as fail.
+    const challengeFor = (url: string) => {
+      const n = /seller(\d)/.exec(url)?.[1] ?? "1";
+      return JSON.stringify({
+        x402Version: 2,
+        accepts: [
+          { scheme: "exact", network: "eip155:8453", amount: "3000", asset: BASE_USDC, payTo: payToFor(n), maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } },
+        ],
+      });
+    };
+    // L0 pass both endpoints first (targets require a passing payment wall).
+    await runL0ProbeBatch({
+      limit: 10,
+      concurrency: 2,
+      fetchImpl: async (url: string) =>
+        new Response(challengeFor(url), { status: 402, headers: { "content-type": "application/json" } }),
+    });
+
+    await t.test("flag off → zero requests, zero rows", async () => {
+      delete process.env.OBSERVATORY_L1_ENABLED;
+      process.env.OBSERVATORY_WALLET_PRIVATE_KEY = TEST_PK;
+      let called = 0;
+      const summary = await runL1Batch({
+        fetchImpl: async () => {
+          called++;
+          return new Response("", { status: 402 });
+        },
+      });
+      assert.equal(summary.attempted, 0);
+      assert.equal(summary.disabledReason, "l1_disabled");
+      assert.equal(called, 0);
+    });
+
+    await t.test("no key → zero requests even with the flag on", async () => {
+      process.env.OBSERVATORY_L1_ENABLED = "true";
+      delete process.env.OBSERVATORY_WALLET_PRIVATE_KEY;
+      const summary = await runL1Batch({ fetchImpl: async () => new Response("", { status: 402 }) });
+      assert.equal(summary.attempted, 0);
+      assert.equal(summary.disabledReason, "wallet_key_missing");
+    });
+
+    await t.test("happy path: 402 → sign → settle → receipt row with facts", async () => {
+      process.env.OBSERVATORY_L1_ENABLED = "true";
+      process.env.OBSERVATORY_WALLET_PRIVATE_KEY = TEST_PK;
+      const seen: { url: string; hasPayment: boolean }[] = [];
+      const fetchImpl = async (url: string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        const paid = headers.has("PAYMENT-SIGNATURE") || headers.has("X-PAYMENT");
+        seen.push({ url, hasPayment: paid });
+        if (!paid) {
+          return new Response(challengeFor(url), {
+            status: 402,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ data: "the goods" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "PAYMENT-RESPONSE": Buffer.from(
+              JSON.stringify({ success: true, transaction: "0xdeadbeef", network: "eip155:8453", payer: "0xf39F" }),
+            ).toString("base64"),
+          },
+        });
+      };
+      const summary = await runL1Batch({ fetchImpl, limit: 1 });
+      assert.equal(summary.attempted, 1);
+      assert.equal(summary.settled, 1);
+      // highest-demand seller first
+      assert.ok(seen[0].url.includes("seller1"));
+      assert.equal(seen[0].hasPayment, false, "first request carries no payment");
+      assert.equal(seen[1].hasPayment, true, "retry carries the signed payment");
+
+      const rows = await db.select().from(schema.x402L1Purchases);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, "settled");
+      assert.equal(rows[0].txHash, "0xdeadbeef");
+      assert.equal(rows[0].spentUnits, "3000");
+      assert.equal(rows[0].payloadNonEmpty, true);
+      assert.equal(rows[0].contentTypeMatch, true);
+      assert.equal(rows[0].httpStatusPaid, 200);
+    });
+
+    await t.test("one purchase per endpoint per sweep window (no double-buy)", async () => {
+      const summary = await runL1Batch({
+        fetchImpl: async (url: string) => new Response(challengeFor(url), { status: 402, headers: { "content-type": "application/json" } }),
+        limit: 2,
+      });
+      // seller1 already purchased above → only seller2 is a candidate now.
+      assert.equal(summary.attempted, 1);
+    });
+
+    await t.test("a challenge over-charging vs catalog is recorded, never signed", async () => {
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const evil = JSON.stringify({
+        x402Version: 2,
+        accepts: [
+          { scheme: "exact", network: "eip155:8453", amount: "999999", asset: BASE_USDC, payTo: payToFor("1"), extra: { name: "USD Coin", version: "2" } },
+        ],
+      });
+      const summary = await runL1Batch({
+        fetchImpl: async () =>
+          new Response(evil, { status: 402, headers: { "content-type": "application/json" } }),
+        limit: 2,
+      });
+      assert.equal(summary.settled, 0);
+      const rows = await db.select().from(schema.x402L1Purchases);
+      assert.ok(rows.length >= 1);
+      assert.ok(rows.every((r) => r.status === "price_mismatch"));
+      assert.ok(rows.every((r) => r.spentUnits === "0"), "nothing signed → nothing spent");
+    });
+
+    await t.test("daily budget from the DB stops the batch at the line", async () => {
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      // Pretend 24.999 USDC already spent today.
+      const [ep] = await db.select({ id: schema.x402Endpoints.id }).from(schema.x402Endpoints).limit(1);
+      await db.insert(schema.x402L1Purchases).values({
+        endpointId: ep.id,
+        status: "settled",
+        spentUnits: "24999000",
+        amountUnits: "24999000",
+      });
+      const summary = await runL1Batch({
+        fetchImpl: async (url: string) => new Response(challengeFor(url), { status: 402, headers: { "content-type": "application/json" } }),
+        limit: 2,
+      });
+      assert.equal(summary.settled, 0);
+      assert.equal(summary.budgetDenied >= 1, true, "remaining $0.001 cannot cover a $0.003 purchase");
+    });
+  });
+}

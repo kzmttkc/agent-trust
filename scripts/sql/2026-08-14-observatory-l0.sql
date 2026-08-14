@@ -132,3 +132,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS x402_payee_watchers_wallet_key_unique
   ON x402_payee_watchers (wallet, api_key_id);
 CREATE INDEX IF NOT EXISTS x402_payee_watchers_wallet_idx
   ON x402_payee_watchers (wallet);
+
+-- Observatory L1 purchases (W3) — one row per real-purchase attempt.
+-- spent_units is the budget truth: written when an authorization is SIGNED
+-- and sent (a signed EIP-3009 authorization is live money until validBefore),
+-- so the daily $25 gate sums attempts, not just successes.
+CREATE TABLE IF NOT EXISTS x402_l1_purchases (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  endpoint_id uuid NOT NULL,
+  attempted_at timestamptz DEFAULT now(),
+  -- settled | settle_failed | delivered_no_receipt | no_402 | no_eligible_accept
+  -- | price_mismatch | over_cap | budget_denied | request_error
+  status text NOT NULL,
+  network text,
+  asset text,
+  pay_to text,
+  amount_units text,
+  spent_units text NOT NULL DEFAULT '0',
+  payer text,
+  tx_hash text,
+  http_status_paid integer,
+  latency_ms integer,
+  payload_non_empty boolean,
+  content_type_match boolean,
+  -- L2: match | mismatch | no_declaration | not_checked
+  l2_schema text,
+  raw_settlement jsonb,
+  raw_response_meta jsonb
+);
+
+CREATE INDEX IF NOT EXISTS x402_l1_purchases_endpoint_idx
+  ON x402_l1_purchases (endpoint_id, attempted_at);
+CREATE INDEX IF NOT EXISTS x402_l1_purchases_attempted_idx
+  ON x402_l1_purchases (attempted_at);
