@@ -13,8 +13,12 @@ node_modules
 .claude
 
 # Gate2 台帳（外部の申込メールを含む＝PII）とログ。ビルドに要らない。
-state
-logs
+# 2026-08-14: 先頭スラッシュ必須。パス無指定の `state` は
+# src/app/observatory/state にもマッチし、Vercelビルドから /observatory/state
+# ページが黙って消えた（本番404・ローカルbuildでは出るため気づきにくい）。
+# .vercelignore は gitignore 構文——ルート限定は `/` で明示する。
+/state
+/logs
 
 # ローカルの環境ファイル。本番の値は Vercel 側の環境変数が正典。
 .env
