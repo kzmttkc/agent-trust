@@ -47,8 +47,9 @@ test("the daily cap is $25 and the guard denies at the boundary", () => {
 test("fail-closed: disabled flag, malformed or negative inputs all deny", () => {
   const saved = process.env.OBSERVATORY_L1_ENABLED;
   delete process.env.OBSERVATORY_L1_ENABLED;
-  assert.equal(checkL1Budget({ spentTodayUsd: 0, requestUsd: 1 }).allowed, false);
-  assert.equal(checkL1Budget({ spentTodayUsd: 0, requestUsd: 1 }).reason, "l1_disabled");
+  const disabled = checkL1Budget({ spentTodayUsd: 0, requestUsd: 1 });
+  assert.equal(disabled.allowed, false);
+  assert.equal(disabled.allowed === false && disabled.reason, "l1_disabled");
 
   process.env.OBSERVATORY_L1_ENABLED = "true";
   assert.equal(checkL1Budget({ spentTodayUsd: NaN, requestUsd: 1 }).allowed, false);
