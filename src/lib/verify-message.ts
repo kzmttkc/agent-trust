@@ -38,6 +38,24 @@ export function payeeMessage(wallet: string, name: string): string {
  * returns on-chain. The signature proves control of that wallet; the on-chain
  * lookup proves the wallet IS the agent's. Five fixed lines.
  */
+/**
+ * The exact message a payee signs to route observatory delisting alerts for
+ * endpoints paying `wallet` to the webhooks of api key `apiKeyId`. The
+ * signature proves control of the receiving wallet (same EIP-191 gate as
+ * payee registration); the api key comes from the authenticated request, so
+ * the pair is bound by two independent proofs. Four fixed lines; wallet is
+ * lowercased and apiKeyId is a server-issued uuid, so no canonical-name
+ * injection surface exists here.
+ */
+export function observatoryWatchMessage(wallet: string, apiKeyId: string): string {
+  return [
+    "vet402 observatory watch registration",
+    `wallet: ${wallet.toLowerCase()}`,
+    `apiKey: ${apiKeyId}`,
+    "This signature authorizes delisting notifications for endpoints paying the wallet above.",
+  ].join("\n");
+}
+
 export function agentPassportMessage(agentId: bigint, wallet: string, name: string): string {
   if (!isCanonicalName(name)) {
     throw new Error("agentPassportMessage: non-canonical name would break the 5-line canonical message");

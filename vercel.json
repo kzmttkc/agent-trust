@@ -31,6 +31,14 @@
     {
       "path": "/api/cron/benchmark-scan",
       "schedule": "30 9 * * 3"
+    },
+    {
+      "path": "/api/cron/catalog-sync",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/l0-probe",
+      "schedule": "30 10 * * *"
     }
   ]
 }

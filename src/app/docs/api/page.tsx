@@ -1038,6 +1038,11 @@ app.use("/api/paid", createExpressGate({
                   <td className="text-brand">Your own manual whitelist/blacklist changes (also on import) — a team audit trail.</td>
                   <td className="break-all text-[0.6875rem] text-brand">action, wallet, listType</td>
                 </tr>
+                <tr>
+                  <td className="text-brand-deep">endpoint.delisted</td>
+                  <td className="text-brand">An x402 endpoint paying a wallet you claim-proved via POST /api/v1/observatory/watch vanished from the public discovery catalog on a complete fetch (daily observatory sync). Factual listing-state notice, not an operator assessment.</td>
+                  <td className="break-all text-[0.6875rem] text-brand">resourceKey, resourceUrl, payTo, detectedOn, lastSeenAt, historyUrl</td>
+                </tr>
               </tbody>
             </table>
           </TableScroll>
