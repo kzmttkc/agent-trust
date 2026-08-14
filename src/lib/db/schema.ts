@@ -511,3 +511,133 @@ export const x402Payments = pgTable(
     index("x402_payments_payee_created_idx").on(t.payee, t.createdAt),
   ],
 );
+
+// ============================================================
+// vet402 Observatory L0 (2026-08-14) — the no-purchase, $0 observation layer.
+//
+// Four tables, all NEW — nothing above this line changed. The observatory
+// ingests the CDP Bazaar discovery catalog daily, probes every endpoint
+// without paying (the 402 challenge itself is the observable), and records
+// delisting as an EVENT with before/after evidence. Facts only: the public
+// pages built on these tables publish pass/fail/unverified — never a
+// composite score, never an evaluative word (legal gate, mvt design §11).
+//
+// Probe methods come from the catalog's declared `input.method` — never
+// guessed. A GET probe against a POST-declared endpoint reports a false
+// death (x402 issue #3113 class); undeclared methods are recorded as
+// `unverified`, not `fail`.
+// ============================================================
+
+/** Catalog current-state: one row per discovered x402 endpoint. */
+export const x402Endpoints = pgTable(
+  "x402_endpoints",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /**
+     * Normalized identity (host+path, routeTemplate preferred over raw
+     * resource) so query-string noise cannot double-register an endpoint —
+     * a duplicate key would poison the daily diff into phantom delistings.
+     */
+    resourceKey: text("resource_key").notNull(),
+    resourceUrl: text("resource_url").notNull(),
+    /** Discovery source; future-proofs multi-source ingestion (x402scan etc). */
+    source: text("source").notNull().default("cdp_bazaar"),
+    /** Declared HTTP method from extensions.bazaar.info.input.method. NULL = undeclared → probe stays `unverified`. */
+    method: text("method"),
+    network: text("network"),
+    /** Representative receiver (accepts[0].payTo) — the claim-join key against verifiedPayees.wallet. */
+    payTo: text("pay_to"),
+    priceAmount: text("price_amount"),
+    priceAsset: text("price_asset"),
+    description: text("description"),
+    declaredSchema: jsonb("declared_schema"),
+    qualityCalls30d: bigint("quality_calls_30d", { mode: "number" }),
+    qualityPayers30d: bigint("quality_payers_30d", { mode: "number" }),
+    qualityLastCalledAt: timestamp("quality_last_called_at", { withTimezone: true }),
+    /** Full accepts[] as received — multi-payTo/multi-chain evidence, auditability. */
+    rawAccepts: jsonb("raw_accepts"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
+    /** active | delisted — current catalog presence (history lives in x402_delisting_events). */
+    status: text("status").notNull().default("active"),
+    delistedAt: timestamp("delisted_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("x402_endpoints_key_source_unique").on(t.resourceKey, t.source),
+    index("x402_endpoints_payto_idx").on(t.payTo),
+    index("x402_endpoints_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * Daily catalog snapshot — the raw material the diff is computed FROM, kept
+ * so a disputed delisting can be re-derived. fetchedCount < totalCount marks
+ * an incomplete fetch: delisting judgement is WITHHELD that day (a fetch gap
+ * must never read as "the endpoint vanished" — verify-the-instrument).
+ */
+export const x402CatalogSnapshots = pgTable(
+  "x402_catalog_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** 'YYYY-MM-DD' — one snapshot per source per day. */
+    snapshotDate: text("snapshot_date").notNull(),
+    source: text("source").notNull().default("cdp_bazaar"),
+    totalCount: integer("total_count").notNull(),
+    fetchedCount: integer("fetched_count").notNull(),
+    /** All resourceKeys seen that day (set for diffing; full item JSON is NOT kept — it would bloat). */
+    resourceKeys: jsonb("resource_keys").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [uniqueIndex("x402_catalog_snapshots_date_source_unique").on(t.snapshotDate, t.source)],
+);
+
+/** L0 probe results — the fact timeline. Facts only; the verdict vocabulary is closed: pass | fail | unverified. */
+export const x402L0Probes = pgTable(
+  "x402_l0_probes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id").notNull(),
+    probedAt: timestamp("probed_at", { withTimezone: true }).defaultNow(),
+    /** The method actually sent — always the catalog-declared one (see header note on #3113). */
+    method: text("method").notNull(),
+    /** pass | fail | unverified. Fail-closed points TOWARD unverified: no proof ≠ dead. */
+    verdict: text("verdict").notNull(),
+    httpStatus: integer("http_status"),
+    has402Challenge: boolean("has_402_challenge"),
+    acceptsValid: boolean("accepts_valid"),
+    priceConsistent: boolean("price_consistent"),
+    metadataConsistent: boolean("metadata_consistent"),
+    latencyMs: integer("latency_ms"),
+    /** Factual reason code: timeout | dns | tls | no_402 | price_mismatch | ... — never an evaluative word. */
+    failReason: text("fail_reason"),
+    /** Status/headers digest — the evidence half of the legal 4-piece set for any published fail. */
+    rawResponseMeta: jsonb("raw_response_meta"),
+  },
+  (t) => [
+    index("x402_l0_probes_endpoint_probed_idx").on(t.endpointId, t.probedAt),
+    index("x402_l0_probes_verdict_idx").on(t.verdict),
+  ],
+);
+
+/** Delisting/relisting/settle-drop events — alert feed + State of x402 material. Evidence (prev/new) travels with the event. */
+export const x402DelistingEvents = pgTable(
+  "x402_delisting_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id").notNull(),
+    /** delisted | relisted | probe_pass_to_fail | settle_drop */
+    eventType: text("event_type").notNull(),
+    /** 'YYYY-MM-DD' */
+    detectedOn: text("detected_on").notNull(),
+    prevValue: jsonb("prev_value"),
+    newValue: jsonb("new_value"),
+    /** Set TRUE after webhook delivery to the claiming payee — the double-send guard. */
+    notified: boolean("notified").notNull().default(false),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("x402_delisting_events_endpoint_idx").on(t.endpointId),
+    index("x402_delisting_events_detected_idx").on(t.detectedOn),
+  ],
+);
