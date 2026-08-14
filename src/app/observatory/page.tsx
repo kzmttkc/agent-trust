@@ -129,7 +129,7 @@ export default async function ObservatoryPage({
                 {overview.rows.map((row) => (
                   <tr key={row.id}>
                     <td className="whitespace-nowrap">
-                      <Link href={`/observatory/${row.id}`} className="underline">
+                      <Link href={`/observatory/e/${row.id}`} className="underline">
                         {row.resourceKey.length > 60
                           ? row.resourceKey.slice(0, 57) + "…"
                           : row.resourceKey}

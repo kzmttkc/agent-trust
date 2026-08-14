@@ -98,7 +98,7 @@ export async function notifyDelistedEvents(
           lastSeenAt: event.lastSeenAt,
           prevValue: event.prevValue,
           newValue: event.newValue,
-          historyUrl: `${SITE_URL}/observatory/${event.endpointId}`,
+          historyUrl: `${SITE_URL}/observatory/e/${event.endpointId}`,
           note: "Factual notice of catalog listing state. Delisting means buyer agents no longer discover this endpoint via the public catalog. This is not an assessment of the operator.",
         });
         dispatched++;

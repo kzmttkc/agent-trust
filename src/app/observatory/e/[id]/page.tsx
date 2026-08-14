@@ -6,7 +6,13 @@ import { TableScroll } from "@/components/site/TableScroll";
 import { getEndpointDetail } from "@/lib/observatory/reader";
 
 /**
- * /observatory/[id] — one endpoint's full fact history (design §5).
+ * /observatory/e/[id] — one endpoint's full fact history (design §5).
+ *
+ * Lives under /observatory/e/ so the dynamic segment can never shadow the
+ * static siblings (/observatory/state, /methodology): on 2026-08-14 the
+ * vet402.com edge matched /observatory/state into [id] (deployment URL did
+ * not — a host-dependent router quirk), and the uuid guard turned the page
+ * into a 404. Separating the namespaces removes the whole collision class.
  *
  * Every published fail travels with its evidence: timestamp, HTTP status,
  * reason code, latency. Delisting events carry their before/after values.
@@ -24,7 +30,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return pageMetadata({
     title: `${name} — L0 observations`,
     description: `Probe history and catalog listing history for ${name}: 402 challenge measurements with timestamps and reason codes.`,
-    path: `/observatory/${id}`,
+    path: `/observatory/e/${id}`,
   });
 }
 
