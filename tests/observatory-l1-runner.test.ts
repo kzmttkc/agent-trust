@@ -112,6 +112,17 @@ if (!TEST_DB) {
       assert.equal(summary.disabledReason, "wallet_key_missing");
     });
 
+    await t.test("wallet key without the 0x prefix (MetaMask export) is accepted", async () => {
+      process.env.OBSERVATORY_L1_ENABLED = "true";
+      process.env.OBSERVATORY_WALLET_PRIVATE_KEY = TEST_PK.slice(2); // no 0x
+      const summary = await runL1Batch({
+        fetchImpl: async () => new Response("", { status: 500 }), // no purchase, just past the key gate
+        limit: 0,
+      });
+      assert.equal(summary.disabledReason, null, "bare 64-hex key must not read as missing");
+      process.env.OBSERVATORY_WALLET_PRIVATE_KEY = TEST_PK;
+    });
+
     await t.test("happy path: 402 → sign → settle → receipt row with facts", async () => {
       process.env.OBSERVATORY_L1_ENABLED = "true";
       process.env.OBSERVATORY_WALLET_PRIVATE_KEY = TEST_PK;

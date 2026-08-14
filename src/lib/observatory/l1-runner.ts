@@ -87,8 +87,11 @@ export async function runL1Batch(
     summary.disabledReason = "l1_disabled";
     return summary;
   }
-  const pk = process.env.OBSERVATORY_WALLET_PRIVATE_KEY?.trim();
-  if (!pk || !/^0x[0-9a-fA-F]{64}$/.test(pk)) {
+  // MetaMask exports the key WITHOUT the 0x prefix; Coinbase Wallet WITH it.
+  // Accept both, normalize to the 0x form viem requires.
+  const rawPk = process.env.OBSERVATORY_WALLET_PRIVATE_KEY?.trim() ?? "";
+  const pk = rawPk.startsWith("0x") ? rawPk : rawPk ? `0x${rawPk}` : "";
+  if (!/^0x[0-9a-fA-F]{64}$/.test(pk)) {
     summary.disabledReason = "wallet_key_missing";
     return summary;
   }
