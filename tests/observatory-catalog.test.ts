@@ -208,6 +208,40 @@ test("fetchFullCatalog reports an INCOMPLETE fetch instead of pretending", async
   assert.equal(result.totalCount, 4);
 });
 
+// ---- NUL sanitation (live-catalog poison, found 2026-08-14) ----------------
+// One real catalog item carried a NUL (U+0000) inside its declared schema;
+// Postgres rejects NUL in text/jsonb ("invalid byte sequence for encoding
+// UTF8"), and that single row failed its whole 500-row chunk in production.
+// Sanitize at parse time so one seller's bytes can never take down the sync.
+
+test("parseCatalogItem strips NUL characters from every string, however nested", () => {
+  const NUL = String.fromCharCode(0);
+  const parsed = parseCatalogItem({
+    resource: `https://nul.example/api${NUL}`,
+    description: `desc${NUL}ription`,
+    accepts: [
+      {
+        amount: `10${NUL}00`,
+        asset: "0xUSDC",
+        network: "eip155:8453",
+        payTo: `0xPAY${NUL}1`,
+        extra: { nested: `a${NUL}b`, list: [`x${NUL}y`] },
+      },
+    ],
+    extensions: {
+      bazaar: {
+        info: { input: { method: "GET" } },
+        schema: { title: `s${NUL}chema`, properties: { deep: { const: `v${NUL}0` } } },
+      },
+    },
+  });
+  const flat = JSON.stringify(parsed);
+  assert.ok(!flat.includes("\\u0000"), "no NUL may survive anywhere in the parsed item");
+  assert.equal(parsed.description, "description");
+  assert.equal(parsed.payTo, "0xpay1");
+  assert.equal(parsed.resourceKey, "nul.example/api");
+});
+
 test("fetchFullCatalog dedupes items whose normalized key collides (keeps first)", async () => {
   const { fetchImpl } = makePagedFetch({
     0: page(

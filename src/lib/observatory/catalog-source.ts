@@ -67,6 +67,24 @@ export function normalizeResourceKey(raw: string): string {
   return `${host}${port}${path}`;
 }
 
+/**
+ * Strip NUL (U+0000) from every string in an arbitrary structure. Found live
+ * 2026-08-14: one catalog item carried a NUL inside its declared schema;
+ * Postgres rejects NUL in text/jsonb ("invalid byte sequence for encoding
+ * UTF8") and that single row failed its whole 500-row upsert chunk in
+ * production. Third-party bytes must never take down the day's sync.
+ */
+function stripNul<T>(value: T): T {
+  if (typeof value === "string") return value.replaceAll("\u0000", "") as T;
+  if (Array.isArray(value)) return value.map(stripNul) as T;
+  if (typeof value === "object" && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[stripNul(k)] = stripNul(v);
+    return out as T;
+  }
+  return value;
+}
+
 function asRecord(v: unknown): Record<string, unknown> | null {
   return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
 }
@@ -87,7 +105,7 @@ function asDate(v: unknown): Date | null {
 
 /** Extract the DB row shape from one raw catalog item. Defensive on every path — catalog data is third-party input. */
 export function parseCatalogItem(item: unknown): ParsedCatalogItem {
-  const rec = asRecord(item) ?? {};
+  const rec = stripNul(asRecord(item) ?? {});
   const resourceUrl = asString(rec.resource) ?? "";
 
   // Declared method: extensions.bazaar.info.input.method. Unknown strings are
