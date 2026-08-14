@@ -641,3 +641,27 @@ export const x402DelistingEvents = pgTable(
     index("x402_delisting_events_detected_idx").on(t.detectedOn),
   ],
 );
+
+/**
+ * Observatory watchers (design §6.1) — the claim join, made explicit. A row
+ * binds a RECEIVING wallet to an api key, created only through
+ * POST /api/v1/observatory/watch where the caller signs the canonical
+ * observatoryWatchMessage with that wallet (EIP-191 — the same
+ * proof-of-control gate verified payees use). Delisting events whose
+ * endpoint.payTo equals `wallet` are delivered to the key's webhooks as
+ * `endpoint.delisted` through the existing HMAC/SSRF/auto-disable stack.
+ */
+export const x402PayeeWatchers = pgTable(
+  "x402_payee_watchers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Lowercased receiving wallet — matches x402_endpoints.pay_to (also lowercased). */
+    wallet: text("wallet").notNull(),
+    apiKeyId: uuid("api_key_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("x402_payee_watchers_wallet_key_unique").on(t.wallet, t.apiKeyId),
+    index("x402_payee_watchers_wallet_idx").on(t.wallet),
+  ],
+);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron/auth";
 import { syncCatalog } from "@/lib/observatory/catalog-sync";
+import { notifyDelistedEvents } from "@/lib/observatory/notify";
 import { logServerError } from "@/lib/util/log";
 
 // vet402 Observatory L0 — daily Bazaar catalog ingestion + delisting diff.
@@ -15,7 +16,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const summary = await syncCatalog();
+    // Deliver claim-scoped delisting alerts right after the diff — a failed
+    // delivery must not fail the sync (it retries on the next daily run via
+    // the notified=false queue), so errors are logged, not thrown.
+    let notify = { processed: 0, dispatched: 0 };
+    try {
+      notify = await notifyDelistedEvents();
+    } catch (error) {
+      logServerError("cron.catalog-sync.notify", error);
+    }
     return NextResponse.json({
+      notify,
       ok: true,
       snapshotDate: summary.snapshotDate,
       totalCount: summary.totalCount,

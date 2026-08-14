@@ -116,3 +116,19 @@ CREATE INDEX IF NOT EXISTS x402_delisting_events_endpoint_idx
   ON x402_delisting_events (endpoint_id);
 CREATE INDEX IF NOT EXISTS x402_delisting_events_detected_idx
   ON x402_delisting_events (detected_on);
+
+-- Observatory watchers (design §6.1) — signature-proved wallet↔api-key claim.
+-- Delisting events for endpoints paying `wallet` are delivered to the key's
+-- webhooks as `endpoint.delisted` via the existing webhook stack.
+CREATE TABLE IF NOT EXISTS x402_payee_watchers (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  -- Lowercased receiving wallet — matches x402_endpoints.pay_to.
+  wallet text NOT NULL,
+  api_key_id uuid NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS x402_payee_watchers_wallet_key_unique
+  ON x402_payee_watchers (wallet, api_key_id);
+CREATE INDEX IF NOT EXISTS x402_payee_watchers_wallet_idx
+  ON x402_payee_watchers (wallet);

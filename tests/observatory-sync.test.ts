@@ -8,7 +8,11 @@
 //
 //   createdb vet402_observatory_test
 //   psql -d vet402_observatory_test -f scripts/sql/2026-08-14-observatory-l0.sql
-//   TEST_DATABASE_URL=postgres://localhost/vet402_observatory_test npx tsx --test tests/observatory-sync.test.ts
+//   TEST_DATABASE_URL=postgres://localhost/vet402_observatory_test \
+//     npx tsx --test --test-force-exit --test-concurrency=1 tests/observatory-*.test.ts
+// (--test-concurrency=1: the DB-backed observatory suites share one database
+//  and TRUNCATE it; parallel files clobber each other. --test-force-exit: the
+//  postgres pool keeps the event loop alive after the run.)
 // ============================================================
 import { test } from "node:test";
 import assert from "node:assert/strict";

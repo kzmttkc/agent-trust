@@ -41,7 +41,16 @@ import { logServerError } from "./util/log";
 //     shown once at registration, same contract as API keys.
 // ============================================================
 
-export const WEBHOOK_EVENTS = ["list.changed", "outcome.recorded", "watch.verdict_changed"] as const;
+// endpoint.delisted (2026-08-14, observatory L0): an endpoint whose payTo the
+// subscriber has claim-proved (x402_payee_watchers) vanished from the public
+// discovery catalog on a complete fetch. Facts only — payload carries the
+// resource, the detection date, and the before/after evidence.
+export const WEBHOOK_EVENTS = [
+  "list.changed",
+  "outcome.recorded",
+  "watch.verdict_changed",
+  "endpoint.delisted",
+] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
 export const MAX_WEBHOOKS_PER_KEY = 5;
