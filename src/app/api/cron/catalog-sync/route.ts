@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
       fetchedCount: summary.fetchedCount,
       complete: summary.complete,
       upserted: summary.upserted,
+      skipped: summary.skipped,
       events: {
         delisted: summary.events.filter((e) => e.eventType === "delisted").length,
         relisted: summary.events.filter((e) => e.eventType === "relisted").length,

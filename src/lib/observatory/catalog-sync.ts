@@ -26,6 +26,7 @@ import {
   type ParsedCatalogItem,
 } from "./catalog-source";
 import { computeCatalogDiff, type CatalogDiffEvent, type KnownEndpointState } from "./catalog-diff";
+import { logServerError } from "@/lib/util/log";
 
 export type SyncSummary = {
   snapshotDate: string;
@@ -33,6 +34,8 @@ export type SyncSummary = {
   fetchedCount: number;
   complete: boolean;
   upserted: number;
+  /** Rows the DB refused even alone (post-sanitation poison). Never silent: reported here and logged. */
+  skipped: number;
   events: CatalogDiffEvent[];
 };
 
@@ -99,10 +102,15 @@ export async function syncCatalog(
     currentQuality: new Map(result.items.map((i) => [i.resourceKey, i.qualityCalls30d])),
   });
 
-  // ---- upsert endpoints (chunked) ----
+  // ---- upsert endpoints (chunked, row-fallback on chunk failure) ----
+  // Live lesson (2026-08-14): ONE catalog item with a NUL byte failed its
+  // whole 500-row chunk and with it the day's sync. parseCatalogItem now
+  // sanitizes NUL, but the class of "one seller's bytes poison the batch"
+  // stays: on a chunk failure, retry row-by-row and skip only what the DB
+  // refuses — counted in `skipped`, never silently.
   let upserted = 0;
-  for (let i = 0; i < result.items.length; i += UPSERT_CHUNK) {
-    const chunk = result.items.slice(i, i + UPSERT_CHUNK);
+  let skipped = 0;
+  const upsertChunk = async (chunk: ParsedCatalogItem[]) => {
     await db
       .insert(x402Endpoints)
       .values(
@@ -146,6 +154,26 @@ export async function syncCatalog(
         },
       });
     upserted += chunk.length;
+  };
+
+  for (let i = 0; i < result.items.length; i += UPSERT_CHUNK) {
+    const chunk = result.items.slice(i, i + UPSERT_CHUNK);
+    try {
+      await upsertChunk(chunk);
+    } catch {
+      // Row-by-row fallback: isolate what the DB actually refuses.
+      for (const item of chunk) {
+        try {
+          await upsertChunk([item]);
+        } catch (rowError) {
+          skipped++;
+          logServerError(
+            "observatory.catalog-sync.row_skipped",
+            new Error(`${item.resourceKey}: ${rowError instanceof Error ? rowError.message : String(rowError)}`),
+          );
+        }
+      }
+    }
   }
 
   // ---- apply delisted status flips ----
@@ -203,6 +231,7 @@ export async function syncCatalog(
     fetchedCount: result.fetchedCount,
     complete: result.complete,
     upserted,
+    skipped,
     events,
   };
 }
