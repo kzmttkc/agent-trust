@@ -58,27 +58,27 @@ export default function DashboardLookupPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">Agent lookup</h2>
-        <p className="text-sm text-zinc-600">Search by agent ID and/or wallet address.</p>
+        <h2 className="dash-title">Agent lookup</h2>
+        <p className="mt-1 text-sm text-brand">Search by agent ID and/or wallet address.</p>
       </div>
 
-      <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
+      <form onSubmit={onSubmit} className="panel space-y-4">
         <label className="block space-y-1 text-sm">
-          <span className="font-medium">Agent ID</span>
+          <span className="doc-caption">Agent ID</span>
           <input
             value={agentId}
             onChange={(event) => setAgentId(event.target.value)}
             placeholder="1"
-            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+            className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 font-mono text-sm text-brand-deep placeholder:text-brand-lift"
           />
         </label>
         <label className="block space-y-1 text-sm">
-          <span className="font-medium">Wallet (optional verification)</span>
+          <span className="doc-caption">Wallet (optional verification)</span>
           <input
             value={wallet}
             onChange={(event) => setWallet(event.target.value)}
             placeholder="0x..."
-            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+            className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 font-mono text-sm text-brand-deep placeholder:text-brand-lift"
           />
         </label>
         <button
@@ -90,13 +90,15 @@ export default function DashboardLookupPage() {
         </button>
       </form>
 
-      {error && <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>}
+      {error && <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>}
 
       {result && (
-        <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
+        <div className="panel space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Result</h3>
-            <Badge value={result.recommendation} />
+            <h3 className="sub-head mt-0">Result</h3>
+            <span className={`marker marker-verdict-${result.recommendation.toLowerCase()}`}>
+              {result.recommendation}
+            </span>
           </div>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <Item label="Agent ID" value={result.agentId} />
@@ -121,7 +123,7 @@ export default function DashboardLookupPage() {
             <Item label="Sybil risk" value={result.signals.sybil.risk} />
           </dl>
           {result.dataCoverage && (
-            <p className="text-sm text-zinc-600">
+            <p className="text-sm text-brand">
               Coverage: indexer {result.dataCoverage.ownerIndexer.status}
               {result.dataCoverage.ownerIndexer.blocksBehind !== null
                 ? ` (${result.dataCoverage.ownerIndexer.blocksBehind} behind)`
@@ -132,7 +134,7 @@ export default function DashboardLookupPage() {
             </p>
           )}
           {result.signals.sybil.flags.length > 0 && (
-            <p className="text-sm text-zinc-600">
+            <p className="text-sm text-brand">
               Flags: {result.signals.sybil.flags.join(", ")}
             </p>
           )}
@@ -142,24 +144,11 @@ export default function DashboardLookupPage() {
   );
 }
 
-function Badge({ value }: { value: string }) {
-  const styles =
-    value === "ALLOW"
-      ? "bg-emerald-100 text-emerald-800"
-      : value === "WARN"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-red-100 text-red-800";
-
-  return (
-    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${styles}`}>{value}</span>
-  );
-}
-
 function Item({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-zinc-500">{label}</dt>
-      <dd className="font-mono text-zinc-900">{value}</dd>
+      <dt className="text-brand-lift">{label}</dt>
+      <dd className="font-mono text-brand-deep">{value}</dd>
     </div>
   );
 }

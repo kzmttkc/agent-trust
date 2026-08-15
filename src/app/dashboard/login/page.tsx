@@ -76,7 +76,7 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
     // landmark-one-main（<main> 無し）と region（フォームの中身がどのランドマーク
     // にも属さない）の2件を出していた。頁の骨組みはこの要素なので、外枠を
     // <main> にするだけで両方が解ける（レイアウト・見た目は不変）。
-    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+    <main className="flex min-h-screen items-center justify-center bg-ground px-6">
       {/* 2026-08-06 (UX audit item 7): `action` is the Server Action fallback
           and `onSubmit` (which preventDefaults) is the JS path. With JS on, our
           handler runs and the action is skipped; with JS off, the browser POSTs
@@ -85,7 +85,7 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
       <form
         action={loginAction}
         onSubmit={onSubmit}
-        className="w-full max-w-md space-y-4 rounded-xl border border-zinc-200 bg-white p-8 shadow-sm"
+        className="sheet w-full max-w-md space-y-4"
       >
         <div>
           {/* 2026-08-12 FIX-8: このページは <nav> も <footer> も無く、リンクは
@@ -94,8 +94,8 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
           <Link href="/" className="inline-block">
             <Wordmark className="text-[1.0625rem] leading-none" />
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-900">Dashboard sign in</h1>
-          <p className="mt-2 text-sm text-zinc-600">
+          <h1 className="dash-title mt-1">Dashboard sign in</h1>
+          <p className="mt-2 text-sm text-brand">
             Your API key is exchanged for a secure httpOnly session cookie. It is never stored in
             the browser.
           </p>
@@ -108,7 +108,7 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
             実際に描画している側なので、他の入力欄と同じ挙動へ揃う。実測で確認済み
             （Tab 移動時 outline: solid 2px rgb(8,145,178)）。 */}
         <label className="block space-y-1 text-sm">
-          <span className="font-medium text-zinc-700">API key</span>
+          <span className="doc-caption">API key</span>
           <input
             type="password"
             name="apiKey"
@@ -116,13 +116,13 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             placeholder="vouch_live_..."
-            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+            className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 font-mono text-sm text-brand-deep placeholder:text-brand-lift"
             required
           />
         </label>
 
         {shownError && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="rounded-[2px] border border-block-ink bg-paper px-3 py-2 text-sm text-block-ink">
             {dashboardErrorMessage(shownError)}
           </p>
         )}
@@ -135,9 +135,9 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
           {loading ? "Signing in..." : "Continue"}
         </button>
 
-        <p className="text-center text-sm text-zinc-600">
+        <p className="text-center text-sm text-brand">
           No account?{" "}
-          <a href="/signup" className="font-medium text-zinc-900 underline">
+          <a href="/signup" className="doc-link font-medium">
             Sign up free
           </a>
         </p>

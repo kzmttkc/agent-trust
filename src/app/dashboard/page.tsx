@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { SITE_URL } from "@/lib/site-url";
+import CodeBlock from "@/components/docs/CodeBlock";
 
 type Overview = {
   apiKey: { id: string; name: string | null; plan: string } | null;
@@ -35,11 +36,11 @@ export default function DashboardOverviewPage() {
   }, []);
 
   if (error) {
-    return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
+    return <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>;
   }
 
   if (!data) {
-    return <p className="text-sm text-zinc-600">Loading overview...</p>;
+    return <p className="text-sm text-brand">Loading overview...</p>;
   }
 
   const usagePct = Math.min(100, Math.round((data.usage.count / data.usage.limit) * 100));
@@ -49,61 +50,61 @@ export default function DashboardOverviewPage() {
   const noLookupsYet = data.totalQueries === 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">Overview</h2>
-        <p className="text-sm text-zinc-600">Monitor usage and plan limits for your API key.</p>
+        <h2 className="dash-title">Overview</h2>
+        <p className="mt-1 text-sm text-brand">Monitor usage and plan limits for your API key.</p>
       </div>
 
       {noLookupsYet && <FirstCallGuide hasKey={Boolean(data.apiKey)} />}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card title="Plan" value={data.plan} subtitle={data.apiKey?.name ?? "Unnamed key"} />
-        <Card
+      <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat title="Plan" value={data.plan} subtitle={data.apiKey?.name ?? "Unnamed key"} />
+        <Stat
           title="This month"
           value={`${data.usage.count.toLocaleString()} / ${data.usage.limit.toLocaleString()}`}
           subtitle={`${data.usage.remaining.toLocaleString()} remaining`}
         />
-        <Card
+        <Stat
           title="Total lookups"
           value={data.totalQueries.toLocaleString()}
           subtitle="All-time API queries"
         />
-        <Card
+        <Stat
           title="x402 settlements"
           value={data.settlementAttestations.toLocaleString()}
           subtitle="Attestations from this key"
         />
-      </div>
+      </dl>
 
-      <div className="rounded-xl border border-zinc-200 bg-white p-5">
+      <div className="panel">
         <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-medium text-zinc-700">Monthly quota</span>
-          <span className="text-zinc-500">{usagePct}%</span>
+          <span className="text-brand">Monthly quota</span>
+          <span className="text-brand-lift">{usagePct}%</span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
-          <div className="h-full rounded-full bg-zinc-900" style={{ width: `${usagePct}%` }} />
+        <div className="h-2 overflow-hidden rounded-[2px] bg-hair">
+          <div className="h-full bg-brand-deep" style={{ width: `${usagePct}%` }} />
         </div>
-        <p className="mt-2 text-xs text-zinc-500">Period: {data.usage.period}</p>
+        <p className="mt-2 text-xs text-brand-lift">Period: {data.usage.period}</p>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-white p-5 text-sm text-zinc-700">
-        <p className="font-medium text-zinc-900">Channels</p>
-        <ul className="mt-2 list-inside list-disc space-y-1">
+      <div className="rule-single pt-6 text-sm text-brand">
+        <p className="doc-caption">Channels</p>
+        <ul className="mt-3 space-y-1.5">
           <li>
-            <a className="underline" href="/dashboard/integrations">
+            <a className="doc-link" href="/dashboard/integrations">
               Integrations
             </a>{" "}
             — API, MCP, x402 middleware
           </li>
           <li>
-            <a className="underline" href="/dashboard/settlements">
+            <a className="doc-link" href="/dashboard/settlements">
               Settlements
             </a>{" "}
             — attested payment history
           </li>
           <li>
-            <a className="underline" href="/docs/api">
+            <a className="doc-link" href="/docs/api">
               API reference
             </a>
           </li>
@@ -125,27 +126,27 @@ function FirstCallGuide({ hasKey }: { hasKey: boolean }) {
   const curl = `curl -H "Authorization: Bearer $VOUCH_API_KEY" \\
   ${base}/wallets/0xd8da6bf26964af9d7eed9e03e53415d37aa96045/score`;
   return (
-    <div className="rounded-xl border border-zinc-900/10 bg-zinc-900 p-5 text-zinc-100">
-      <p className="text-sm font-semibold">Make your first score lookup</p>
-      <p className="mt-1 text-sm text-zinc-300">
+    <div className="rounded-[2px] bg-brand-deep p-5 text-ground">
+      <p className="font-[family-name:var(--font-display)] text-sm font-semibold text-white">
+        Make your first score lookup
+      </p>
+      <p className="mt-1 text-sm text-brand-mist">
         No lookups yet. Run one call and this panel is replaced by your live usage.
       </p>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-black/40 p-4 text-xs text-zinc-100">
-        <code>{curl}</code>
-      </pre>
+      <CodeBlock code={curl} label="First score lookup" className="mt-3" />
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
         {!hasKey && (
-          <Link href="/dashboard/keys" className="text-white underline">
+          <Link href="/dashboard/keys" className="text-white underline underline-offset-[0.22em]">
             Create an API key
           </Link>
         )}
         <Link
           href="/payee/0xd8da6bf26964af9d7eed9e03e53415d37aa96045"
-          className="text-white underline"
+          className="text-white underline underline-offset-[0.22em]"
         >
           Or see a live score in the browser
         </Link>
-        <Link href="/docs/api" className="text-white underline">
+        <Link href="/docs/api" className="text-white underline underline-offset-[0.22em]">
           API reference
         </Link>
       </div>
@@ -153,7 +154,7 @@ function FirstCallGuide({ hasKey }: { hasKey: boolean }) {
   );
 }
 
-function Card({
+function Stat({
   title,
   value,
   subtitle,
@@ -163,10 +164,12 @@ function Card({
   subtitle: string;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</p>
-      <p className="mt-2 text-2xl font-semibold capitalize">{value}</p>
-      <p className="mt-1 text-sm text-zinc-600">{subtitle}</p>
+    <div>
+      <dt className="doc-caption">{title}</dt>
+      <dd className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold capitalize text-brand-deep">
+        {value}
+      </dd>
+      <dd className="mt-1 text-sm text-brand">{subtitle}</dd>
     </div>
   );
 }

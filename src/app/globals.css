@@ -506,6 +506,33 @@ a {
     background: #ffffff;
   }
 
+  /* ---- 実線ボックス（ダッシュボードの機能的なまとまり: フォーム・結果・
+     クォータ計）------------------------------------------------------
+     .dashbox と同じ紙の文法で、罫線だけ実線にしたもの。ダッシュボードは
+     Operate 面なので RFC の節組みまでは持ち込まないが、地色・罫線・角丸は
+     公開頁と同じ語彙を使う。2026-08-15: ダッシュボード9頁が rounded-xl+
+     zinc-200 の SaaS カード語彙で組まれ、DIRECTION CONTRACT が禁じる
+     未承認色（zinc/red/amber/emerald）を使っていた是正。 */
+  .panel {
+    border: 1px solid #dfe3e9;
+    border-radius: 2px;
+    background: #ffffff;
+    padding: 1.25rem;
+  }
+
+  /* ---- ダッシュボード頁見出し ------------------------------------------
+     本文と同じ Fragment Mono は 400 しか無いので、text-2xl font-semibold は
+     ブラウザの合成太字になる（.sec-head と同じ理由で見出し体系は必ず
+     Martian Mono を使う）。 */
+  .dash-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.375rem;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    color: #233456;
+  }
+
   /* ---- 目次（ドットリーダ）------------------------------------------
      ドットは背景の repeating-linear-gradient で引く。文字の「.」を並べると
      桁が揃わず、折返しでリーダだけの行ができる。 */

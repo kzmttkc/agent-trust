@@ -97,11 +97,11 @@ export default function DashboardListsPage() {
   }
 
   if (error && !data) {
-    return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
+    return <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>;
   }
 
   if (!data) {
-    return <p className="text-sm text-zinc-600">Loading lists...</p>;
+    return <p className="text-sm text-brand">Loading lists...</p>;
   }
 
   const { entries } = data;
@@ -109,26 +109,26 @@ export default function DashboardListsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">Whitelist / Blacklist</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="dash-title">Whitelist / Blacklist</h2>
+        <p className="mt-1 text-sm text-brand">
           Customer-scoped lists apply to your API key. Global blacklist entries are enforced at score time but are not shown here.
         </p>
       </div>
 
-      {error && <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>}
+      {error && <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>}
 
-      <form onSubmit={addEntry} className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-5 sm:grid-cols-[1fr_auto_auto]">
+      <form onSubmit={addEntry} className="panel grid gap-3 sm:grid-cols-[1fr_auto_auto]">
         <input
           value={wallet}
           onChange={(event) => setWallet(event.target.value)}
           placeholder="0x..."
-          className="rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+          className="rounded-[2px] border border-brand-lift bg-paper px-3 py-2 font-mono text-sm text-brand-deep placeholder:text-brand-lift"
           required
         />
         <select
           value={listType}
           onChange={(event) => setListType(event.target.value as "whitelist" | "blacklist")}
-          className="rounded-md border border-zinc-500 px-3 py-2 text-sm"
+          className="rounded-[2px] border border-brand-lift bg-paper px-3 py-2 text-sm text-brand-deep"
         >
           <option value="whitelist">Whitelist</option>
           <option value="blacklist">Blacklist</option>
@@ -138,40 +138,40 @@ export default function DashboardListsPage() {
         </button>
       </form>
 
-      <form onSubmit={importCsv} className="space-y-3 rounded-xl border border-zinc-200 bg-white p-5">
-        <h3 className="text-sm font-medium text-zinc-700">CSV import</h3>
+      <form onSubmit={importCsv} className="panel space-y-3">
+        <h3 className="doc-caption">CSV import</h3>
         <textarea
           value={csv}
           onChange={(event) => setCsv(event.target.value)}
           placeholder={"wallet,list_type\n0x...,whitelist"}
           rows={4}
-          className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+          className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 font-mono text-sm text-brand-deep placeholder:text-brand-lift"
         />
         <button type="submit" className={buttonClass({ variant: "secondary" })}>
           Import CSV
         </button>
-        {importMessage && <p className="text-sm text-emerald-700">{importMessage}</p>}
+        {importMessage && <p className="text-sm text-brand-deep">{importMessage}</p>}
       </form>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+      <div className="table-scroll">
+        <table className="fact-table fact-table-fixed">
+          <thead>
             <tr>
-              <th className="px-4 py-3 font-medium">Wallet</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium" />
+              <th>Wallet</th>
+              <th>Type</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {entries.map((entry) => (
-              <tr key={entry.id} className="border-b border-zinc-100">
-                <td className="px-4 py-3 font-mono text-xs">{entry.wallet}</td>
-                <td className="px-4 py-3 capitalize">{entry.listType}</td>
-                <td className="px-4 py-3 text-right">
+              <tr key={entry.id}>
+                <td className="font-mono text-xs font-normal">{entry.wallet}</td>
+                <td className="capitalize">{entry.listType}</td>
+                <td className="text-right">
                   <button
                     type="button"
                     onClick={() => removeEntry(entry.id)}
-                    className="text-xs text-red-600 hover:underline"
+                    className="doc-link text-xs"
                   >
                     Remove
                   </button>
@@ -180,7 +180,7 @@ export default function DashboardListsPage() {
             ))}
             {entries.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-zinc-500">
+                <td colSpan={3} className="text-center text-brand-lift">
                   No list entries yet.
                 </td>
               </tr>

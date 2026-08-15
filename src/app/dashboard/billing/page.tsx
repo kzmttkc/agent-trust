@@ -72,68 +72,78 @@ export default function DashboardBillingPage() {
   }
 
   if (!info) {
-    return <p className="text-sm text-zinc-600">Loading billing...</p>;
+    return <p className="text-sm text-brand">Loading billing...</p>;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">Billing</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="dash-title">Billing</h2>
+        <p className="mt-1 text-sm text-brand">
           Manage your plan. Quota is shared across all API keys on your account.
         </p>
       </div>
 
       {checkoutStatus === "success" && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+        <p className="rounded-[2px] border border-brand-deep bg-paper px-3 py-2 text-sm text-brand-deep">
           Payment successful. Your plan will update shortly.
         </p>
       )}
 
       {planChanged && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+        <p className="rounded-[2px] border border-brand-deep bg-paper px-3 py-2 text-sm text-brand-deep">
           Plan updated. Your subscription was changed without creating a new charge.
         </p>
       )}
 
-      {error && <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>}
+      {error && <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>}
 
-      <div className="rounded-xl border border-zinc-200 bg-white p-5">
-        <p className="text-sm text-zinc-500">Current plan</p>
-        <p className="mt-1 text-2xl font-semibold capitalize">{info.plan}</p>
-        {info.email && <p className="mt-1 text-sm text-zinc-600">{info.email}</p>}
+      <div>
+        <dt className="doc-caption">Current plan</dt>
+        <dd className="mt-1 font-[family-name:var(--font-display)] text-2xl font-semibold capitalize text-brand-deep">
+          {info.plan}
+        </dd>
+        {info.email && <dd className="mt-1 text-sm text-brand">{info.email}</dd>}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        {(["free", "pro", "scale"] as const).map((planId) => {
-          const plan = info.plans[planId];
-          const isCurrent = info.plan === planId;
-          return (
-            <div
-              key={planId}
-              className={`rounded-xl border p-5 ${isCurrent ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white"}`}
-            >
-              <p className="font-semibold">{plan.name}</p>
-              <p className="mt-1 text-2xl">{plan.priceLabel}</p>
-              <p className="mt-2 text-sm text-zinc-600">
-                {plan.monthlyLimit.toLocaleString()} lookups / month
-              </p>
-              {planId !== "free" && info.stripeConfigured && !isCurrent && (
-                <button
-                  type="button"
-                  disabled={loading !== null}
-                  onClick={() => upgrade(planId)}
-                  className={buttonClass({ className: "mt-4 w-full" })}
-                >
-                  {loading === planId ? "Redirecting..." : `Upgrade to ${plan.name}`}
-                </button>
-              )}
-              {isCurrent && (
-                <p className="mt-4 text-xs font-medium uppercase text-zinc-500">Current</p>
-              )}
-            </div>
-          );
-        })}
+      <div className="table-scroll">
+        <table className="fact-table fact-table-fixed">
+          <thead>
+            <tr>
+              <th>Plan</th>
+              <th>Price</th>
+              <th>Lookups / month</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {(["free", "pro", "scale"] as const).map((planId) => {
+              const plan = info.plans[planId];
+              const isCurrent = info.plan === planId;
+              return (
+                <tr key={planId}>
+                  <td>{plan.name}</td>
+                  <td className="num">{plan.priceLabel}</td>
+                  <td className="num">{plan.monthlyLimit.toLocaleString()}</td>
+                  <td className="text-right">
+                    {isCurrent ? (
+                      <span className="marker marker-live">Current</span>
+                    ) : planId !== "free" && info.stripeConfigured ? (
+                      <button
+                        type="button"
+                        disabled={loading !== null}
+                        onClick={() => upgrade(planId)}
+                        className={buttonClass({ size: "sm" })}
+                      >
+                        {loading === planId ? "Redirecting..." : `Upgrade`}
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       {info.stripeConfigured && info.plan !== "free" && (
@@ -141,14 +151,14 @@ export default function DashboardBillingPage() {
           type="button"
           onClick={openPortal}
           disabled={loading !== null}
-          className="rounded-md border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
+          className={buttonClass({ variant: "secondary" })}
         >
           {loading === "portal" ? "Opening..." : "Manage subscription"}
         </button>
       )}
 
       {!info.stripeConfigured && (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-brand-lift">
           Stripe is not configured in this environment. Set STRIPE_SECRET_KEY and price IDs for
           paid upgrades.
         </p>

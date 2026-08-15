@@ -60,7 +60,7 @@ export default async function BlogPostPage({
   };
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6 p-8">
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
       <script
         type="application/ld+json"
         nonce={nonce}
@@ -71,36 +71,55 @@ export default async function BlogPostPage({
         dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">vet402</p>
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">{post.title}</h1>
-        <p className="text-sm text-zinc-500">
-          Published {post.publishedAt}
-          {post.updatedAt !== post.publishedAt ? ` · Updated ${post.updatedAt}` : ""}
+      <article className="sheet">
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>Independent Measurement</span>
+            <span>Blog post</span>
+            <span>Published: {post.publishedAt}</span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>Building in public</span>
+            {post.updatedAt !== post.publishedAt ? <span>Updated: {post.updatedAt}</span> : null}
+          </div>
+        </div>
+
+        <h1 className="doc-title mt-10">{post.title}</h1>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        {post.editorsNote ? (
+          <p className="doc-note mx-auto mt-6 max-w-[64ch] text-center italic">
+            {post.editorsNote}
+          </p>
+        ) : null}
+
+        <div className="mx-auto mt-8 max-w-[64ch] space-y-4">
+          {post.body.map((paragraph, i) => (
+            <p key={i} className="text-brand">
+              {paragraph}
+            </p>
+          ))}
+        </div>
+
+        <p className="rule-single mt-10 pt-6 text-[0.8125rem]">
+          <Link href="/blog" className="doc-link">
+            All posts
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/docs/api" className="doc-link">
+            API reference
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/signup" className="doc-link">
+            Get an API key
+          </Link>
         </p>
-      </div>
-
-      {post.editorsNote ? (
-        <p className="text-sm italic text-zinc-500">{post.editorsNote}</p>
-      ) : null}
-
-      <article className="space-y-4 text-zinc-700 leading-relaxed">
-        {post.body.map((paragraph, i) => (
-          <p key={i}>{paragraph}</p>
-        ))}
       </article>
-
-      <div className="flex flex-wrap gap-3 border-t border-zinc-200 pt-6 text-sm">
-        <Link href="/blog" className="underline">
-          All posts
-        </Link>
-        <Link href="/docs/api" className="underline">
-          API reference
-        </Link>
-        <Link href="/signup" className="underline">
-          Get an API key
-        </Link>
-      </div>
     </main>
   );
 }

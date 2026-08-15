@@ -5,6 +5,7 @@ import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { track } from "@/lib/analytics";
 import { buttonClass } from "@/components/ui/Button";
+import CodeBlock from "@/components/docs/CodeBlock";
 
 type KeyInfo = {
   id: string;
@@ -79,11 +80,11 @@ export default function DashboardKeysPage() {
   }
 
   if (error && !data) {
-    return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
+    return <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>;
   }
 
   if (!data) {
-    return <p className="text-sm text-zinc-600">Loading API keys...</p>;
+    return <p className="text-sm text-brand">Loading API keys...</p>;
   }
 
   const { keys, currentKeyId } = data;
@@ -91,51 +92,53 @@ export default function DashboardKeysPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">API keys</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="dash-title">API keys</h2>
+        <p className="mt-1 text-sm text-brand">
           Create and revoke keys in your account. The active session key cannot be revoked here.
         </p>
       </div>
 
-      {error && <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>}
+      {error && <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>}
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+      <div className="table-scroll">
+        <table className="fact-table fact-table-fixed">
+          <thead>
             <tr>
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Plan</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Last used</th>
-              <th className="px-4 py-3 font-medium" />
+              <th>Name</th>
+              <th>Plan</th>
+              <th>Status</th>
+              <th>Last used</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {keys.map((key) => (
-              <tr key={key.id} className="border-b border-zinc-100">
-                <td className="px-4 py-3">
-                  <div className="font-medium">{key.name ?? "Unnamed"}</div>
-                  <div className="font-mono text-xs text-zinc-500">{key.id}</div>
+              <tr key={key.id}>
+                <td>
+                  <div>{key.name ?? "Unnamed"}</div>
+                  <div className="font-mono text-[0.6875rem] font-normal text-brand-lift">
+                    {key.id}
+                  </div>
                 </td>
-                <td className="px-4 py-3 capitalize">{key.plan}</td>
-                <td className="px-4 py-3">
+                <td className="capitalize">{key.plan}</td>
+                <td>
                   {key.revokedAt ? (
-                    <span className="text-red-600">Revoked</span>
+                    <span className="marker marker-verdict-block">Revoked</span>
                   ) : key.id === currentKeyId ? (
-                    <span className="text-emerald-700">Active session</span>
+                    <span className="marker marker-live">Active session</span>
                   ) : (
-                    <span className="text-zinc-600">Active</span>
+                    <span className="text-brand">Active</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="text-brand">
                   {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "—"}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="text-right">
                   {!key.revokedAt && key.id !== currentKeyId && (
                     <button
                       type="button"
                       onClick={() => revokeKey(key.id)}
-                      className="text-xs text-red-600 hover:underline"
+                      className="doc-link text-xs"
                     >
                       Revoke
                     </button>
@@ -145,7 +148,7 @@ export default function DashboardKeysPage() {
             ))}
             {keys.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                <td colSpan={5} className="text-center text-brand-lift">
                   No API keys found.
                 </td>
               </tr>
@@ -163,9 +166,9 @@ export default function DashboardKeysPage() {
       </button>
 
       {newKey && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-medium">New API key (copy now — shown once):</p>
-          <code className="mt-2 block break-all font-mono text-xs">{newKey}</code>
+        <div className="rounded-[2px] border border-warn-ink bg-paper p-4 text-sm text-warn-ink">
+          <p>New API key (copy now — shown once):</p>
+          <CodeBlock code={newKey} label="New API key" className="mt-2" />
         </div>
       )}
     </div>

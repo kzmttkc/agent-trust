@@ -35,11 +35,11 @@ export default function DashboardLogsPage() {
   }, []);
 
   if (error) {
-    return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
+    return <p className="text-sm text-block-ink">{dashboardErrorMessage(error)}</p>;
   }
 
   if (!data) {
-    return <p className="text-sm text-zinc-600">Loading query logs...</p>;
+    return <p className="text-sm text-brand">Loading query logs...</p>;
   }
 
   const { logs } = data;
@@ -47,48 +47,50 @@ export default function DashboardLogsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">Query logs</h2>
-        <p className="text-sm text-zinc-600">Recent trust score lookups for your API key.</p>
+        <h2 className="dash-title">Query logs</h2>
+        <p className="mt-1 text-sm text-brand">Recent trust score lookups for your API key.</p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+      <div className="table-scroll">
+        <table className="fact-table fact-table-fixed">
+          <thead>
             <tr>
-              <th className="px-4 py-3 font-medium">Time</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Agent</th>
-              <th className="px-4 py-3 font-medium">Wallet</th>
-              <th className="px-4 py-3 font-medium">Score</th>
-              <th className="px-4 py-3 font-medium">Decision</th>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Agent</th>
+              <th>Wallet</th>
+              <th>Score</th>
+              <th>Decision</th>
             </tr>
           </thead>
           <tbody>
             {logs.map((log) => (
-              <tr key={log.id} className="border-b border-zinc-100">
-                <td className="px-4 py-3 text-xs text-zinc-600">
+              <tr key={log.id}>
+                <td className="text-xs font-normal text-brand">
                   {log.createdAt ? new Date(log.createdAt).toLocaleString() : "—"}
                 </td>
-                <td className="px-4 py-3">
-                  {log.kind === "payee_score" ? (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                      Payee
+                <td className="font-normal">{log.kind === "payee_score" ? "Payee" : "Wallet"}</td>
+                <td className="font-mono text-xs font-normal">{log.agentId ?? "—"}</td>
+                <td className="font-mono text-xs font-normal">{log.wallet ?? "—"}</td>
+                <td className="num font-normal">{log.trustScore ?? "—"}</td>
+                <td>
+                  {log.recommendation === "ALLOW" ||
+                  log.recommendation === "WARN" ||
+                  log.recommendation === "BLOCK" ? (
+                    <span
+                      className={`marker marker-verdict-${log.recommendation.toLowerCase()}`}
+                    >
+                      {log.recommendation}
                     </span>
                   ) : (
-                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
-                      Wallet
-                    </span>
+                    (log.recommendation ?? "—")
                   )}
                 </td>
-                <td className="px-4 py-3 font-mono text-xs">{log.agentId ?? "—"}</td>
-                <td className="px-4 py-3 font-mono text-xs">{log.wallet ?? "—"}</td>
-                <td className="px-4 py-3">{log.trustScore ?? "—"}</td>
-                <td className="px-4 py-3">{log.recommendation ?? "—"}</td>
               </tr>
             ))}
             {logs.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-zinc-500">
+                <td colSpan={6} className="text-center text-brand-lift">
                   No queries logged yet.
                 </td>
               </tr>

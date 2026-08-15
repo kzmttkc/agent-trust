@@ -81,7 +81,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-zinc-50 px-6 text-sm text-zinc-600">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-ground px-6 text-sm text-brand">
         <p>Loading dashboard...</p>
         {/* 2026-08-06 (JS-disabled persona audit): this is the server-rendered
             branch, so with JavaScript off the dashboard sat on "Loading
@@ -89,10 +89,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             rather than slow. The dashboard is a client-rendered app against a
             session cookie, so it genuinely cannot work without JS; say so. */}
         <noscript>
-          <p className="max-w-sm rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-center text-amber-900">
+          <p className="max-w-sm rounded-[2px] border border-warn-ink bg-paper px-4 py-3 text-center text-warn-ink">
             The dashboard needs JavaScript and will not finish loading without it. The same data is
             available from the API — see the{" "}
-            <a className="underline" href="/docs/api">
+            <a className="doc-link" href="/docs/api">
               API reference
             </a>
             .
@@ -104,9 +104,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   if (serviceError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
-        <div className="max-w-md rounded-xl border border-red-200 bg-white p-6 text-center">
-          <p className="text-sm text-red-700">Dashboard unavailable: {serviceError}</p>
+      <div className="flex min-h-screen items-center justify-center bg-ground px-6">
+        <div className="max-w-md rounded-[2px] border border-block-ink bg-paper p-6 text-center">
+          <p className="text-sm text-block-ink">Dashboard unavailable: {serviceError}</p>
           <button
             type="button"
             onClick={() => window.location.reload()}
@@ -120,7 +120,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-50 text-zinc-900">
+    <div className="flex min-h-screen flex-col bg-ground text-brand-deep">
       {/* Skip link — the dashboard has its own chrome (SiteChrome is bypassed
           here), so it needs its own. Eight sidebar links otherwise sit between
           the top of the tab order and the page content on every view. */}
@@ -130,7 +130,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       >
         Skip to main content
       </a>
-      <header className="border-b border-zinc-200 bg-white">
+      <header className="border-b border-hair bg-paper">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div>
             {/* 2026-08-13: eyebrow をやめて実物のワードマークにした。
@@ -144,7 +144,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={logout}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
+            className={buttonClass({ variant: "secondary", size: "sm" })}
           >
             Sign out
           </button>
@@ -159,10 +159,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`block rounded-md px-3 py-2 text-sm ${
+                className={`block rounded-[2px] px-3 py-2 text-sm ${
                   active
-                    ? "bg-brand-deep font-medium text-white"
-                    : "text-zinc-700 hover:bg-zinc-200/70"
+                    ? "bg-brand-deep text-white"
+                    : "text-brand hover:bg-hair"
                 }`}
               >
                 {item.label}
