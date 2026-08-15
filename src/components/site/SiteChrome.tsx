@@ -11,18 +11,13 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteFooter } from "@/components/site/SiteFooter";
+import { StatusBanner } from "@/components/site/StatusBanner";
 import { buttonClass } from "@/components/ui/Button";
 
 export function SiteChrome({
   children,
-  // 2026-08-13 UX監査R1 [D2]: 上流障害の掲示帯。ここは client component なので
-  // 自分では計測できない。server component として描画したものを slot で
-  // 受け取る（layout.tsx が渡す）。/dashboard では下の早期 return で落ちる
-  // ——あちらは自分の app shell を持っていて、掲示の宛先も違う。
-  banner,
 }: {
   children: React.ReactNode;
-  banner?: React.ReactNode;
 }) {
   const pathname = usePathname();
   const isDashboard = pathname?.startsWith("/dashboard");
@@ -63,8 +58,8 @@ export function SiteChrome({
       >
         Skip to main content
       </a>
+      <StatusBanner />
       <SiteHeader />
-      {banner}
       <div id="main-content" ref={mainRef} tabIndex={-1} className="flex-1">
         {children}
       </div>

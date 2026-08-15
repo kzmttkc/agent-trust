@@ -111,33 +111,33 @@ export default function DashboardListsPage() {
   const { entries } = data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">Allow and block lists</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="dash-title">Allow and block lists</h2>
+        <p className="dash-lede">
           Wallets on your allow list skip extra caution. Wallets on your block list always return
           BLOCK for this key.
         </p>
       </div>
 
       {error && (
-        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+        <p role="alert" aria-live="assertive" className="dash-alert dash-alert-error">
           {dashboardErrorMessage(error)}
         </p>
       )}
 
-      <form onSubmit={addEntry} className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-5 sm:grid-cols-[1fr_auto_auto]">
+      <form onSubmit={addEntry} className="dash-card grid gap-3 sm:grid-cols-[1fr_auto_auto]">
         <input
           value={wallet}
           onChange={(event) => setWallet(event.target.value)}
           placeholder="0x..."
-          className="rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+          className="dash-input"
           required
         />
         <select
           value={listType}
           onChange={(event) => setListType(event.target.value as "whitelist" | "blacklist")}
-          className="rounded-md border border-zinc-500 px-3 py-2 text-sm"
+          className="dash-select"
         >
           <option value="whitelist">Allow</option>
           <option value="blacklist">Block</option>
@@ -147,14 +147,14 @@ export default function DashboardListsPage() {
         </button>
       </form>
 
-      <form onSubmit={importCsv} className="space-y-3 rounded-xl border border-zinc-200 bg-white p-5">
-        <h3 className="text-sm font-medium text-zinc-700">CSV import</h3>
+      <form onSubmit={importCsv} className="dash-card space-y-3">
+        <h3 className="text-sm font-medium text-zinc-800">CSV import</h3>
         <textarea
           value={csv}
           onChange={(event) => setCsv(event.target.value)}
           placeholder={"wallet,list_type\n0x...,whitelist"}
           rows={4}
-          className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+          className="dash-textarea font-mono"
         />
         <button type="submit" className={buttonClass({ variant: "secondary" })}>
           Import CSV
@@ -162,21 +162,21 @@ export default function DashboardListsPage() {
         {importMessage && <p className="text-sm text-emerald-700">{importMessage}</p>}
       </form>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+      <div className="dash-card-flush">
+        <table className="dash-table">
+          <thead>
             <tr>
-              <th className="px-4 py-3 font-medium">Wallet</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium" />
+              <th className="dash-th">Wallet</th>
+              <th className="dash-th">Type</th>
+              <th className="dash-th" />
             </tr>
           </thead>
           <tbody>
             {entries.map((entry) => (
-              <tr key={entry.id} className="border-b border-zinc-100">
-                <td className="px-4 py-3 font-mono text-xs">{entry.wallet}</td>
-                <td className="px-4 py-3">{entry.listType === "blacklist" ? "Block" : "Allow"}</td>
-                <td className="px-4 py-3 text-right">
+              <tr key={entry.id}>
+                <td className="dash-td font-mono text-xs">{entry.wallet}</td>
+                <td className="dash-td">{entry.listType === "blacklist" ? "Block" : "Allow"}</td>
+                <td className="dash-td text-right">
                   <button
                     type="button"
                     onClick={() => removeEntry(entry.id)}
@@ -189,7 +189,7 @@ export default function DashboardListsPage() {
             ))}
             {entries.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-zinc-600">
+                <td colSpan={3} className="dash-td py-8 text-center text-zinc-600">
                   No list entries yet.
                 </td>
               </tr>

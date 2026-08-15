@@ -64,6 +64,7 @@ export async function fetchLeaderboard(limit = 25): Promise<LeaderboardRow[]> {
       FROM trust_events
       WHERE trust_score IS NOT NULL
         AND COALESCE(agent_id::text, wallet) IS NOT NULL
+        AND COALESCE(signals->>'kind', '') <> 'payee_score'
         AND created_at > now() - (${LEADERBOARD_WINDOW_DAYS} || ' days')::interval
       ORDER BY COALESCE(agent_id::text, wallet), created_at DESC
     `);

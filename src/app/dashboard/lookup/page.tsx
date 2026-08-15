@@ -81,10 +81,10 @@ export default function DashboardLookupPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">Score a payee</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="dash-title">Score a payee</h2>
+        <p className="dash-lede">
           The address you are about to pay. Same engine as{" "}
           <a className="underline" href="/payee">
             public payee lookup
@@ -93,23 +93,23 @@ export default function DashboardLookupPage() {
         </p>
       </div>
 
-      <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
-        <label className="block space-y-1 text-sm">
-          <span className="font-medium">Payee wallet</span>
+      <form onSubmit={onSubmit} className="dash-card space-y-4">
+        <label className="block space-y-1.5 text-sm">
+          <span className="font-medium text-zinc-800">Payee wallet</span>
           <input
             value={wallet}
             onChange={(event) => setWallet(event.target.value)}
             placeholder="0x..."
-            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+            className="dash-input"
           />
         </label>
-        <label className="block space-y-1 text-sm">
-          <span className="font-medium">Payer agent ID (optional)</span>
+        <label className="block space-y-1.5 text-sm">
+          <span className="font-medium text-zinc-800">Payer agent ID (optional)</span>
           <input
             value={agentId}
             onChange={(event) => setAgentId(event.target.value)}
             placeholder="Leave blank to score the payee"
-            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+            className="dash-input"
           />
         </label>
         <button
@@ -122,13 +122,13 @@ export default function DashboardLookupPage() {
       </form>
 
       {error && (
-        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+        <p role="alert" aria-live="assertive" className="dash-alert dash-alert-error">
           {dashboardErrorMessage(error)}
         </p>
       )}
 
       {result && isPayee(result) && (
-        <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
+        <div className="dash-card space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">Payee score</h3>
             <Badge value={result.recommendation} />
@@ -161,7 +161,7 @@ export default function DashboardLookupPage() {
       )}
 
       {result && !isPayee(result) && (
-        <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
+        <div className="dash-card space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">Payer score</h3>
             <Badge value={result.recommendation} />
@@ -208,7 +208,7 @@ function Badge({ value }: { value: string }) {
 function Item({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-zinc-600">{label}</dt>
+      <dt className="dash-caption">{label}</dt>
       <dd className="font-mono text-zinc-900">{value}</dd>
     </div>
   );

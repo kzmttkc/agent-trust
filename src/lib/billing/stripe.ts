@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { BILLING_PLANS, type PaidPlan } from "./plans";
+import { checkoutDisposition } from "./subscription-status";
 
 let stripeClient: Stripe | null = null;
 
@@ -59,12 +60,15 @@ export async function createCheckoutSession(params: {
 }
 
 /**
- * Thrown when an existing subscription can't be changed in place (e.g. it was
- * canceled) — callers should fall back to creating a fresh checkout session.
+ * Thrown when an existing subscription can't be changed in place.
+ * `stripeStatus` tells the caller whether to open a fresh Checkout
+ * (`canceled`) or refuse and send the customer to the portal (`past_due`).
  */
 export class SubscriptionNotChangeableError extends Error {
-  constructor() {
+  readonly stripeStatus: string;
+  constructor(stripeStatus: string) {
     super("subscription_not_changeable");
+    this.stripeStatus = stripeStatus;
   }
 }
 
@@ -84,13 +88,13 @@ export async function changeSubscriptionPlan(params: {
   }
 
   const subscription = await stripe.subscriptions.retrieve(params.subscriptionId);
-  if (subscription.status !== "active" && subscription.status !== "trialing") {
-    throw new SubscriptionNotChangeableError();
+  if (checkoutDisposition(subscription.status) !== "change_in_place") {
+    throw new SubscriptionNotChangeableError(subscription.status);
   }
 
   const itemId = subscription.items.data[0]?.id;
   if (!itemId) {
-    throw new SubscriptionNotChangeableError();
+    throw new SubscriptionNotChangeableError(subscription.status);
   }
 
   const updated = await stripe.subscriptions.update(params.subscriptionId, {

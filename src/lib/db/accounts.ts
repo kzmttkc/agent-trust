@@ -1,6 +1,8 @@
-import { eq } from "drizzle-orm";
-import { normalizePlan } from "./api-keys";
+import { eq, sql } from "drizzle-orm";
+import { isProduction } from "@/lib/config/env";
+import { generateApiKey, hashApiKey, normalizePlan } from "./api-keys";
 import { getDb } from "./client";
+import { isUniqueViolationError } from "./pg-errors";
 import { accounts, apiKeys } from "./schema";
 
 export type AccountRecord = {
@@ -74,23 +76,86 @@ export async function getAccountByStripeCustomerId(
   };
 }
 
-export async function createAccount(email: string): Promise<AccountRecord> {
+/**
+ * Create the account and its first API key in a single SQL statement.
+ * neon-http has no interactive transactions; a CTE still commits atomically,
+ * so a key-insert failure cannot leave an email-locked account with no key.
+ */
+export async function createAccountWithApiKey(params: {
+  email: string;
+  keyName: string;
+}): Promise<{
+  account: AccountRecord;
+  apiKey: { id: string; key: string; plan: string };
+}> {
   const db = getDb();
   if (!db) throw new Error("DATABASE_URL is not configured");
+  if (isProduction() && !process.env.API_KEY_PEPPER) {
+    throw new Error("API_KEY_PEPPER is required in production");
+  }
 
-  const normalized = email.toLowerCase().trim();
+  const normalized = params.email.toLowerCase().trim();
+  const key = generateApiKey();
+  const keyHash = hashApiKey(key);
 
-  const [row] = await db
-    .insert(accounts)
-    .values({ email: normalized, plan: "free" })
-    .returning();
+  let raw: unknown;
+  try {
+    raw = await db.execute(sql`
+      WITH acc AS (
+        INSERT INTO accounts (email, plan)
+        VALUES (${normalized}, 'free')
+        RETURNING id, email, plan, stripe_customer_id, stripe_subscription_id
+      ),
+      k AS (
+        INSERT INTO api_keys (user_id, name, key_hash, plan)
+        SELECT id, ${params.keyName}, ${keyHash}, 'free' FROM acc
+        RETURNING id, plan
+      )
+      SELECT
+        acc.id AS account_id,
+        acc.email,
+        acc.plan AS account_plan,
+        acc.stripe_customer_id,
+        acc.stripe_subscription_id,
+        k.id AS key_id,
+        k.plan AS key_plan
+      FROM acc, k
+    `);
+  } catch (error) {
+    if (isUniqueViolationError(error)) {
+      throw new Error("email_already_registered");
+    }
+    throw error;
+  }
+
+  const rows = (Array.isArray(raw) ? raw : (raw as { rows?: unknown[] }).rows ?? []) as Record<
+    string,
+    unknown
+  >[];
+  const row = rows[0];
+  if (!row?.account_id || !row.key_id) {
+    throw new Error("signup_failed");
+  }
 
   return {
-    id: row.id,
-    email: row.email,
-    plan: normalizePlan(row.plan),
-    stripeCustomerId: row.stripeCustomerId,
-    stripeSubscriptionId: row.stripeSubscriptionId,
+    account: {
+      id: String(row.account_id),
+      email: String(row.email),
+      plan: normalizePlan(String(row.account_plan ?? "free")),
+      stripeCustomerId:
+        row.stripe_customer_id === null || row.stripe_customer_id === undefined
+          ? null
+          : String(row.stripe_customer_id),
+      stripeSubscriptionId:
+        row.stripe_subscription_id === null || row.stripe_subscription_id === undefined
+          ? null
+          : String(row.stripe_subscription_id),
+    },
+    apiKey: {
+      id: String(row.key_id),
+      key,
+      plan: normalizePlan(String(row.key_plan ?? "free")),
+    },
   };
 }
 

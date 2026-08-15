@@ -15,15 +15,13 @@ export default function DashboardIntegrationsPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">Integrations</h2>
-        <p className="text-sm text-zinc-700">
-          Same scores via REST, MCP, or x402 middleware.
-        </p>
+        <h2 className="dash-title">Integrations</h2>
+        <p className="dash-lede">Same scores via REST, MCP, or x402 middleware.</p>
       </div>
 
-      <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-5">
+      <section className="dash-card space-y-3">
         <h3 className="text-base font-semibold">Direct API</h3>
         <p className="text-sm text-zinc-700">Bearer API key. Primary path for gateways and backends.</p>
         <ul className="space-y-1 font-mono text-xs text-zinc-800">
@@ -45,7 +43,7 @@ export default function DashboardIntegrationsPage() {
         </p>
       </section>
 
-      <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-5">
+      <section className="dash-card space-y-3">
         <h3 className="text-base font-semibold">MCP</h3>
         <p className="text-sm text-zinc-700">
           Agent runtimes can self-check before paying: <code>check_wallet_trust</code>,{" "}
@@ -63,7 +61,7 @@ export default function DashboardIntegrationsPage() {
         </p>
       </section>
 
-      <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-5">
+      <section className="dash-card space-y-3">
         <h3 className="text-base font-semibold">x402 trust gate</h3>
         <p className="text-sm text-zinc-700">
           Middleware that blocks <code>BLOCK</code> payers and can write settlements back.

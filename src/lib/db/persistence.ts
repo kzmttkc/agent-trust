@@ -2,6 +2,7 @@ import { desc, eq, and } from "drizzle-orm";
 import { getDb } from "./client";
 import { trustEvents } from "./schema";
 import { getDataCoverage } from "@/lib/health/data-coverage";
+import { hasUnavailableInput } from "@/lib/scoring/verdict";
 import type { PayeeScoreResult } from "@/lib/scoring/payee-engine";
 import type { TrustScoreResult } from "@/lib/scoring/types";
 
@@ -14,6 +15,15 @@ export async function persistScoreResult(
 
   const agentId =
     result.agentId === "0" ? null : BigInt(result.agentId);
+
+  // Same rule persistPayeeScoreResult already enforces: a verdict computed
+  // from an input we could not read is a refusal, not a measurement.
+  if (
+    hasUnavailableInput(result.signals.sybil.flags) ||
+    Boolean(result.blockReason?.endsWith("_unavailable"))
+  ) {
+    return;
+  }
 
   await db.insert(trustEvents).values({
     apiKeyId,

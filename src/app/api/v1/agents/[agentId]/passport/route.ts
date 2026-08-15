@@ -8,6 +8,7 @@ import { parseAgentId } from "@/lib/chain/client";
 import { scoreAgentById } from "@/lib/scoring/engine";
 import { agentPassportMessage } from "@/lib/verify-message";
 import { logServerError } from "@/lib/util/log";
+import { verifyMessage } from "viem";
 
 // A-10 — the portable, third-party-verifiable passport. Key-less on purpose:
 // a counterparty deciding whether to transact with an agent must be able to
@@ -26,6 +27,30 @@ export const dynamic = "force-dynamic";
 
 const PASSPORT_LIMIT = 20;
 const PASSPORT_WINDOW_MS = 60_000;
+
+async function matchingPassportMessage(params: {
+  agentId: bigint;
+  wallet: string;
+  name: string;
+  url: string | null;
+  signature: string;
+}): Promise<string> {
+  const legacy = agentPassportMessage(params.agentId, params.wallet, params.name);
+  if (!params.url) return legacy;
+  const bound = agentPassportMessage(params.agentId, params.wallet, params.name, params.url);
+  try {
+    const ok = await verifyMessage({
+      address: params.wallet as `0x${string}`,
+      message: bound,
+      signature: params.signature as `0x${string}`,
+    });
+    if (ok) return bound;
+  } catch {
+    // Fall through to the pre-url message so rows signed before url binding
+    // still verify for a third party.
+  }
+  return legacy;
+}
 
 export async function GET(
   request: NextRequest,
@@ -118,7 +143,13 @@ export async function GET(
             // trusting this server: reconstruct + verifyMessage(message,
             // signature, wallet), then confirm wallet == getAgentWallet(agentId).
             proof: {
-              message: agentPassportMessage(agentId, identity.wallet, identity.name),
+              message: await matchingPassportMessage({
+                agentId,
+                wallet: identity.wallet,
+                name: identity.name,
+                url: identity.url,
+                signature: identity.signature,
+              }),
               signature: identity.signature,
               scheme: "eip191-personal-sign",
             },

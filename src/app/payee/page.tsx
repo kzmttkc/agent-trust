@@ -179,7 +179,7 @@ export default async function PayeeIndexPage({
               autoFocus={errored}
               // 枠線は brand-lift (#55688c・白地 5.61:1)。入力欄の唯一の境界表現
               // なので WCAG 1.4.11 の 3:1 が要る（2026-08-12 の是正と同じ理由）。
-              className="min-w-0 flex-1 rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-[0.8125rem] text-brand-deep placeholder:text-brand-lift"
+              className="doc-input min-w-0 flex-1"
             />
             <button type="submit" className={buttonClass({ size: "md", className: "shrink-0" })}>
               Verify

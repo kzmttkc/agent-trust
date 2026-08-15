@@ -77,7 +77,7 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
     // landmark-one-main（<main> 無し）と region（フォームの中身がどのランドマーク
     // にも属さない）の2件を出していた。頁の骨組みはこの要素なので、外枠を
     // <main> にするだけで両方が解ける（レイアウト・見た目は不変）。
-    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
+    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 py-12">
       {/* 2026-08-06 (UX audit item 7): `action` is the Server Action fallback
           and `onSubmit` (which preventDefaults) is the JS path. With JS on, our
           handler runs and the action is skipped; with JS off, the browser POSTs
@@ -86,7 +86,7 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
       <form
         action={loginAction}
         onSubmit={onSubmit}
-        className="w-full max-w-md space-y-4 rounded-xl border border-zinc-200 bg-white p-8 shadow-sm"
+        className="dash-card w-full max-w-md space-y-5 p-8"
       >
         <div>
           {/* 2026-08-12 FIX-8: このページは <nav> も <footer> も無く、リンクは
@@ -95,8 +95,8 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
           <Link href="/" className="inline-block">
             <Wordmark className="text-[1.0625rem] leading-none" />
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-900">Dashboard sign in</h1>
-          <p className="mt-2 text-sm text-zinc-600">
+          <h1 className="dash-title mt-3">Sign in</h1>
+          <p className="dash-lede">
             Paste the API key shown at signup. We keep a session cookie, not the key. Lost the key?
             If this browser is still signed in, create a spare on{" "}
             <a href="/dashboard/keys" className="font-medium text-zinc-900 underline">
@@ -125,13 +125,13 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             placeholder="vouch_live_..."
-            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+            className="dash-input"
             required
           />
         </label>
 
         {shownError && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="dash-alert dash-alert-error">
             {dashboardErrorMessage(shownError)}
           </p>
         )}

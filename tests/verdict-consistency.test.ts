@@ -112,10 +112,28 @@ test("the leaderboard only shows verdicts recent enough to still be true", () =>
       "a subject nobody looked up since July stays on the board forever",
   );
 
+  assert.match(
+    lb,
+    /payee_score/,
+    "buyer-side persist rows must not compete with seller verdicts for DISTINCT ON wallet",
+  );
+
   const page = read("app/leaderboard/page.tsx");
   assert.match(
     page,
     /No verdicts are in the current window yet/,
     "precondition: the page already promises a window, which is why the query owes one",
+  );
+});
+
+test("seller persist refuses unavailable inputs the way payee persist already does", () => {
+  const persistence = read("lib/db/persistence.ts");
+  const sellerFn = persistence.slice(persistence.indexOf("export async function persistScoreResult"));
+  const nextFn = sellerFn.indexOf("export async function persistPayeeScoreResult");
+  const body = nextFn === -1 ? sellerFn : sellerFn.slice(0, nextFn);
+  assert.match(
+    body,
+    /hasUnavailableInput/,
+    "a seller BLOCK computed from *_unavailable flags must not land in trust_events",
   );
 });

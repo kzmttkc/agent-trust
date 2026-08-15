@@ -168,7 +168,7 @@ export default async function ObservatoryPage({
                 name="q"
                 type="search"
                 defaultValue={query.q ?? ""}
-                className="mt-1 w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 text-brand-deep"
+                className="doc-input mt-1"
               />
             </label>
             <label className="block text-[0.8125rem]">
@@ -176,7 +176,7 @@ export default async function ObservatoryPage({
               <select
                 name="verdict"
                 defaultValue={query.verdict ?? ""}
-                className="mt-1 rounded-[2px] border border-brand-lift bg-paper px-3 py-2 text-brand-deep"
+                className="doc-input mt-1"
               >
                 <option value="">any</option>
                 <option value="pass">pass</option>
@@ -190,7 +190,7 @@ export default async function ObservatoryPage({
                 name="network"
                 defaultValue={query.network ?? ""}
                 placeholder="eip155:8453"
-                className="mt-1 w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 text-brand-deep placeholder:text-brand-lift"
+                className="doc-input mt-1"
               />
             </label>
             <button type="submit" className="text-[0.8125rem] text-brand-deep underline">

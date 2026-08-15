@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Wordmark } from "@/components/site/Wordmark";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { dashboardLogout } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { buttonClass } from "@/components/ui/Button";
@@ -25,6 +25,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const isLogin = pathname === "/dashboard/login";
   const [ready, setReady] = useState(isLogin);
   const [serviceError, setServiceError] = useState<string | null>(null);
+
+  // 2026-08-15 (B3 a11y): SiteChrome の同じ対処をここにも。7個のサイドバー
+  // タブをクライアント側 <Link> で行き来しても、フォーカスは前のリンクに
+  // 残ったまま——キーボード/スクリーンリーダ利用者には遷移が起きたことも
+  // どこから読めばいいかも伝わらない。初回描画では動かさない。
+  const mainRef = useRef<HTMLElement>(null);
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    mainRef.current?.focus({ preventScroll: true });
+  }, [pathname]);
 
   useEffect(() => {
     if (isLogin) return;
@@ -86,7 +100,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   if (serviceError) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6">
-        <div className="max-w-md rounded-xl border border-red-200 bg-white p-6 text-center">
+        <div className="dash-card max-w-md text-center">
           <p className="text-sm text-red-700">{dashboardErrorMessage(serviceError)}</p>
           <button
             type="button"
@@ -111,36 +125,35 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       >
         Skip to main content
       </a>
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div>
-            {/* 2026-08-13: eyebrow をやめて実物のワードマークにした。
-                craft-floor が見出しの上の kicker を明示的に禁じており、
-                ここは製品名を出す唯一の場所なので識別体そのものを置く。 */}
+      <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+          <div className="flex items-baseline gap-3">
             <Wordmark className="text-[1.0625rem] leading-none" />
-            <h1 className="mt-1 font-[family-name:var(--font-display)] text-base font-semibold text-brand-deep">
-              Developer Dashboard
+            <h1 className="font-[family-name:var(--font-display)] text-[0.8125rem] font-semibold text-zinc-500">
+              Dashboard
             </h1>
           </div>
           <button
             type="button"
             onClick={logout}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
+            className="rounded-[2px] px-2 py-1.5 text-[0.8125rem] text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
           >
             Sign out
           </button>
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-6 px-6 py-6 lg:grid-cols-[220px_1fr]">
-        <details className="rounded-md border border-zinc-300 bg-white lg:hidden">
-          <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-zinc-800">
+      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-8 px-6 py-8 lg:grid-cols-[200px_minmax(0,1fr)]">
+        <details className="dash-card-flush lg:hidden">
+          <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-medium text-zinc-800">
             Menu
           </summary>
-          <nav className="space-y-1 border-t border-zinc-200 p-2">{navLinks(pathname)}</nav>
+          <nav className="space-y-0.5 border-t border-zinc-200 p-2">{navLinks(pathname)}</nav>
         </details>
-        <nav className="hidden space-y-1 lg:block">{navLinks(pathname)}</nav>
-        <main id="dashboard-main" tabIndex={-1}>
+        <nav className="hidden self-start lg:sticky lg:top-[4.5rem] lg:block lg:border-r lg:border-zinc-200 lg:pr-6">
+          <div className="space-y-0.5">{navLinks(pathname)}</div>
+        </nav>
+        <main id="dashboard-main" ref={mainRef} tabIndex={-1} className="min-w-0">
           {children}
         </main>
       </div>
@@ -156,10 +169,10 @@ function navLinks(pathname: string) {
       <Link
         key={item.href}
         href={item.href}
-        className={`block rounded-md px-3 py-2 text-sm ${
+        className={`block rounded-[2px] px-3 py-2 text-[0.8125rem] ${
           active
             ? "bg-brand-deep font-medium text-white"
-            : "text-zinc-700 hover:bg-zinc-200/70"
+            : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
         }`}
       >
         {item.label}
@@ -177,8 +190,15 @@ function DashboardLoading() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-zinc-50 px-6 text-sm text-zinc-700">
-      <p>{slow ? "Still loading. If this persists, refresh or sign in again." : "Loading dashboard…"}</p>
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-6">
+      <div className="flex w-full max-w-xs flex-col gap-2">
+        <div className="dash-skel w-2/3" />
+        <div className="dash-skel w-full" />
+        <div className="dash-skel w-5/6" />
+      </div>
+      <p className="text-sm text-zinc-600">
+        {slow ? "Still loading. If this persists, refresh or sign in again." : "Loading dashboard…"}
+      </p>
       {slow ? (
         <button
           type="button"

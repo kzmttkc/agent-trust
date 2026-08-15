@@ -23,9 +23,7 @@ import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { consumeIpRateLimit } from "@/lib/api/ip-rate-limit";
 import { GET as health } from "@/app/api/health/route";
-// Constants live in ./liveness, not in the route module: a Next route file may
-// only export handlers and segment config.
-import { HEALTH_RATE_LIMIT, HEALTH_RATE_WINDOW_MS } from "@/app/api/health/liveness";
+import { HEALTH_RATE_LIMIT, HEALTH_RATE_WINDOW_MS } from "@/lib/health/liveness";
 
 test("a key-less flood is throttled before it can spend an upstream call", async () => {
   // TRUST_PROXY_HEADERS is unset here, so getClientIp() === "unknown" and the

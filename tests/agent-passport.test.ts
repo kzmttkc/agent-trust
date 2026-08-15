@@ -32,6 +32,31 @@ test("agentPassportMessage produces the documented 5-line canonical message", ()
   assert.equal(msg.split("\n").length, 5);
 });
 
+test("agentPassportMessage binds https url into the signed text", () => {
+  const bound = agentPassportMessage(
+    42n,
+    "0xAbC0000000000000000000000000000000000001",
+    "Acme Agent",
+    "https://acme.example/agent",
+  );
+  assert.ok(bound.includes("\nurl: https://acme.example/agent\n"));
+  assert.equal(bound.split("\n").length, 6);
+  const legacy = agentPassportMessage(42n, "0xAbC0000000000000000000000000000000000001", "Acme Agent");
+  assert.equal(legacy.split("\n").length, 5);
+  assert.notEqual(bound, legacy);
+});
+
+test("agentPassportMessage refuses a url that would forge extra lines", () => {
+  assert.throws(() =>
+    agentPassportMessage(
+      1n,
+      "0x0000000000000000000000000000000000000001",
+      "Acme Agent",
+      "https://acme.example\nname: spoof",
+    ),
+  );
+});
+
 test("agentPassportMessage refuses a name that would forge extra lines", () => {
   assert.throws(() => agentPassportMessage(1n, "0x0000000000000000000000000000000000000001", "Acme\nwallet: 0xEVIL"));
   assert.throws(() => agentPassportMessage(1n, "0x0000000000000000000000000000000000000001", "Acme\tCorp"));

@@ -13,6 +13,7 @@
  *    directly or on `.cause` depending on version.
  * So this walks a short `.cause` chain rather than assuming one shape.
  */
+const UNIQUE_VIOLATION = "23505";
 const UNDEFINED_COLUMN = "42703";
 const UNDEFINED_TABLE = "42P01";
 const MAX_CAUSE_DEPTH = 5;
@@ -21,6 +22,19 @@ function readCode(value: unknown): string | undefined {
   if (typeof value !== "object" || value === null || !("code" in value)) return undefined;
   const code = (value as { code?: unknown }).code;
   return typeof code === "string" ? code : undefined;
+}
+
+export function isUniqueViolationError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current; depth++) {
+    const code = readCode(current);
+    if (code === UNIQUE_VIOLATION) return true;
+    current =
+      typeof current === "object" && current !== null && "cause" in current
+        ? (current as { cause?: unknown }).cause
+        : undefined;
+  }
+  return false;
 }
 
 export function isMissingSchemaError(error: unknown): boolean {

@@ -74,6 +74,8 @@ tags:
     description: The public measurement ledger — what happened after the verdicts
   - name: Watchlist
     description: Standing watches on an agent or wallet, delivered as webhooks
+  - name: Observatory
+    description: Claim-proved watches on x402 endpoints paying a wallet
   - name: Webhooks
     description: Webhook endpoint registration
   - name: Badges
@@ -186,10 +188,10 @@ paths:
       description: |
         Returns the exact message a payee wallet must sign to register via
         `POST /api/v1/payees/verify`. No API key; throttled to 30 requests per
-        minute per IP like the other key-less paths (it echoes input and touches
-        no store, but it is still open to anyone). Callers who prefer to build
-        the message themselves can do so: it is four lines, newline-joined, in the shape
-        `Vouch verified payee registration\nwallet: <lowercased address>\nname: <name>\nThis signature only proves control of the wallet above.`
+        minute per IP like the other key-less paths. The message is four lines
+        (wallet + name) or five when `url` is supplied — the URL is bound into
+        the signature so a published proof cannot overwrite the profile link.
+        Pass the same `url` query you will POST, or omit it for a name-only claim.
       security: []
       parameters:
         - name: wallet
@@ -200,6 +202,11 @@ paths:
           in: query
           required: true
           schema: { type: string, maxLength: 80 }
+        - name: url
+          in: query
+          required: false
+          schema: { type: string, format: uri }
+          description: Optional https profile URL; when set it is bound into the signed message.
       responses:
         "200":
           description: Canonical message to sign
@@ -636,6 +643,114 @@ paths:
         "503":
           description: Watchlist store unavailable
 
+  /api/v1/observatory/watch:
+    get:
+      operationId: previewObservatoryWatch
+      tags: [Observatory]
+      summary: Preview the canonical message to claim delist alerts for a payee wallet
+      description: |
+        Authenticated. Returns the exact message this API key must have signed
+        by the receiving wallet, plus the catalog endpoints currently paying
+        that wallet. The signature binds wallet AND this key, so a signature
+        for another key cannot route someone else's `endpoint.delisted` events.
+      parameters:
+        - name: wallet
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Canonical message and endpoints paying the wallet
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  endpointsPayingThisWallet:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        resourceKey: { type: string }
+                        status: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    post:
+      operationId: registerObservatoryWatch
+      tags: [Observatory]
+      summary: Register for endpoint.delisted events on a claimed payee wallet
+      description: |
+        Two proofs meet here: the API key authenticates the subscriber, and an
+        EIP-191 signature over the preview message proves control of the
+        receiving wallet. Max 20 wallets per key. Register a webhook subscribed
+        to `endpoint.delisted` or the watch has nowhere to report.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet, signature]
+              properties:
+                wallet: { type: string }
+                signature: { type: string, maxLength: 4000 }
+      responses:
+        "200":
+          description: Watch registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  wallet: { type: string }
+                  note: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Per-key watcher limit reached (max 20)
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Store unavailable
+    delete:
+      operationId: unregisterObservatoryWatch
+      tags: [Observatory]
+      summary: Remove this key's observatory watch on a wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet]
+              properties:
+                wallet: { type: string }
+      responses:
+        "200":
+          description: Removed (or was not present)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Store unavailable
+
   /api/v1/accuracy:
     get:
       operationId: getAccuracyReport
@@ -680,10 +795,11 @@ paths:
       tags: [Agents]
       summary: Preview the canonical message to sign for an agent passport
       description: |
-        Returns the exact five-line message the agent's on-chain wallet must
-        sign to register a passport, with that wallet resolved from the
-        ERC-8004 registry so the signer sees the real lines before signing.
-        Key-less; 30 requests per minute per IP, because it does a chain read.
+        Returns the exact message the agent's on-chain wallet must sign to
+        register a passport, with that wallet resolved from the ERC-8004
+        registry. Five lines, or six when `url` is supplied — the URL is bound
+        into the signature. Pass the same `url` query you will POST, or omit
+        it for a name-only claim. Key-less; 30 requests per minute per IP.
       security: []
       parameters:
         - name: agentId
@@ -694,6 +810,11 @@ paths:
           in: query
           required: true
           schema: { type: string, maxLength: 80 }
+        - name: url
+          in: query
+          required: false
+          schema: { type: string, format: uri }
+          description: Optional https profile URL; when set it is bound into the signed message.
       responses:
         "200":
           description: Canonical message to sign, with the resolved wallet

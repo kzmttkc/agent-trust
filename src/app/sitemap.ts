@@ -14,6 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${SITE_URL}/docs/api`, lastModified: SITE_REVISION, changeFrequency: "monthly", priority: 0.9 },
     { url: `${SITE_URL}/accuracy`, lastModified: SITE_REVISION, changeFrequency: "weekly", priority: 0.8 },
     { url: `${SITE_URL}/leaderboard`, lastModified: SITE_REVISION, changeFrequency: "daily", priority: 0.7 },
+    { url: `${SITE_URL}/status`, lastModified: SITE_REVISION, changeFrequency: "daily", priority: 0.6 },
     // 2026-08-15: 観測所（L0/L1/L2）は本番稼働中だが sitemap から漏れていた。
     // 動的な /observatory/e/:id は /payee/:address と同じ理由（無限に生成できる）
     // で列挙しない — 各頁は自己参照 canonical を持ち、robots も許可済み。

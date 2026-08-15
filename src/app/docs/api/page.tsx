@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import TrackView from "@/components/site/TrackView";
 import TrackedLink from "@/components/site/TrackedLink";
 import CodeBlock from "@/components/docs/CodeBlock";
+import { TryItPanel } from "@/components/docs/TryItPanel";
 import DocsToc, { type TocItem } from "@/components/docs/DocsToc";
 import { TableScroll } from "@/components/site/TableScroll";
 import { SITE_URL } from "@/lib/site-url";
@@ -169,13 +170,13 @@ const endpoints: Endpoint[] = [
   {
     method: "GET",
     path: "/api/v1/payees/verify?wallet=0x…&name=Acme+API",
-    note: "Preview the exact canonical message for a (wallet, name) pair before signing — no API key, no rate limit. The same message is echoed back in a failed POST's expectedMessage field, so you never have to reverse-engineer the format.",
+    note: "Preview the exact canonical message for a (wallet, name) pair before signing — no API key. Pass url= as well when the profile will include a link; that URL is bound into the signature. The same message is echoed back in a failed POST's expectedMessage field.",
     response: `{ "message": "Vouch verified payee registration\\nwallet: 0x…\\nname: Acme API\\nThis signature only proves control of the wallet above." }`,
   },
   {
     method: "POST",
     path: "/api/v1/payees/verify",
-    note: "Verified payee registration — free, no API key. Sign the canonical message above (fetch it via GET on this same path, or build it yourself: 4 lines, newline-joined — see the response schema) with the payee wallet; a valid signature proves control and publishes /payee/:address plus an embeddable badge at /api/badge/:address. Verification proves wallet control only; scores stay independent.",
+    note: "Verified payee registration — free, no API key. Sign the canonical message above (fetch it via GET on this same path, including url= when you will send one) with the payee wallet; a valid signature proves control and publishes /payee/:address plus an embeddable badge at /api/badge/:address. Verification proves wallet control only; scores stay independent.",
     request: `{ "wallet": "0x…", "name": "Acme API", "url": "https://…", "signature": "0x…" }`,
     response: `{ "ok": true, "profile": "/payee/0x…", "badge": "/api/badge/0x…" }`,
   },
@@ -389,6 +390,7 @@ export default async function ApiDocsPage() {
             label="curl: read the public accuracy ledger"
             code={`curl "${SITE_URL}/api/v1/accuracy"`}
           />
+          <TryItPanel path="/api/v1/accuracy" label="GET /api/v1/accuracy" />
           <p className="mt-1 text-sm text-brand-lift">
             Aggregate counts only. The same numbers{" "}
             <Link href="/accuracy" className="doc-link">
@@ -405,6 +407,10 @@ export default async function ApiDocsPage() {
           <CodeBlock
             label="curl: preview the canonical payee-verify message"
             code={`curl "${SITE_URL}/api/v1/payees/verify?wallet=0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045&name=Acme%20API"`}
+          />
+          <TryItPanel
+            path="/api/v1/payees/verify?wallet=0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045&name=Acme%20API"
+            label="GET /api/v1/payees/verify"
           />
           <p className="mt-1 text-sm text-brand-lift">
             Returns{" "}
@@ -442,7 +448,8 @@ export default async function ApiDocsPage() {
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
             Note &mdash; the key-less demo scorer
           </p>
-          <p className="text-sm text-brand-lift">
+          <TryItPanel path="/api/demo/score" label="GET /api/demo/score" />
+          <p className="mt-2 text-sm text-brand-lift">
             <code className="text-brand-deep">GET /api/demo/score</code> scores one fixed demo
             agent chosen server-side, so anyone can watch a real verdict get computed without a
             key. Nothing in the request selects what it scores &mdash; it is a demo, not a free

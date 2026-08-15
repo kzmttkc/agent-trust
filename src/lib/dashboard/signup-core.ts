@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { consumeIpRateLimit } from "@/lib/api/ip-rate-limit";
-import { createAccount, getAccountByEmail } from "@/lib/db/accounts";
-import { createApiKey } from "@/lib/db/api-keys";
+import { createAccountWithApiKey, getAccountByEmail } from "@/lib/db/accounts";
 import { createDashboardSession } from "@/lib/dashboard/session";
 import { secureCompare } from "@/lib/util/secure-compare";
 
@@ -71,23 +70,24 @@ export async function runSignup(input: unknown, ip: string): Promise<SignupSucce
   }
 
   try {
-    const account = await createAccount(parsed.data.email);
-    const created = await createApiKey({
-      userId: account.id,
-      plan: "free",
-      name: parsed.data.name ?? "Signup key",
+    const created = await createAccountWithApiKey({
+      email: parsed.data.email,
+      keyName: parsed.data.name ?? "Signup key",
     });
-    const sessionToken = await createDashboardSession(created.id);
+    const sessionToken = await createDashboardSession(created.apiKey.id);
     return {
       ok: true,
-      apiKey: created.key,
-      apiKeyId: created.id,
-      plan: created.plan,
+      apiKey: created.apiKey.key,
+      apiKeyId: created.apiKey.id,
+      plan: created.apiKey.plan,
       sessionToken,
       inviteRequired: inviteRequired(),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "signup_failed";
+    if (message === "email_already_registered") {
+      return { ok: false, error: "email_already_registered", status: 409 };
+    }
     if (message === "DATABASE_URL is not configured") {
       return { ok: false, error: "database_unavailable", status: 503 };
     }

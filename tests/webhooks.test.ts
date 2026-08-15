@@ -19,6 +19,8 @@ import {
   generateWebhookSecret,
   signWebhookPayload,
   verifyWebhookSignature,
+  sealWebhookSecret,
+  openWebhookSecret,
   WEBHOOK_EVENTS,
 } from "@/lib/webhooks";
 
@@ -197,4 +199,20 @@ test("verification rejects tampering, wrong keys, and replays", () => {
   assert.equal(verifyWebhookSignature(secret, body, "", now), false, "empty header");
   const flipped = header.slice(0, -1) + (header.endsWith("0") ? "1" : "0");
   assert.equal(verifyWebhookSignature(secret, body, flipped, now), false, "bit-flipped sig");
+});
+
+test("webhook signing secrets round-trip through at-rest sealing", () => {
+  const previous = process.env.API_KEY_PEPPER;
+  process.env.API_KEY_PEPPER = "a".repeat(32);
+  try {
+    const plain = generateWebhookSecret();
+    const sealed = sealWebhookSecret(plain);
+    assert.notEqual(sealed, plain);
+    assert.match(sealed, /^enc\.v1\./);
+    assert.equal(openWebhookSecret(sealed), plain);
+    assert.equal(openWebhookSecret(plain), plain, "legacy plaintext rows still open");
+  } finally {
+    if (previous === undefined) delete process.env.API_KEY_PEPPER;
+    else process.env.API_KEY_PEPPER = previous;
+  }
 });

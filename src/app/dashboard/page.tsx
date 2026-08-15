@@ -10,6 +10,7 @@ type Overview = {
   apiKey: { id: string; name: string | null; plan: string } | null;
   plan: string;
   usage: { period: string; count: number; limit: number; remaining: number };
+  usageHistory: { period: string; count: number }[];
   totalQueries: number;
   settlementAttestations: number;
 };
@@ -35,11 +36,21 @@ export default function DashboardOverviewPage() {
   }, []);
 
   if (error) {
-    return <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>;
+    return (
+      <p role="alert" aria-live="assertive" className="dash-alert dash-alert-error">
+        {dashboardErrorMessage(error)}
+      </p>
+    );
   }
 
   if (!data) {
-    return <p className="text-sm text-zinc-600">Loading overview...</p>;
+    return (
+      <div className="space-y-3">
+        <div className="dash-skel w-40" />
+        <div className="dash-skel w-64" />
+        <div className="dash-card h-28" />
+      </div>
+    );
   }
 
   const usagePct = Math.min(100, Math.round((data.usage.count / data.usage.limit) * 100));
@@ -49,46 +60,36 @@ export default function DashboardOverviewPage() {
   const noLookupsYet = data.totalQueries === 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">Overview</h2>
-        <p className="text-sm text-zinc-600">This month&apos;s quota, and what to do next.</p>
+        <h2 className="dash-title">Overview</h2>
+        <p className="dash-lede">This month&apos;s quota, and what to do next.</p>
       </div>
 
       {noLookupsYet && <FirstCallGuide hasKey={Boolean(data.apiKey)} />}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card title="Plan" value={data.plan} subtitle={data.apiKey?.name ?? "Unnamed key"} />
-        <Card
-          title="This month"
-          value={`${data.usage.count.toLocaleString()} / ${data.usage.limit.toLocaleString()}`}
-          subtitle={`${data.usage.remaining.toLocaleString()} remaining`}
-        />
-        <Card
-          title="Total lookups"
-          value={data.totalQueries.toLocaleString()}
-          subtitle="All-time API queries"
-        />
-        <Card
-          title="x402 settlements"
-          value={data.settlementAttestations.toLocaleString()}
-          subtitle="Attestations from this key"
-        />
-      </div>
-
-      <div className="rounded-xl border border-zinc-200 bg-white p-5">
-        <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-medium text-zinc-700">Monthly quota</span>
-          <span className="text-zinc-600">{usagePct}%</span>
+      <div className="dash-card">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="dash-caption">Monthly quota</p>
+            <p className="mt-2 font-[family-name:var(--font-display)] text-[1.75rem] font-semibold tracking-tight text-zinc-900">
+              {data.usage.count.toLocaleString()}
+              <span className="text-base font-normal text-zinc-500">
+                {" "}
+                / {data.usage.limit.toLocaleString()}
+              </span>
+            </p>
+          </div>
+          <p className="text-sm tabular-nums text-zinc-600">{usagePct}%</p>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
-          <div className="h-full rounded-full bg-zinc-900" style={{ width: `${usagePct}%` }} />
+        <div className="mt-4 h-1.5 overflow-hidden rounded-[2px] bg-zinc-100">
+          <div className="h-full bg-brand-deep" style={{ width: `${usagePct}%` }} />
         </div>
-        <p className="mt-2 text-xs text-zinc-600">Period: {data.usage.period}</p>
+        <p className="mt-3 text-xs text-zinc-600">Period: {data.usage.period}</p>
         {data.usage.remaining <= Math.max(50, Math.floor(data.usage.limit * 0.1)) && (
-          <p className="mt-2 text-sm text-zinc-700">
+          <p className="mt-3 text-sm text-zinc-700">
             Quota is running low.{" "}
-            <Link href="/dashboard/billing" className="underline">
+            <Link href="/dashboard/billing" className="font-medium text-zinc-900 underline">
               Upgrade on Billing
             </Link>
             .
@@ -96,33 +97,84 @@ export default function DashboardOverviewPage() {
         )}
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-white p-5 text-sm text-zinc-700">
-        <p className="font-medium text-zinc-900">Next</p>
-        <ul className="mt-2 list-inside list-disc space-y-1">
-          <li>
-            <a className="underline" href="/dashboard/lookup">
+      {data.usageHistory.length > 1 && <UsageHistoryChart history={data.usageHistory} />}
+
+      <dl className="dash-card grid gap-6 sm:grid-cols-3">
+        <div>
+          <dt className="dash-caption">Plan</dt>
+          <dd className="mt-2 text-lg font-semibold capitalize text-zinc-900">{data.plan}</dd>
+          <p className="mt-1 text-sm text-zinc-600">{data.apiKey?.name ?? "Unnamed key"}</p>
+        </div>
+        <div>
+          <dt className="dash-caption">Total lookups</dt>
+          <dd className="mt-2 text-lg font-semibold tabular-nums text-zinc-900">
+            {data.totalQueries.toLocaleString()}
+          </dd>
+          <p className="mt-1 text-sm text-zinc-600">All-time API queries</p>
+        </div>
+        <div>
+          <dt className="dash-caption">x402 settlements</dt>
+          <dd className="mt-2 text-lg font-semibold tabular-nums text-zinc-900">
+            {data.settlementAttestations.toLocaleString()}
+          </dd>
+          <p className="mt-1 text-sm text-zinc-600">Attestations from this key</p>
+        </div>
+      </dl>
+
+      <nav className="dash-card" aria-label="Next">
+        <p className="dash-caption">Next</p>
+        <ul className="mt-4 divide-y divide-zinc-100">
+          <li className="py-2.5 first:pt-0 last:pb-0">
+            <a className="text-sm text-zinc-900 underline" href="/dashboard/lookup">
               Lookup
-            </a>{" "}
-            — score a wallet from this session
+            </a>
+            <span className="text-sm text-zinc-600"> — score a wallet from this session</span>
           </li>
-          <li>
-            <a className="underline" href="/dashboard/billing">
+          <li className="py-2.5 first:pt-0 last:pb-0">
+            <a className="text-sm text-zinc-900 underline" href="/dashboard/billing">
               Billing
-            </a>{" "}
-            — raise the monthly quota
+            </a>
+            <span className="text-sm text-zinc-600"> — raise the monthly quota</span>
           </li>
-          <li>
-            <a className="underline" href="/dashboard/integrations">
+          <li className="py-2.5 first:pt-0 last:pb-0">
+            <a className="text-sm text-zinc-900 underline" href="/dashboard/integrations">
               Integrations
-            </a>{" "}
-            — REST, MCP, x402 middleware
+            </a>
+            <span className="text-sm text-zinc-600"> — REST, MCP, x402 middleware</span>
           </li>
-          <li>
-            <a className="underline" href="/docs/api">
+          <li className="py-2.5 first:pt-0 last:pb-0">
+            <a className="text-sm text-zinc-900 underline" href="/docs/api">
               API reference
             </a>
           </li>
         </ul>
+      </nav>
+    </div>
+  );
+}
+
+// Monthly quota trend (B6, 2026-08-15). Real billing-period totals from
+// owner_usage — one bar per calendar month the account has an existing row
+// for, never a synthesized flat line for months before the account existed.
+// Only rendered when there are 2+ points (see caller): a single point has no
+// trend to show and would just repeat the number already above it.
+function UsageHistoryChart({ history }: { history: { period: string; count: number }[] }) {
+  const max = Math.max(...history.map((h) => h.count), 1);
+  return (
+    <div className="dash-card">
+      <p className="dash-caption">Monthly usage, last {history.length} months</p>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {history.map((h) => (
+          <div key={h.period} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+            <span className="text-xs tabular-nums text-zinc-500">{h.count.toLocaleString()}</span>
+            <div
+              className="w-full rounded-t-[2px] bg-brand-deep"
+              style={{ height: `${Math.max(4, Math.round((h.count / max) * 100))}%` }}
+              title={`${h.period}: ${h.count.toLocaleString()} lookups`}
+            />
+            <span className="text-[0.6875rem] text-zinc-500">{h.period.slice(5)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -140,15 +192,17 @@ function FirstCallGuide({ hasKey }: { hasKey: boolean }) {
   const curl = `curl -H "Authorization: Bearer $API_KEY" \\
   ${base}/payees/0xd8da6bf26964af9d7eed9e03e53415d37aa96045/score`;
   return (
-    <div className="rounded-xl border border-zinc-900/10 bg-zinc-900 p-5 text-zinc-100">
-      <p className="text-sm font-semibold">Make your first score lookup</p>
+    <div className="dash-card bg-zinc-900 p-6 text-zinc-100">
+      <p className="font-[family-name:var(--font-display)] text-sm font-semibold">
+        Make your first score lookup
+      </p>
       <p className="mt-1 text-sm text-zinc-300">
         No lookups yet. Run one call and this panel is replaced by your live usage.
       </p>
-      <pre className="mt-3 overflow-x-auto rounded-lg bg-black/40 p-4 text-xs text-zinc-100">
+      <pre className="mt-4 overflow-x-auto rounded-[2px] bg-black/50 p-4 text-xs text-zinc-100">
         <code>{curl}</code>
       </pre>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm">
         {!hasKey && (
           <Link href="/dashboard/keys" className="text-white underline">
             Create an API key
@@ -167,24 +221,6 @@ function FirstCallGuide({ hasKey }: { hasKey: boolean }) {
           Billing
         </Link>
       </div>
-    </div>
-  );
-}
-
-function Card({
-  title,
-  value,
-  subtitle,
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-600">{title}</p>
-      <p className="mt-2 text-2xl font-semibold capitalize">{value}</p>
-      <p className="mt-1 text-sm text-zinc-600">{subtitle}</p>
     </div>
   );
 }

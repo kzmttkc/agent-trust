@@ -1,11 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Suspense } from "react";
 import localFont from "next/font/local";
 import { headers } from "next/headers";
 import Script from "next/script";
 import "./globals.css";
 import { SiteChrome } from "@/components/site/SiteChrome";
-import { StatusBanner } from "@/components/site/StatusBanner";
 import { SITE_URL } from "@/lib/site-url";
 
 // 2026-07-22 CTO実装: 全社日次反応レポート(daily_reaction_report.py)向けに
@@ -176,17 +174,9 @@ export default async function RootLayout({
         {/* React は JSX コメントを出力しないので、契約は hidden の器に入れて
             そのまま HTML コメントとして配る（描画への影響はゼロ）。 */}
         <div hidden aria-hidden="true" dangerouslySetInnerHTML={{ __html: DIRECTION_CONTRACT }} />
-        {/* 2026-08-13 UX監査R1 [D2]: 上流障害の掲示。Suspense で包むのは、
-            掲示のための計測（実際に1件スコアを計算する probe）が全ページの
-            初期表示を待たせないため — 帯は後から流れて入る。probe 自身が
-            60秒メモ化されているので、頁ごとに上流を叩き直すわけではない。 */}
-        <SiteChrome
-          banner={
-            <Suspense fallback={null}>
-              <StatusBanner />
-            </Suspense>
-          }
-        >
+        {/* Outage strip is a client read of GET /api/health inside SiteChrome —
+            it must not import scoring engines into this layout. */}
+        <SiteChrome>
           {children}
         </SiteChrome>
       </body>

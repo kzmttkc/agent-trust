@@ -10,7 +10,7 @@
 // ============================================================
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { payeeMessage } from "@/lib/verify-message";
+import { payeeMessage, isSafeBoundUrl } from "@/lib/verify-message";
 import { isCanonicalName, NAME_MAX_LENGTH } from "@/lib/validation/canonical-name";
 import { ipRateLimitHeaders, type IpRateLimitResult } from "@/lib/api/ip-rate-limit";
 
@@ -44,6 +44,34 @@ test("payeeMessage produces exactly 4 lines for a canonical name", () => {
   // The wallet must be lowercased and appear on exactly one line.
   assert.equal(lines.filter((l) => l.startsWith("wallet: ")).length, 1);
   assert.ok(lines[1]!.endsWith("0xabcdef0000000000000000000000000000000001"));
+});
+
+test("payeeMessage binds https url into the signed text so a stolen signature cannot overwrite it", () => {
+  const wallet = "0xABCDEF0000000000000000000000000000000001";
+  const withUrl = payeeMessage(wallet, "Acme Payments", "https://acme.example/x402");
+  assert.ok(withUrl.includes("\nurl: https://acme.example/x402\n"));
+  assert.equal(withUrl.split("\n").length, 5);
+  const withoutUrl = payeeMessage(wallet, "Acme Payments");
+  assert.equal(withoutUrl.includes("\nurl:"), false);
+  assert.notEqual(withUrl, withoutUrl);
+});
+
+test("payeeMessage refuses a url that would forge extra lines", () => {
+  assert.throws(() =>
+    payeeMessage(
+      "0x0000000000000000000000000000000000000001",
+      "Acme Payments",
+      "https://acme.example/x402\nwallet: 0xEVIL",
+    ),
+  );
+});
+
+test("isSafeBoundUrl matches the signed-line charset, not merely https + length", () => {
+  assert.equal(isSafeBoundUrl("https://acme.example/x402"), true);
+  assert.equal(isSafeBoundUrl("http://acme.example/x402"), false);
+  assert.equal(isSafeBoundUrl("https://acme.example/x402\nname: spoof"), false);
+  assert.equal(isSafeBoundUrl("https://acme.example/\u0000"), false);
+  assert.equal(isSafeBoundUrl("https://acme.example/\u2028"), false);
 });
 
 test("payeeMessage refuses to build from a non-canonical name (defense in depth)", () => {

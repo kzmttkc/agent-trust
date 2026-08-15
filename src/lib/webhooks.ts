@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import https from "node:https";
 import { checkServerIdentity as tlsCheckServerIdentity } from "node:tls";
 import { and, eq, sql } from "drizzle-orm";
@@ -138,6 +138,88 @@ export function generateWebhookSecret(): string {
   return `whsec_${randomBytes(24).toString("base64url")}`;
 }
 
+const SECRET_AT_REST_PREFIX = "enc.v1.";
+
+function hashKek(raw: string): Buffer {
+  return createHash("sha256").update(raw).digest();
+}
+
+function webhookSecretKek(): Buffer | null {
+  const raw = process.env.WEBHOOK_SECRET_KEK ?? process.env.API_KEY_PEPPER;
+  if (!raw) return null;
+  return hashKek(raw);
+}
+
+/** Current KEK first, then the previous KEK, then the API-key pepper. Deduped. */
+function webhookKekList(): Buffer[] {
+  const seen = new Set<string>();
+  const out: Buffer[] = [];
+  for (const raw of [
+    process.env.WEBHOOK_SECRET_KEK,
+    process.env.WEBHOOK_SECRET_KEK_PREVIOUS,
+    process.env.API_KEY_PEPPER,
+  ]) {
+    if (!raw) continue;
+    const key = hashKek(raw);
+    const id = key.toString("hex");
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(key);
+  }
+  return out;
+}
+
+/** AES-256-GCM seal. Legacy plaintext rows (no prefix) pass through on open. */
+export function sealWebhookSecret(plain: string): string {
+  const kek = webhookSecretKek();
+  if (!kek) return plain;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", kek, iv);
+  const ciphertext = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${SECRET_AT_REST_PREFIX}${iv.toString("base64url")}.${ciphertext.toString("base64url")}.${tag.toString("base64url")}`;
+}
+
+function decryptSealedWebhookSecret(stored: string, kek: Buffer): string {
+  const parts = stored.slice(SECRET_AT_REST_PREFIX.length).split(".");
+  if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+    throw new Error("webhook_secret_corrupt");
+  }
+  const decipher = createDecipheriv("aes-256-gcm", kek, Buffer.from(parts[0], "base64url"));
+  decipher.setAuthTag(Buffer.from(parts[2], "base64url"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(parts[1], "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
+}
+
+export type OpenedWebhookSecret = {
+  plain: string;
+  /** Set when the row should be rewritten under the current primary KEK. */
+  reseal: string | null;
+};
+
+export function openWebhookSecret(stored: string): OpenedWebhookSecret {
+  if (!stored.startsWith(SECRET_AT_REST_PREFIX)) {
+    const resealed = sealWebhookSecret(stored);
+    return { plain: stored, reseal: resealed === stored ? null : resealed };
+  }
+  const keks = webhookKekList();
+  if (keks.length === 0) {
+    throw new Error("webhook_secret_kek_missing");
+  }
+  let lastError: unknown;
+  for (let i = 0; i < keks.length; i++) {
+    try {
+      const plain = decryptSealedWebhookSecret(stored, keks[i]!);
+      return { plain, reseal: i === 0 ? null : sealWebhookSecret(plain) };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("webhook_secret_corrupt");
+}
+
 /** `t=<unix seconds>,v1=<hex hmac of "<t>.<body>">` */
 export function signWebhookPayload(secret: string, body: string, timestampSec: number): string {
   const v1 = createHmac("sha256", secret).update(`${timestampSec}.${body}`).digest("hex");
@@ -222,7 +304,7 @@ export async function createWebhook(params: {
       .values({
         apiKeyId: params.apiKeyId,
         url: params.url,
-        secret,
+        secret: sealWebhookSecret(secret),
         events: params.events,
         active: true,
       })
@@ -304,6 +386,22 @@ function postPinned(
   });
 }
 
+async function recordDeliveryFailure(id: string): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+  try {
+    await db
+      .update(webhooks)
+      .set({
+        failureCount: sql`${webhooks.failureCount} + 1`,
+        active: sql`CASE WHEN ${webhooks.failureCount} + 1 >= ${DISABLE_AFTER_FAILURES} THEN false ELSE ${webhooks.active} END`,
+      })
+      .where(eq(webhooks.id, id));
+  } catch (error) {
+    if (!isMissingSchemaError(error)) logServerError("webhook_bookkeeping", error);
+  }
+}
+
 async function deliverOne(row: WebhookRow, eventType: WebhookEvent, payload: unknown): Promise<void> {
   const db = getDb();
   // Re-validate at delivery time: the URL was checked at registration, but
@@ -332,7 +430,22 @@ async function deliverOne(row: WebhookRow, eventType: WebhookEvent, payload: unk
     createdAt: new Date().toISOString(),
     data: payload,
   });
-  const signature = signWebhookPayload(row.secret, body, Math.floor(Date.now() / 1000));
+  let opened: OpenedWebhookSecret;
+  try {
+    opened = openWebhookSecret(row.secret);
+  } catch (error) {
+    logServerError("webhook_secret_open", error);
+    await recordDeliveryFailure(row.id);
+    return;
+  }
+  if (opened.reseal && db) {
+    try {
+      await db.update(webhooks).set({ secret: opened.reseal }).where(eq(webhooks.id, row.id));
+    } catch (error) {
+      if (!isMissingSchemaError(error)) logServerError("webhook_secret_reseal", error);
+    }
+  }
+  const signature = signWebhookPayload(opened.plain, body, Math.floor(Date.now() / 1000));
 
   const ok = await postPinned(url, target.ip, body, {
     "Content-Type": "application/json",
@@ -348,13 +461,8 @@ async function deliverOne(row: WebhookRow, eventType: WebhookEvent, payload: unk
         .set({ failureCount: 0, lastDeliveredAt: new Date() })
         .where(eq(webhooks.id, row.id));
     } else {
-      await db
-        .update(webhooks)
-        .set({
-          failureCount: sql`${webhooks.failureCount} + 1`,
-          active: sql`CASE WHEN ${webhooks.failureCount} + 1 >= ${DISABLE_AFTER_FAILURES} THEN false ELSE ${webhooks.active} END`,
-        })
-        .where(eq(webhooks.id, row.id));
+      await recordDeliveryFailure(row.id);
+      return;
     }
   } catch (error) {
     if (!isMissingSchemaError(error)) logServerError("webhook_bookkeeping", error);

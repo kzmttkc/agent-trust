@@ -5,7 +5,8 @@ import { secureCompare } from "@/lib/util/secure-compare";
 import { runDeepHealthChecks } from "@/lib/health/deep-checks";
 import { runScoringProbe } from "@/lib/health/scoring-probe";
 import { runPayeeProbe, worstStatus } from "@/lib/scoring/payee-probe";
-import { evaluateLiveness, HEALTH_RATE_LIMIT, HEALTH_RATE_WINDOW_MS } from "./liveness";
+import { evaluateLiveness, HEALTH_RATE_LIMIT, HEALTH_RATE_WINDOW_MS } from "@/lib/health/liveness";
+import { recordHealthSnapshotIfDue } from "@/lib/health/snapshot";
 
 function authorizeAdmin(request: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET;
@@ -80,6 +81,7 @@ export async function GET(request: NextRequest) {
       scoring: runScoringProbe,
       payee: runPayeeProbe,
     });
+    void recordHealthSnapshotIfDue(status).catch(() => {});
     return NextResponse.json({ status }, { status: httpStatus });
   }
 

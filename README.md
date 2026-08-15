@@ -47,16 +47,14 @@ The 0–100 trust score this API returns today (banded `ALLOW` / `WARN` / `BLOCK
 
 ## Docs
 
-- [Quickstart](./docs/quickstart.md)
-- [Deployment guide](./docs/deployment.md)
-- [Requirements v0.1](./docs/requirements-v0.1.md)
-- [OpenAPI spec](./docs/openapi.yaml)
-- [MCP setup](./docs/mcp-setup.md)
-- [x402 integration](./docs/x402-integration.md)
-- [x402 Foundation (optional)](./docs/ecosystem-x402-foundation.md)
-- [Marketing kit (Dev.to / Zenn)](./docs/marketing/README.md)
+Start here, in this order:
 
----
+- [PRODUCT.md](./PRODUCT.md) — two products, verb glossary, plans
+- [DESIGN.md](./DESIGN.md) — public RFC paper vs dashboard operate app
+- [docs/README.md](./docs/README.md) — which remaining file to open (do not load the rest by default)
+
+Customer-facing: [Quickstart](./docs/quickstart.md) · [OpenAPI](./docs/openapi.yaml) · [Deployment](./docs/deployment.md)
+
 
 # Self-hosting and development
 
@@ -243,13 +241,10 @@ src/
     db/                # Drizzle schema
     api/               # Auth, rate limits (M2)
 docs/
+  README.md            # which remaining file to open
   quickstart.md
-  mcp-setup.md
-  x402-integration.md
-  ecosystem-x402-foundation.md
-  requirements-v0.1.md
+  deployment.md
   openapi.yaml
-  brand.md
 packages/
   mcp-server/          # @vouchscore/mcp-server — MCP tools for Cursor / Claude
   sdk/                 # @vouchscore/sdk — thin TypeScript API client

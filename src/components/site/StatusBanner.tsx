@@ -1,49 +1,66 @@
-import { connection } from "next/server";
-import { runScoringProbe } from "@/lib/health/scoring-probe";
+"use client";
+
+import { useEffect, useState } from "react";
+import { livenessBannerMessage } from "@/lib/health/banner-message";
 
 /**
- * StatusBanner — 上流が落ちている時に、それをサイトの上に掲示する。
- *
- * 2026-08-13 UX監査R1 [D2]。degraded の間、/payee 経路は全滅していても
- * サイト上には一切の案内が無かった。読者から見えるのは「Not verifiable
- * right now」という個別ページの1行だけで、それが自分の入れたアドレスの
- * 性質なのかサービス側の事情なのかは区別できない。docs は「hosted status
- * page はまだ無い」と書いてあり、それは事実だが、状態を掲示しない理由には
- * ならない — 判定に使っている probe はすでに走っている。
- *
- * 測っているのは /api/health と同じ runScoringProbe()、つまり実際に
- * スコアを1件計算してみる本物の経路（隣にあるものを測らない）。結果は
- * probe 側で 60 秒メモ化されているので、頁ごとに上流を叩き直しはしない。
- *
- * 文言は事実語だけ。評価語（"we apologise" / "minor" / "some users"）は
- * 置かない — 何が読めていないかと、その結果どうなるかだけを書く。
- * ok の時は何も描かない（常設の緑バッジは、異常時の赤を見慣れさせるだけ）。
+ * Public outage strip. Does not run scoring probes here — layout used to
+ * import both engines on every HTML page and `connection()` forced the home
+ * memo dynamic. The same two-probe answer lives at GET /api/health (rate
+ * limited, 60s memo). This client reads that JSON once per minute.
  */
-export async function StatusBanner() {
-  // 2026-08-13 UX監査L3 [P1・離脱級]。この掲示はライブ健全性プローブ駆動だが、
-  // layout に置かれ、ホームだけが静的プリレンダされるため「ビルド時にプローブが
-  // 返した error/degraded」が静的HTMLへ焼き込まれ、上流回復後も古い赤が
-  // 配信され続けた（実測: /api/health=ok・全採点稼働なのにホームだけ
-  // "Scoring is failing upstream"）。「Nothing is an estimate」を掲げる製品が
-  // 自分の状態表示で嘘をつく＝信頼の自傷。connection() でこの掲示を必ず
-  // リクエスト時レンダにし、焼き込みを構造的に禁じる（プローブは60秒メモ化
-  // 済みなので毎リクエストで上流は叩かない）。ホーム以外は元から動的で無影響。
-  await connection();
+const CACHE_KEY = "vet402.liveness";
+const CACHE_TTL_MS = 60_000;
 
-  let status: "ok" | "degraded" | "error";
+function readCache(): string | null | undefined {
   try {
-    status = (await runScoringProbe()).status;
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { at: number; message: string | null };
+    if (Date.now() - parsed.at > CACHE_TTL_MS) return undefined;
+    return parsed.message;
   } catch {
-    // 掲示のための計測がページを落とすのは本末転倒。黙って何も出さない。
-    return null;
+    return undefined;
   }
+}
 
-  if (status === "ok") return null;
+function writeCache(message: string | null): void {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), message }));
+  } catch {
+    // Private mode / quota — the next page view will refetch.
+  }
+}
 
-  const message =
-    status === "error"
-      ? "Scoring is failing upstream — payee and agent lookups return no score right now."
-      : "Upstream indexer degraded — payee lookups may return “not verifiable”.";
+export function StatusBanner() {
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cached = readCache();
+    if (cached !== undefined) {
+      setMessage(cached);
+      return;
+    }
+
+    void fetch("/api/health", { headers: { accept: "application/json" } })
+      .then(async (res) => {
+        const body = (await res.json().catch(() => null)) as { status?: string } | null;
+        if (body?.status === "rate_limited") return;
+        const next = livenessBannerMessage(body?.status);
+        writeCache(next);
+        if (!cancelled) setMessage(next);
+      })
+      .catch(() => {
+        // A broken client network is not a scoring outage. Stay silent.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!message) return null;
 
   return (
     <div

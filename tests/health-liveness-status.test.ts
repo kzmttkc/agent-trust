@@ -20,7 +20,9 @@
 // ============================================================
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { evaluateLiveness, livenessHttpStatus } from "@/app/api/health/liveness";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { evaluateLiveness, livenessHttpStatus } from "@/lib/health/liveness";
 
 const probe = (status: "ok" | "degraded" | "error") => async () => ({ status });
 
@@ -80,4 +82,14 @@ test("both probes are run concurrently, not in sequence", async () => {
   // payee starts before scoring finishes — the endpoint costs the slower
   // probe, not the sum of both.
   assert.deepEqual(order, ["scoring:start", "payee:start", "scoring:end"]);
+});
+
+test("the public status banner uses the same two probes as /api/health", () => {
+  const banner = readFileSync(
+    join(process.cwd(), "src/components/site/StatusBanner.tsx"),
+    "utf8",
+  );
+  assert.match(banner, /evaluateLiveness/);
+  assert.match(banner, /runPayeeProbe/);
+  assert.match(banner, /runScoringProbe/);
 });

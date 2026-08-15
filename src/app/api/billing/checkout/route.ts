@@ -13,7 +13,10 @@ import {
   planFromStripePriceId,
   type PaidPlan,
 } from "@/lib/billing/plans";
-import { resolveAccountPlanFromStripe } from "@/lib/billing/subscription-status";
+import {
+  checkoutDisposition,
+  resolveAccountPlanFromStripe,
+} from "@/lib/billing/subscription-status";
 import { getAccountById, setAccountStripeIds, updateAccountPlan } from "@/lib/db/accounts";
 import { ensureOwnerUserId } from "@/lib/db/api-keys";
 import { authorizeDashboardRequest } from "@/lib/dashboard/auth";
@@ -70,9 +73,12 @@ export async function POST(request: NextRequest) {
         if (!(error instanceof SubscriptionNotChangeableError)) {
           throw error;
         }
-        // Subscription exists in our DB but Stripe reports it as no longer
-        // active/changeable (e.g. canceled) — fall through to starting a
-        // fresh checkout below.
+        // past_due / unpaid / incomplete still exist on Stripe. A new
+        // Checkout Session would be a second subscription. Canceled ones
+        // may start fresh.
+        if (checkoutDisposition(error.stripeStatus) !== "new_checkout") {
+          return NextResponse.json({ error: "update_payment_method" }, { status: 409 });
+        }
       }
     }
 
@@ -123,6 +129,7 @@ export async function GET(request: NextRequest) {
   }
 
   let billingHealth: "ok" | "past_due" | "canceled" | null = null;
+  let canChangePlan = true;
   if (isStripeConfigured() && account?.stripeSubscriptionId) {
     try {
       const subscription = await getStripe().subscriptions.retrieve(account.stripeSubscriptionId);
@@ -131,8 +138,10 @@ export async function GET(request: NextRequest) {
         stripeStatus: subscription.status,
         pricePlan: priceId ? planFromStripePriceId(priceId) : null,
       }).health;
+      canChangePlan = checkoutDisposition(subscription.status) !== "use_portal";
     } catch (error) {
       logServerError("billing_status", error);
+      canChangePlan = false;
     }
   }
 
@@ -141,6 +150,7 @@ export async function GET(request: NextRequest) {
     email: account?.email ?? null,
     stripeConfigured: isStripeConfigured(),
     billingHealth,
+    canChangePlan,
     plans: BILLING_PLANS,
   });
 }

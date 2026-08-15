@@ -239,6 +239,7 @@ test("the published schema advertises the live host and the whole product", () =
     "/api/v1/agents/{agentId}/passport:",
     "/api/v1/watchlist:",
     "/api/v1/watchlist/{id}:",
+    "/api/v1/observatory/watch:",
     "/api/demo/score:",
     "/api/badge/{address}:",
     "/api/badge/agent/{agentId}:",

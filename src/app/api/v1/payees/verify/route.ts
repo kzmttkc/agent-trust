@@ -12,7 +12,7 @@ import { logServerError } from "@/lib/util/log";
 // payeeMessage to @/lib/verify-message so this route file no longer exports a
 // shared helper (Next 16 route-type contract — a route may only export handlers).
 import { isCanonicalName } from "@/lib/validation/canonical-name";
-import { payeeMessage } from "@/lib/verify-message";
+import { isSafeBoundUrl, payeeMessage } from "@/lib/verify-message";
 
 // N-16 — payee self-verification. Sign the canonical message (payeeMessage,
 // @/lib/verify-message) with the payee wallet; a valid signature IS the proof of
@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
 
   const wallet = request.nextUrl.searchParams.get("wallet") ?? "";
   const name = request.nextUrl.searchParams.get("name") ?? "";
+  const urlParam = request.nextUrl.searchParams.get("url");
   if (!isValidAddress(wallet)) {
     return NextResponse.json({ error: "invalid_wallet_address" }, { status: 400, headers: rlHeaders });
   }
@@ -60,7 +61,14 @@ export async function GET(request: NextRequest) {
     // reject, and cannot smuggle extra "wallet:" lines into the preview.
     return NextResponse.json({ error: "invalid_name" }, { status: 400, headers: rlHeaders });
   }
-  return NextResponse.json({ message: payeeMessage(wallet, name) }, { headers: rlHeaders });
+  let url: string | undefined;
+  if (urlParam) {
+    if (!isSafeBoundUrl(urlParam)) {
+      return NextResponse.json({ error: "url_must_be_https" }, { status: 400, headers: rlHeaders });
+    }
+    url = urlParam;
+  }
+  return NextResponse.json({ message: payeeMessage(wallet, name, url) }, { headers: rlHeaders });
 }
 
 export async function POST(request: NextRequest) {
@@ -90,7 +98,7 @@ export async function POST(request: NextRequest) {
   if (!isValidAddress(wallet)) {
     return NextResponse.json({ error: "invalid_wallet_address" }, { status: 400, headers: rlHeaders });
   }
-  if (url && !/^https:\/\//.test(url)) {
+  if (url && !isSafeBoundUrl(url)) {
     return NextResponse.json({ error: "url_must_be_https" }, { status: 400, headers: rlHeaders });
   }
 
@@ -115,7 +123,7 @@ export async function POST(request: NextRequest) {
   try {
     valid = await verifyMessage({
       address: wallet as `0x${string}`,
-      message: payeeMessage(wallet, name),
+      message: payeeMessage(wallet, name, url),
       signature: signature as `0x${string}`,
     });
   } catch {
@@ -123,7 +131,7 @@ export async function POST(request: NextRequest) {
   }
   if (!valid) {
     return NextResponse.json(
-      { error: "signature_mismatch", expectedMessage: payeeMessage(wallet, name) },
+      { error: "signature_mismatch", expectedMessage: payeeMessage(wallet, name, url) },
       { status: 400 },
     );
   }

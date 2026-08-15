@@ -89,41 +89,41 @@ export default function DashboardKeysPage() {
   const { keys, currentKeyId } = data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">API keys</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="dash-title">API keys</h2>
+        <p className="dash-lede">
           Create a spare key while you are signed in. The secret is shown once and cannot be
           retrieved later. The key used for this session cannot be revoked here.
         </p>
       </div>
 
       {error && (
-        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+        <p role="alert" aria-live="assertive" className="dash-alert dash-alert-error">
           {dashboardErrorMessage(error)}
         </p>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+      <div className="dash-card-flush">
+        <table className="dash-table">
+          <thead>
             <tr>
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Plan</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Last used</th>
-              <th className="px-4 py-3 font-medium" />
+              <th className="dash-th">Name</th>
+              <th className="dash-th">Plan</th>
+              <th className="dash-th">Status</th>
+              <th className="dash-th">Last used</th>
+              <th className="dash-th" />
             </tr>
           </thead>
           <tbody>
             {keys.map((key) => (
-              <tr key={key.id} className="border-b border-zinc-100">
-                <td className="px-4 py-3">
-                  <div className="font-medium">{key.name ?? "Unnamed"}</div>
+              <tr key={key.id}>
+                <td className="dash-td">
+                  <div className="font-medium text-zinc-900">{key.name ?? "Unnamed"}</div>
                   <div className="font-mono text-xs text-zinc-600">{key.id}</div>
                 </td>
-                <td className="px-4 py-3 capitalize">{key.plan}</td>
-                <td className="px-4 py-3">
+                <td className="dash-td capitalize">{key.plan}</td>
+                <td className="dash-td">
                   {key.revokedAt ? (
                     <span className="text-red-600">Revoked</span>
                   ) : key.id === currentKeyId ? (
@@ -132,10 +132,10 @@ export default function DashboardKeysPage() {
                     <span className="text-zinc-600">Active</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="dash-td text-zinc-600">
                   {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "—"}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="dash-td text-right">
                   {!key.revokedAt && key.id !== currentKeyId && (
                     <button
                       type="button"
@@ -150,7 +150,7 @@ export default function DashboardKeysPage() {
             ))}
             {keys.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-zinc-600">
+                <td colSpan={5} className="dash-td py-8 text-center text-zinc-600">
                   No keys on this account yet. Create one below — the secret is shown once.
                 </td>
               </tr>
@@ -168,7 +168,7 @@ export default function DashboardKeysPage() {
       </button>
 
       {newKey && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="dash-card border-amber-200 bg-amber-50 text-sm text-amber-900">
           <p className="font-medium">New API key (copy now — shown once):</p>
           <code className="mt-2 block break-all font-mono text-xs">{newKey}</code>
         </div>

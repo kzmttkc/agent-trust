@@ -12,6 +12,7 @@ type BillingInfo = {
   email: string | null;
   stripeConfigured: boolean;
   billingHealth: "ok" | "past_due" | "canceled" | null;
+  canChangePlan: boolean;
   plans: Record<string, { name: string; monthlyLimit: number; priceLabel: string }>;
 };
 
@@ -87,10 +88,10 @@ export default function DashboardBillingPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">Billing</h2>
-        <p className="text-sm text-zinc-700">
+        <h2 className="dash-title">Billing</h2>
+        <p className="dash-lede">
           Quota is shared across every key on this account. Free is 1,000 lookups a month.
           Upgrading agrees to the{" "}
           <a className="underline" href="/legal/terms#paid-subscriptions">
@@ -106,39 +107,42 @@ export default function DashboardBillingPage() {
       </div>
 
       {checkoutStatus === "success" && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+        <p className="dash-alert dash-alert-ok">
           Payment successful. Your plan will update shortly.
         </p>
       )}
 
       {checkoutStatus === "cancelled" && (
-        <p className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-800">
+        <p className="dash-alert dash-alert-muted">
           Checkout cancelled. No charge was made. You are still on {info.plan}.
         </p>
       )}
 
-      {info.billingHealth === "past_due" && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
-          Payment failed. Your current plan stays until Stripe finishes retrying. Update the card
-          via Manage subscription.
+      {(!info.canChangePlan || info.billingHealth === "past_due") && (
+        <p className="dash-alert dash-alert-error">
+          {info.billingHealth === "past_due"
+            ? "Payment failed. Your current plan stays until Stripe finishes retrying. Update the card via Manage subscription."
+            : "This subscription cannot be changed here. Update the card or complete payment via Manage subscription."}
         </p>
       )}
 
       {planChanged && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+        <p className="dash-alert dash-alert-ok">
           Plan updated. Stripe may prorate the difference on the next invoice.
         </p>
       )}
 
       {error && (
-        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+        <p role="alert" aria-live="assertive" className="dash-alert dash-alert-error">
           {dashboardErrorMessage(error)}
         </p>
       )}
 
-      <div className="rounded-xl border border-zinc-200 bg-white p-5">
-        <p className="text-sm text-zinc-600">Current plan</p>
-        <p className="mt-1 text-2xl font-semibold capitalize">{info.plan}</p>
+      <div className="dash-card">
+        <p className="dash-caption">Current plan</p>
+        <p className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold capitalize tracking-tight">
+          {info.plan}
+        </p>
         {info.email && <p className="mt-1 text-sm text-zinc-600">{info.email}</p>}
       </div>
 
@@ -149,14 +153,16 @@ export default function DashboardBillingPage() {
           return (
             <div
               key={planId}
-              className={`rounded-xl border p-5 ${isCurrent ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white"}`}
+              className={`dash-card ${isCurrent ? "border-zinc-900 bg-zinc-50" : ""}`}
             >
-              <p className="font-semibold">{plan.name}</p>
-              <p className="mt-1 text-2xl">{plan.priceLabel}</p>
+              <p className="font-semibold text-zinc-900">{plan.name}</p>
+              <p className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight">
+                {plan.priceLabel}
+              </p>
               <p className="mt-2 text-sm text-zinc-600">
                 {plan.monthlyLimit.toLocaleString()} lookups / month
               </p>
-              {planId !== "free" && info.stripeConfigured && !isCurrent && (
+              {planId !== "free" && info.stripeConfigured && !isCurrent && info.canChangePlan && (
                 <button
                   type="button"
                   disabled={loading !== null}
@@ -167,20 +173,22 @@ export default function DashboardBillingPage() {
                 </button>
               )}
               {isCurrent && (
-                <p className="mt-4 text-xs font-medium uppercase text-zinc-600">Current</p>
+                <p className="mt-4 text-xs font-medium uppercase tracking-wide text-zinc-600">
+                  Current
+                </p>
               )}
             </div>
           );
         })}
       </div>
 
-      {(info.stripeConfigured && (info.plan !== "free" || info.billingHealth === "past_due")) && (
+      {(info.stripeConfigured && (info.plan !== "free" || !info.canChangePlan)) && (
         <div className="space-y-2">
           <button
             type="button"
             onClick={openPortal}
             disabled={loading !== null}
-            className="rounded-md border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
+            className={buttonClass({ variant: "secondary", className: "px-4 py-2" })}
           >
             {loading === "portal" ? "Opening..." : "Manage subscription"}
           </button>

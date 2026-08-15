@@ -41,13 +41,40 @@ export async function getDashboardOverview(apiKeyId: string) {
   const usage = ownerUsageRows[0]?.count ?? 0;
   const limit = getPlanLimit(plan);
 
+  const usageHistory = await getUsageHistory(userId, 12);
+
   return {
     apiKey: key[0] ?? null,
     plan,
     usage: { period, count: usage, limit, remaining: Math.max(0, limit - usage) },
+    usageHistory,
     totalQueries: recentEvents[0]?.value ?? 0,
     settlementAttestations,
   };
+}
+
+/**
+ * Monthly quota-usage trend (B6, 2026-08-15). owner_usage already carries one
+ * row per (account, calendar month) — real billing-period totals, not a
+ * synthesized daily curve. A month absent from the table is simply not in
+ * the returned array (an account that started this month has one point, not
+ * eleven zeros).
+ */
+export async function getUsageHistory(
+  userId: string,
+  months = 12,
+): Promise<{ period: string; count: number }[]> {
+  const db = getDb();
+  if (!db) return [];
+
+  const rows = await db
+    .select({ period: ownerUsage.period, count: ownerUsage.count })
+    .from(ownerUsage)
+    .where(eq(ownerUsage.userId, userId))
+    .orderBy(desc(ownerUsage.period))
+    .limit(months);
+
+  return rows.reverse();
 }
 
 export async function getTrustEventLogs(apiKeyId: string, limit = 50) {

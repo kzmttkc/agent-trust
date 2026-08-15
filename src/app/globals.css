@@ -623,6 +623,28 @@ a {
     color: var(--color-block-ink);
   }
 
+  /* ---- 入力（紙面の欄。角は 2px。枠は brand-lift で 1.4.11）-------- */
+  .doc-input {
+    width: 100%;
+    border: 1px solid #55688c;
+    border-radius: 2px;
+    background: #ffffff;
+    color: #233456;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+  .doc-input::placeholder {
+    color: #55688c;
+  }
+  .doc-input:hover {
+    border-color: #3e537c;
+  }
+  select.doc-input {
+    width: auto;
+    min-width: 12ch;
+  }
+
   /* ---- リンク --------------------------------------------------------- */
   .doc-link {
     color: #233456;
@@ -642,6 +664,135 @@ a {
   }
   .ref-mark:hover {
     color: #233456;
+  }
+
+  /* ========================================================================
+     Dashboard operate world. Zinc. Linear / Stripe density. Navy only on
+     primary actions and the current nav item. Never .sheet.
+     ======================================================================== */
+  .dash-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.25rem;
+    letter-spacing: -0.015em;
+    line-height: 1.25;
+    color: #18181b;
+  }
+  .dash-lede {
+    margin-top: 0.35rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: #52525b;
+  }
+  .dash-caption {
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #52525b;
+  }
+  .dash-card {
+    border: 1px solid #e4e4e7;
+    background: #ffffff;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+  }
+  .dash-card-flush {
+    border: 1px solid #e4e4e7;
+    background: #ffffff;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+  .dash-input,
+  .dash-select,
+  .dash-textarea {
+    width: 100%;
+    border: 1px solid #71717a;
+    border-radius: 0.375rem;
+    background: #ffffff;
+    color: #18181b;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+  }
+  .dash-input {
+    font-family: var(--font-mono);
+  }
+  .dash-input::placeholder,
+  .dash-textarea::placeholder {
+    color: #71717a;
+  }
+  .dash-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.875rem;
+  }
+  .dash-th {
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    color: #52525b;
+    background: #fafafa;
+    border-bottom: 1px solid #e4e4e7;
+  }
+  .dash-td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f4f4f5;
+    color: #3f3f46;
+    vertical-align: middle;
+  }
+  .dash-alert {
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+  }
+  .dash-alert-error {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+  .dash-alert-ok {
+    background: #ecfdf5;
+    color: #065f46;
+  }
+  .dash-alert-muted {
+    background: #f4f4f5;
+    color: #27272a;
+  }
+  .dash-skel {
+    height: 0.7rem;
+    border-radius: 2px;
+    background: #e4e4e7;
+  }
+
+  /* ---- RFC世界のローディング境界（2026-08-15）------------------------
+     dash-skel の紙面版。色は既存トークンのみ（hair地・mist点滅）——
+     「invented colors 禁止」を骨格にも適用する。shimmer は
+     prefers-reduced-motion で自動的に1反復・ほぼ0msへ潰れる
+     （237行目の `*` ブロックが担う。ここで個別対応は不要）。 */
+  .doc-skel {
+    height: 0.75rem;
+    border-radius: 2px;
+    background: var(--color-hair);
+    animation: doc-skel-pulse 1.6s ease-in-out infinite;
+  }
+  .doc-error-panel {
+    border: var(--rule) solid var(--color-block-ink);
+    background: #fef2f2;
+    padding: 1.5rem;
+    text-align: center;
+  }
+  .doc-error-panel p {
+    color: var(--color-block-ink);
+  }
+}
+
+@keyframes doc-skel-pulse {
+  0%,
+  100% {
+    background-color: var(--color-hair);
+  }
+  50% {
+    background-color: var(--color-brand-mist);
   }
 }
 

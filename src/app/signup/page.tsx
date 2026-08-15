@@ -297,7 +297,7 @@ export default function SignupPage() {
             type="email"
             name="email"
             autoComplete="email"
-            className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
+            className="doc-input"
             required
             onInvalid={handleInvalid}
           />
@@ -308,7 +308,7 @@ export default function SignupPage() {
           <input
             name="name"
             autoComplete="name"
-            className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
+            className="doc-input"
           />
         </label>
 
@@ -319,7 +319,7 @@ export default function SignupPage() {
               name="inviteCode"
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
-              className="w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2.5 text-brand-deep"
+              className="doc-input"
               required
               onInvalid={handleInvalid}
             />

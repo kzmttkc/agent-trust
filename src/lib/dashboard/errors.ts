@@ -27,6 +27,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_invite_code:
     "Invalid invite code. If you were not given one, email support@vet402.com — signup is invite-only when that field is shown.",
   already_on_plan: "You are already on that plan.",
+  update_payment_method:
+    "Update the card via Manage subscription before changing plans. Opening checkout now would charge twice.",
   agent_id_or_wallet_required: "Enter a payee wallet, or a payer agent ID.",
   invalid_wallet_address: "That is not a valid wallet address.",
   invalid_agent_id: "That is not a valid agent ID.",

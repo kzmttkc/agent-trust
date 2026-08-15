@@ -15,7 +15,7 @@ import { readCanonicalAgentWallet } from "@/lib/chain/agent-wallet";
 // live in lib now (@/lib/validation, @/lib/verify-message) so no route exports a
 // shared helper (Next 16 route-type contract).
 import { isCanonicalName } from "@/lib/validation/canonical-name";
-import { agentPassportMessage } from "@/lib/verify-message";
+import { agentPassportMessage, isSafeBoundUrl } from "@/lib/verify-message";
 import { logServerError } from "@/lib/util/log";
 
 // A-10 — agent passport self-verification, the symmetric twin of N-16
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
 
   const agentIdRaw = request.nextUrl.searchParams.get("agentId") ?? "";
   const name = request.nextUrl.searchParams.get("name") ?? "";
+  const urlParam = request.nextUrl.searchParams.get("url");
   const agentId = parseAgentId(agentIdRaw);
   if (agentId === null) {
     return NextResponse.json({ error: "invalid_agent_id" }, { status: 400, headers: rlHeaders });
@@ -77,8 +78,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "agent_wallet_unbound" }, { status: 400, headers: rlHeaders });
   }
 
+  let url: string | undefined;
+  if (urlParam) {
+    if (!isSafeBoundUrl(urlParam)) {
+      return NextResponse.json({ error: "url_must_be_https" }, { status: 400, headers: rlHeaders });
+    }
+    url = urlParam;
+  }
+
   return NextResponse.json(
-    { agentId: agentId.toString(), wallet: wallet.toLowerCase(), message: agentPassportMessage(agentId, wallet, name) },
+    {
+      agentId: agentId.toString(),
+      wallet: wallet.toLowerCase(),
+      message: agentPassportMessage(agentId, wallet, name, url),
+    },
     { headers: rlHeaders },
   );
 }
@@ -109,7 +122,7 @@ export async function POST(request: NextRequest) {
   if (agentId === null) {
     return NextResponse.json({ error: "invalid_agent_id" }, { status: 400, headers: rlHeaders });
   }
-  if (url && !/^https:\/\//.test(url)) {
+  if (url && !isSafeBoundUrl(url)) {
     return NextResponse.json({ error: "url_must_be_https" }, { status: 400, headers: rlHeaders });
   }
 
@@ -145,7 +158,7 @@ export async function POST(request: NextRequest) {
   try {
     valid = await verifyMessage({
       address: wallet as `0x${string}`,
-      message: agentPassportMessage(agentId, wallet, name),
+      message: agentPassportMessage(agentId, wallet, name, url),
       signature: signature as `0x${string}`,
     });
   } catch {
@@ -153,7 +166,7 @@ export async function POST(request: NextRequest) {
   }
   if (!valid) {
     return NextResponse.json(
-      { error: "signature_mismatch", expectedMessage: agentPassportMessage(agentId, wallet, name) },
+      { error: "signature_mismatch", expectedMessage: agentPassportMessage(agentId, wallet, name, url) },
       { status: 400, headers: rlHeaders },
     );
   }

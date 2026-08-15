@@ -45,44 +45,44 @@ export default function DashboardSettlementsPage() {
   const { settlements } = data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold">x402 settlements</h2>
-        <p className="text-sm text-zinc-600">
+        <h2 className="dash-title">x402 settlements</h2>
+        <p className="dash-lede">
           Payment attestations written back by your gateways via{" "}
           <code className="rounded bg-zinc-100 px-1 text-zinc-700">POST /v1/payments/x402</code>. These feed
           the 10% settlement weight in trust scores.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-600">
+      <div className="dash-card-flush">
+        <table className="dash-table">
+          <thead>
             <tr>
-              <th className="px-4 py-3 font-medium">Time</th>
-              <th className="px-4 py-3 font-medium">Wallet</th>
-              <th className="px-4 py-3 font-medium">Tx</th>
-              <th className="px-4 py-3 font-medium">Amount</th>
-              <th className="px-4 py-3 font-medium">Resource</th>
+              <th className="dash-th">Time</th>
+              <th className="dash-th">Wallet</th>
+              <th className="dash-th">Tx</th>
+              <th className="dash-th">Amount</th>
+              <th className="dash-th">Resource</th>
             </tr>
           </thead>
           <tbody>
             {settlements.map((row) => (
-              <tr key={row.id} className="border-b border-zinc-100">
-                <td className="px-4 py-3 text-xs text-zinc-600">
+              <tr key={row.id}>
+                <td className="dash-td text-xs text-zinc-600">
                   {row.createdAt ? new Date(row.createdAt).toLocaleString() : "—"}
                 </td>
-                <td className="px-4 py-3 font-mono text-xs">{shorten(row.wallet)}</td>
-                <td className="px-4 py-3 font-mono text-xs" title={row.txHash}>
+                <td className="dash-td font-mono text-xs">{shorten(row.wallet)}</td>
+                <td className="dash-td font-mono text-xs" title={row.txHash}>
                   {shorten(row.txHash)}
                 </td>
-                <td className="px-4 py-3 font-mono text-xs">{row.amount ?? "—"}</td>
-                <td className="px-4 py-3 text-xs text-zinc-700">{row.resource ?? "—"}</td>
+                <td className="dash-td font-mono text-xs">{row.amount ?? "—"}</td>
+                <td className="dash-td text-xs text-zinc-700">{row.resource ?? "—"}</td>
               </tr>
             ))}
             {settlements.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
+                <td colSpan={5} className="dash-td py-8 text-center text-zinc-600">
                   No settlements attested yet. Use the x402 trust gate with{" "}
                   <code>getPaymentTxHash</code> or call the payments API directly.
                 </td>

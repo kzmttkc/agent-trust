@@ -44,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
 const NAV_SECONDARY: NavItem[] = [
   { label: "Accuracy", href: "/accuracy" },
   { label: "Leaderboard", href: "/leaderboard" },
+  { label: "Status", href: "/status" },
   { label: "Blog", href: "/blog" },
   { label: "About", href: "/legal/notice" },
 ];
