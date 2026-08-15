@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { secureCompare } from "@/lib/util/secure-compare";
+import { consumeIpRateLimit, getClientIp } from "@/lib/api/ip-rate-limit";
 import { buildGate2Report, Gate2NotConfiguredError, Gate2SchemaMissingError } from "@/lib/gate2/report";
 
 /**
@@ -25,6 +26,19 @@ function authorizeAdmin(request: NextRequest): boolean {
 }
 
 export async function GET(request: NextRequest) {
+  // 2026-08-15 audit: the sibling admin route (global-lists) rate-limits
+  // every verb BEFORE the bearer check; this one didn't. ADMIN_SECRET's
+  // length/entropy floor already makes brute force impractical, so this is
+  // defense-in-depth parity, not a response to a demonstrated exploit.
+  const ip = getClientIp(request);
+  const limited = await consumeIpRateLimit(`admin:${ip}`, 30, 60_000);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { error: "rate_limit_exceeded", retryAfter: limited.retryAfter },
+      { status: 429 },
+    );
+  }
+
   if (!authorizeAdmin(request)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
