@@ -3,6 +3,24 @@ import { worstStatus } from "@/lib/scoring/payee-probe";
 export type HealthStatus = "ok" | "degraded" | "error";
 
 /**
+ * Per-IP ceiling for the PUBLIC liveness probe (2026-08-15 audit).
+ *
+ * The shallow answer is not cheap: it runs the seller-side scoring probe and
+ * the payee probe, i.e. Base RPC + Blockscout + DB. Memoisation is per function
+ * INSTANCE, so a concurrent flood fans out to cold instances and pays the full
+ * cost on each — and Blockscout answers sustained load with a global cooldown
+ * that then degrades real scoring. Every other key-less path got a limiter in
+ * the 2026-08-06 pass; this one was missed.
+ *
+ * 60/min = one request per second, far above any honest uptime poller (the docs
+ * tell customers to point one here), so the gate cannot manufacture the outage
+ * signal it is protecting. Lives here rather than in route.ts because a Next
+ * route module may only export handlers and segment config.
+ */
+export const HEALTH_RATE_LIMIT = 60;
+export const HEALTH_RATE_WINDOW_MS = 60_000;
+
+/**
  * HTTP status for the PUBLIC liveness endpoint.
  *
  * docs/api tells integrators the endpoint "returns 200/503 for uptime

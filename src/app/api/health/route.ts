@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getClientIp } from "@/lib/api/client-ip";
+import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { secureCompare } from "@/lib/util/secure-compare";
 import { runDeepHealthChecks } from "@/lib/health/deep-checks";
 import { runScoringProbe } from "@/lib/health/scoring-probe";
 import { runPayeeProbe, worstStatus } from "@/lib/scoring/payee-probe";
-import { evaluateLiveness } from "./liveness";
+import { evaluateLiveness, HEALTH_RATE_LIMIT, HEALTH_RATE_WINDOW_MS } from "./liveness";
 
 function authorizeAdmin(request: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET;
@@ -18,6 +20,25 @@ function authorizeAdmin(request: NextRequest): boolean {
 
 export async function GET(request: NextRequest) {
   const deep = request.nextUrl.searchParams.get("deep") === "1";
+
+  // 2026-08-15 security audit: key-less path with real upstream cost. Runs
+  // FIRST — before the probes and before the admin branch — because the whole
+  // point is to refuse spending a Base RPC / Blockscout call on an anonymous
+  // flood. See HEALTH_RATE_LIMIT in ./liveness for the ceiling's rationale.
+  const ip = getClientIp(request) ?? "unknown";
+  const limited = await consumeIpRateLimit(
+    `health:${ip}`,
+    HEALTH_RATE_LIMIT,
+    HEALTH_RATE_WINDOW_MS,
+  );
+  if (!limited.allowed) {
+    // Same one-bit-of-information rule as the liveness body below: a throttled
+    // caller learns it was throttled, not anything about the service.
+    return NextResponse.json(
+      { status: "rate_limited" },
+      { status: 429, headers: ipRateLimitHeaders(limited) },
+    );
+  }
 
   // 2026-08-06 security (self-audit item 4): the unauthenticated liveness
   // probe returns ONLY a status. It previously leaked version (0.1.0), chain,

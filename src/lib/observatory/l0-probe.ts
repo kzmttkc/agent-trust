@@ -21,6 +21,8 @@
 // condition): see publishedVerdict().
 // ============================================================
 
+import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
+
 export type ProbeTarget = {
   resourceUrl: string;
   /** Catalog-declared method or null (undeclared → unverified, no request). */
@@ -51,6 +53,17 @@ export type ProbeOptions = {
   timeoutMs?: number;
 };
 
+// SSRF (2026-08-15 audit). resourceUrl is third-party input: it is whatever a
+// seller declared to the public Bazaar catalog, copied verbatim into our DB.
+// The production default fetch therefore refuses any target that is — or
+// redirects to — a non-public address, so a listed
+// `http://169.254.169.254/latest/meta-data/…` costs zero requests instead of
+// being fetched on schedule with 500 bytes of the reply stored in
+// x402_l0_probes.raw_response_meta. Tests inject their own fetchImpl and are
+// exercising the parse/verdict logic, not the network policy — that has its
+// own tests in tests/outbound-ssrf.test.ts.
+const guardedFetch = createSafeFetchImpl();
+
 /** Published-fail gate: fewer consecutive fails than this renders as `unverified`. */
 export const MIN_CONSECUTIVE_FAILS_TO_PUBLISH = 2;
 
@@ -75,7 +88,18 @@ export function publishedVerdict(newestFirst: readonly string[]): "pass" | "fail
   return "unverified";
 }
 
-function classifyNetworkError(error: unknown): "dns" | "tls" | "timeout" | "network" {
+function classifyNetworkError(
+  error: unknown,
+): "dns" | "tls" | "timeout" | "network" | "unsafe_target" | "redirect_limit" {
+  // The guard fired before (or between) sockets. `unresolvable` is reported as
+  // `dns` because that is exactly what the unguarded fetch used to report for
+  // the same catalog row — the reason code must not change meaning just
+  // because the check moved earlier.
+  if (error instanceof UnsafeTargetError) {
+    if (error.reason === "unresolvable") return "dns";
+    if (error.reason === "too_many_redirects") return "redirect_limit";
+    return "unsafe_target";
+  }
   if (error instanceof DOMException && error.name === "AbortError") return "timeout";
   // undici wraps the syscall error in TypeError.cause with a `code`.
   const cause = (error as { cause?: unknown })?.cause ?? error;
@@ -113,7 +137,7 @@ export async function probeEndpoint(
   target: ProbeTarget,
   options: ProbeOptions = {},
 ): Promise<ProbeResult> {
-  const { fetchImpl = fetch, timeoutMs = 10_000 } = options;
+  const { fetchImpl = guardedFetch, timeoutMs = 10_000 } = options;
 
   if (!target.method) {
     return {
@@ -140,6 +164,9 @@ export async function probeEndpoint(
     response = await fetchImpl(target.resourceUrl, {
       method,
       signal: controller.signal,
+      // The guarded default follows redirects itself, re-checking each hop
+      // (safe-fetch.ts); it overrides this to "manual" so the platform cannot
+      // follow one for us. Left declared for an injected fetchImpl.
       redirect: "follow",
       headers: { accept: "application/json", "user-agent": "vet402-observatory-l0/1.0 (+https://vet402.com/observatory/methodology)" },
       // Empty JSON body on POST: the x402 wall answers 402 before the handler
@@ -150,9 +177,14 @@ export async function probeEndpoint(
     const reason = classifyNetworkError(error);
     return {
       method,
-      verdict: "fail",
+      // A target we REFUSED to contact is not a measurement of the seller:
+      // `unverified` (no proof), never `fail` (a published claim). Same
+      // fail-closed direction as method_undeclared.
+      verdict: reason === "unsafe_target" ? "unverified" : "fail",
       httpStatus: null,
-      has402Challenge: false,
+      // `false` would assert we looked and saw no wall; on a refused target we
+      // never looked.
+      has402Challenge: reason === "unsafe_target" ? null : false,
       acceptsValid: null,
       priceConsistent: null,
       metadataConsistent: null,

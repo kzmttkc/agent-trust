@@ -10,6 +10,7 @@ import { BILLING_PLANS, isStripeConfigured, type PaidPlan } from "@/lib/billing/
 import { getAccountById, setAccountStripeIds, updateAccountPlan } from "@/lib/db/accounts";
 import { ensureOwnerUserId } from "@/lib/db/api-keys";
 import { authorizeDashboardRequest } from "@/lib/dashboard/auth";
+import { logServerError } from "@/lib/util/log";
 
 const checkoutSchema = z.object({
   plan: z.enum(["pro", "scale"]),
@@ -81,8 +82,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ url });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "checkout_failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // 2026-08-15 audit: this used to return `error.message` verbatim. Whatever
+    // threw here is Stripe's SDK or the database, and their messages carry
+    // internals (price/customer ids, SQL text, host names) that a customer has
+    // no reason to see and an attacker can farm by forcing failures. Log the
+    // detail server-side, answer with the same fixed code the sibling handler
+    // below already uses.
+    logServerError("billing_checkout", error);
+    return NextResponse.json({ error: "checkout_failed" }, { status: 500 });
   }
 }
 

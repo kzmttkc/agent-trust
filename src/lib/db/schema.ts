@@ -680,7 +680,16 @@ export const x402L1Purchases = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     endpointId: uuid("endpoint_id").notNull(),
     attemptedAt: timestamp("attempted_at", { withTimezone: true }).defaultNow(),
-    /** settled | settle_failed | delivered_no_receipt | no_402 | no_eligible_accept | price_mismatch | over_cap | budget_denied | request_error */
+    /**
+     * settled | settle_failed | delivered_no_receipt | no_402 |
+     * no_eligible_accept | price_mismatch | over_cap | budget_denied |
+     * request_error | in_flight.
+     * `in_flight` is the spend reservation written before the EIP-3009
+     * signature exists (see l1-runner.reserveSpend); it is replaced by the
+     * outcome status seconds later, and only survives if the runner was killed
+     * mid-purchase — in which case it is the honest record that money may have
+     * moved with no receipt.
+     */
     status: text("status").notNull(),
     network: text("network"),
     asset: text("asset"),

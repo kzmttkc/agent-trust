@@ -97,9 +97,23 @@ export async function authorizeDashboardRequest(
 export async function authenticateDashboardLogin(
   apiKey: string,
 ): Promise<DashboardAuthContext | null> {
-  const fakeRequest = new Request("http://localhost", {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
+  // 2026-08-15 認証監査: この関数は受け取った文字列をそのまま Authorization
+  // ヘッダに載せて既存の API 認証へ委譲する。undici の Headers は制御文字
+  // (CR/LF/NUL/DEL 等) を含む値を TypeError で拒否するため、キー欄に改行を1つ
+  // 入れるだけで、ログインが 401 ではなく未捕捉例外 → 500 になっていた
+  // （/api/dashboard/session と no-JS の Server Action の両方）。
+  // 認証の突破ではないが、未認証の第三者が任意にサーバ例外を起こせる。
+  // ヘッダ値として表現できない文字列は Bearer トークンとして送れない＝実在する
+  // APIキーではありえないので、ここで「存在しない鍵」として 401 に閉じる。
+  // 判定そのもの（verifyApiKey）は一切変えない。
+  let fakeRequest: Request;
+  try {
+    fakeRequest = new Request("http://localhost", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+  } catch {
+    return null;
+  }
   const { authenticateRequest } = await import("@/lib/api/auth");
   const auth = await authenticateRequest(fakeRequest);
   if (!auth.ok || auth.apiKeyId === "dev" || !auth.apiKeyId || !auth.plan) {

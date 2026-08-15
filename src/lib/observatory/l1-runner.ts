@@ -14,17 +14,23 @@
 //  2. Budget: today's spend is summed FROM THE DATABASE (x402_l1_purchases.
 //     spent_units, UTC day) — restarts and concurrent invocations read the
 //     same ledger. checkL1Budget gates each purchase BEFORE signing.
-//  3. spent_units is written for every SIGNED attempt whether or not the
-//     settlement succeeded: a signed EIP-3009 authorization is live money
-//     until validBefore, so the conservative ledger counts it.
+//  3. spent_units is RESERVED (row written, status `in_flight`) BEFORE the
+//     signature exists, and the reservation itself re-checks the day's total
+//     inside a single SQL statement (reserveSpend). Two reasons, both found
+//     live-fire in the 2026-08-15 audit: (a) a signed EIP-3009 authorization
+//     is live money until validBefore, so a kill between signing and the
+//     write (maxDuration, DB blip) must not lose the spend; (b) reading the
+//     day's total once per batch let two overlapping invocations each spend a
+//     full daily budget ($49 measured against a $25 cap).
 //  4. One purchase per endpoint per sweep window (default 6 days) — the
 //     weekly-sweep cadence emerges from the daily budget, not from a queue.
 // ============================================================
 import { privateKeyToAccount } from "viem/accounts";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { x402L1Purchases } from "@/lib/db/schema";
+import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
 import { checkL1Budget, isL1Enabled, DAILY_BUDGET_USD } from "./budget";
 import {
   buildAuthorization,
@@ -57,11 +63,82 @@ type Candidate = {
 
 const USDC_PER_USD = 1_000_000;
 
+const guardedFetch = createSafeFetchImpl();
+
+/** The daily cap in USDC base units — the same $25 checkL1Budget judges in USD. */
+const DAILY_BUDGET_UNITS = BigInt(DAILY_BUDGET_USD) * BigInt(USDC_PER_USD);
+
 /** Endpoints purchased within this window are not re-purchased (1判定1購買). */
 export const SWEEP_WINDOW_DAYS = 6;
 
 function unitsToUsd(units: bigint): number {
   return Number(units) / USDC_PER_USD;
+}
+
+function rowsOf(raw: unknown): Record<string, unknown>[] {
+  return (Array.isArray(raw) ? raw : (raw as { rows?: unknown[] }).rows ?? []) as Record<
+    string,
+    unknown
+  >[];
+}
+
+type Reservation =
+  | { ok: true; rowId: string }
+  | { ok: false; reason: "daily_budget_exceeded" | "already_purchased" };
+
+/**
+ * Claim the spend before it can happen. ONE statement, so the day's total and
+ * the sweep-window check are evaluated and the ledger row written without the
+ * caller ever holding a stale number: whoever commits first is the one whose
+ * money is counted, and the loser is refused.
+ *
+ * Written as a single statement on purpose — production runs on neon-http,
+ * where every query is its own connection and implicit transaction, so
+ * multi-statement locking (advisory locks, SELECT ... FOR UPDATE) cannot span
+ * a check and its write. What is left uncovered is only the sub-millisecond
+ * overlap of two INSERTs whose snapshots predate each other's commit, and its
+ * cost is bounded by one purchase (≤ $1), not by a second daily budget.
+ */
+async function reserveSpend(input: {
+  db: NonNullable<ReturnType<typeof getDb>>;
+  endpointId: string;
+  payer: string;
+  network: string;
+  asset: string;
+  payTo: string;
+  amountUnits: string;
+}): Promise<Reservation> {
+  const { db, endpointId, payer, network, asset, payTo, amountUnits } = input;
+  const raw = await db.execute(sql`
+    WITH day AS (
+      SELECT coalesce(sum(spent_units::numeric), 0) AS spent
+      FROM x402_l1_purchases
+      WHERE attempted_at >= date_trunc('day', now() AT TIME ZONE 'utc')
+    ), dup AS (
+      SELECT EXISTS (
+        SELECT 1 FROM x402_l1_purchases pu
+        WHERE pu.endpoint_id = ${endpointId}::uuid
+          AND pu.attempted_at > now() - make_interval(days => ${SWEEP_WINDOW_DAYS})
+      ) AS taken
+    ), ins AS (
+      INSERT INTO x402_l1_purchases
+        (endpoint_id, status, payer, network, asset, pay_to, amount_units, spent_units)
+      SELECT ${endpointId}::uuid, 'in_flight', ${payer}, ${network}, ${asset},
+             ${payTo}, ${amountUnits}, ${amountUnits}
+      FROM day, dup
+      WHERE NOT dup.taken
+        AND day.spent + ${amountUnits}::numeric <= ${String(DAILY_BUDGET_UNITS)}::numeric
+      RETURNING id
+    )
+    SELECT (SELECT id FROM ins)::text AS row_id, (SELECT taken FROM dup) AS taken
+  `);
+  const row = rowsOf(raw)[0];
+  // No row back at all means the statement did not run as written — refuse to
+  // spend on a gate whose verdict we cannot read.
+  if (!row) throw new Error("l1 spend reservation returned no verdict row");
+  const rowId = typeof row.row_id === "string" && row.row_id !== "" ? row.row_id : null;
+  if (rowId) return { ok: true, rowId };
+  return { ok: false, reason: row.taken === true ? "already_purchased" : "daily_budget_exceeded" };
 }
 
 export async function runL1Batch(
@@ -71,7 +148,12 @@ export async function runL1Batch(
     timeoutMs?: number;
   } = {},
 ): Promise<L1BatchSummary> {
-  const { limit = 100, fetchImpl = fetch, timeoutMs = 20_000 } = options;
+  // SSRF (2026-08-15 audit): resourceUrl is a seller-declared string from the
+  // public Bazaar catalog. The production default refuses any target that is —
+  // or redirects to — a non-public address, so this runner cannot be pointed
+  // at the platform's own internal surfaces (nor made to carry a signed
+  // payment authorization there). See src/lib/net/safe-fetch.ts.
+  const { limit = 100, fetchImpl = guardedFetch, timeoutMs = 20_000 } = options;
   const summary: L1BatchSummary = {
     attempted: 0,
     settled: 0,
@@ -110,7 +192,11 @@ export async function runL1Batch(
     const list = (Array.isArray(raw) ? raw : (raw as { rows?: unknown[] }).rows ?? []) as {
       spent: string;
     }[];
-    spentToday = BigInt((list[0]?.spent ?? "0").split(".")[0]);
+    // Fail-closed: an unreadable ledger must never read as "nothing spent
+    // today" — that is the one wrong answer that opens a fresh daily budget.
+    const spentRaw = list[0]?.spent;
+    if (typeof spentRaw !== "string") throw new Error("l1 daily spend query returned no total");
+    spentToday = BigInt(spentRaw.split(".")[0]);
   } catch (error) {
     if (!isMissingSchemaError(error)) throw error;
     return summary; // table missing → cold start, nothing to do safely
@@ -210,7 +296,17 @@ async function purchaseOne(input: {
     clearTimeout(timer);
     firstBody = (await first.text()).slice(0, 16_000);
   } catch (error) {
-    await record({ status: "request_error", rawResponseMeta: { phase: "unpaid", error: String(error).slice(0, 300) } });
+    await record({
+      status: "request_error",
+      rawResponseMeta: {
+        phase: "unpaid",
+        // A target the SSRF guard refused records OUR decision, not a
+        // measurement of the seller — kept as its own reason code so the two
+        // never get read as the same thing.
+        reason: error instanceof UnsafeTargetError ? error.reason : null,
+        error: String(error).slice(0, 300),
+      },
+    });
     return { kind: "skipped", settled: false, spent: 0n };
   }
 
@@ -250,6 +346,33 @@ async function purchaseOne(input: {
       status: "budget_denied",
       amountUnits: accept.amount,
       rawResponseMeta: { reason: budget.reason, dailyBudgetUsd: DAILY_BUDGET_USD },
+    });
+    return { kind: "budget_denied", settled: false, spent: 0n };
+  }
+
+  // Reserve BEFORE signing. This is the authoritative gate: it re-reads the
+  // day's total and the sweep window inside one statement and writes the row
+  // that carries spent_units, so the money is on the ledger before it can
+  // exist. A kill, a timeout or a DB error after this point loses the outcome
+  // detail, never the spend.
+  const reservation = await reserveSpend({
+    db,
+    endpointId: candidate.id,
+    payer: account.address.toLowerCase(),
+    network: accept.network,
+    asset: accept.asset,
+    payTo: accept.payTo.toLowerCase(),
+    amountUnits: String(amount),
+  });
+  if (!reservation.ok) {
+    if (reservation.reason === "already_purchased") {
+      // A concurrent run got this endpoint first — its row is the record.
+      return { kind: "skipped", settled: false, spent: 0n };
+    }
+    await record({
+      status: "budget_denied",
+      amountUnits: accept.amount,
+      rawResponseMeta: { reason: "daily_budget_exceeded", dailyBudgetUsd: DAILY_BUDGET_USD },
     });
     return { kind: "budget_denied", settled: false, spent: 0n };
   }
@@ -316,27 +439,27 @@ async function purchaseOne(input: {
         ? "delivered_no_receipt" // goods returned but no settlement receipt header
         : "settle_failed";
 
-  await record({
-    status,
-    network: accept.network,
-    asset: accept.asset,
-    payTo: accept.payTo.toLowerCase(),
-    amountUnits: accept.amount,
-    spentUnits: accept.amount, // signed = counted, success or not
-    txHash: settlement?.transaction ?? null,
-    httpStatusPaid: paid?.status ?? null,
-    latencyMs,
-    payloadNonEmpty: paid ? payloadNonEmpty : null,
-    contentTypeMatch,
-    l2Schema,
-    rawSettlement: settlement ?? (paidError ? { error: paidError } : null),
-    rawResponseMeta: {
-      phase: "paid",
-      status: paid?.status ?? null,
-      contentType,
-      bodyHead: paidBody.slice(0, 500),
-    },
-  });
+  // Resolve the reservation in place — spent_units stays exactly what was
+  // reserved (signed = counted, success or not); only the outcome is filled in.
+  await db
+    .update(x402L1Purchases)
+    .set({
+      status,
+      txHash: settlement?.transaction ?? null,
+      httpStatusPaid: paid?.status ?? null,
+      latencyMs,
+      payloadNonEmpty: paid ? payloadNonEmpty : null,
+      contentTypeMatch,
+      l2Schema,
+      rawSettlement: settlement ?? (paidError ? { error: paidError } : null),
+      rawResponseMeta: {
+        phase: "paid",
+        status: paid?.status ?? null,
+        contentType,
+        bodyHead: paidBody.slice(0, 500),
+      },
+    })
+    .where(eq(x402L1Purchases.id, reservation.rowId));
 
   return { kind: "attempted", settled, spent: amount };
 }

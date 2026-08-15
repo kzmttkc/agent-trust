@@ -211,5 +211,141 @@ if (!TEST_DB) {
       assert.equal(summary.settled, 0);
       assert.equal(summary.budgetDenied >= 1, true, "remaining $0.001 cannot cover a $0.003 purchase");
     });
+
+    // Security (2026-08-15 audit): the moment the EIP-3009 authorization is
+    // signed, the money is live until validBefore — the seller can settle it
+    // whatever happens on our side. If the ledger row is only written AFTER
+    // the paid request returns, a kill in between (Vercel maxDuration=300s on
+    // a batch that can legitimately take longer, or a DB blip on the insert)
+    // spends real USDC that no later run can see: the daily cap is computed
+    // from this table, so an unrecorded spend re-opens the same budget.
+    await t.test("the spend is on the ledger BEFORE the signed request goes out", async () => {
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      let ledgerDuringPaidRequest: string[] | null = null;
+      const fetchImpl = async (url: string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        if (headers.has("PAYMENT-SIGNATURE") || headers.has("X-PAYMENT")) {
+          const rows = await db.select().from(schema.x402L1Purchases);
+          ledgerDuringPaidRequest = rows.map((r) => r.spentUnits);
+          return new Response(JSON.stringify({ data: "the goods" }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "PAYMENT-RESPONSE": Buffer.from(
+                JSON.stringify({ success: true, transaction: "0xfeed", network: "eip155:8453" }),
+              ).toString("base64"),
+            },
+          });
+        }
+        return new Response(challengeFor(url), {
+          status: 402,
+          headers: { "content-type": "application/json" },
+        });
+      };
+      const summary = await runL1Batch({ fetchImpl, limit: 1 });
+      assert.equal(summary.attempted, 1);
+      assert.deepEqual(
+        ledgerDuringPaidRequest,
+        ["3000"],
+        "signed money must already be counted on the ledger while the paid request is in flight",
+      );
+      const rows = await db.select().from(schema.x402L1Purchases);
+      assert.equal(rows.length, 1, "the reservation is updated in place, not duplicated");
+      assert.equal(rows[0].status, "settled");
+      assert.equal(rows[0].spentUnits, "3000");
+      assert.equal(rows[0].txHash, "0xfeed");
+    });
+
+    // Security (2026-08-15 audit): TOCTOU. Today's spend is read once per
+    // batch and each purchase's ledger row lands seconds later (after two
+    // network round trips), so two overlapping invocations of the cron route
+    // both start from "spent 0 today" and each spends a full daily budget.
+    // The daily cap is the only ceiling on this wallet, so the overshoot is
+    // real USDC. The gate has to be taken in the database, per purchase.
+    await t.test("two overlapping batches cannot spend past the daily cap", async () => {
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const CEILING = "1000000"; // $1.00 — the hard per-purchase ceiling
+      for (let i = 100; i < 140; i++) {
+        const [row] = await db
+          .insert(schema.x402Endpoints)
+          .values({
+            resourceKey: `race${i}.example/api`,
+            resourceUrl: `https://race${i}.example/api`,
+            method: "GET",
+            network: "eip155:8453",
+            payTo: payToFor(i),
+            priceAmount: CEILING,
+            priceAsset: BASE_USDC,
+            qualityCalls30d: 1000,
+            qualityPayers30d: 100,
+          })
+          .returning();
+        if (!row) continue;
+        await db
+          .insert(schema.x402L0Probes)
+          .values({ endpointId: row.id, method: "GET", verdict: "pass" });
+      }
+
+      const raceChallenge = (url: string) => {
+        const n = /race(\d+)/.exec(url)?.[1] ?? "100";
+        return JSON.stringify({
+          x402Version: 2,
+          accepts: [
+            {
+              scheme: "exact",
+              network: "eip155:8453",
+              amount: CEILING,
+              asset: BASE_USDC,
+              payTo: payToFor(n),
+              maxTimeoutSeconds: 300,
+              extra: { name: "USD Coin", version: "2" },
+            },
+          ],
+        });
+      };
+      // Real sellers answer over the network; the jitter keeps the two batches
+      // from marching in artificial lockstep.
+      const raceFetch = async (url: string, init?: RequestInit) => {
+        await new Promise((r) => setTimeout(r, 2 + Math.random() * 6));
+        const headers = new Headers(init?.headers);
+        if (headers.has("PAYMENT-SIGNATURE") || headers.has("X-PAYMENT")) {
+          return new Response(JSON.stringify({ data: "ok" }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "PAYMENT-RESPONSE": Buffer.from(
+                JSON.stringify({ success: true, transaction: "0xrace", network: "eip155:8453" }),
+              ).toString("base64"),
+            },
+          });
+        }
+        return new Response(raceChallenge(url), {
+          status: 402,
+          headers: { "content-type": "application/json" },
+        });
+      };
+
+      await Promise.all([
+        runL1Batch({ fetchImpl: raceFetch, limit: 45 }),
+        (async () => {
+          await new Promise((r) => setTimeout(r, 25));
+          return runL1Batch({ fetchImpl: raceFetch, limit: 45 });
+        })(),
+      ]);
+
+      const spentRaw = await db.execute(sql`
+        SELECT coalesce(sum(spent_units::numeric), 0)::text AS spent
+        FROM x402_l1_purchases
+        WHERE attempted_at >= date_trunc('day', now() AT TIME ZONE 'utc')
+      `);
+      const spentList = (Array.isArray(spentRaw)
+        ? spentRaw
+        : (spentRaw as { rows?: unknown[] }).rows ?? []) as { spent: string }[];
+      const spent = BigInt(spentList[0].spent.split(".")[0]);
+      assert.ok(
+        spent <= 26_000_000n,
+        `two overlapping batches spent ${spent} units; the daily cap is 25_000_000 (one purchase of slack allowed)`,
+      );
+    });
   });
 }
