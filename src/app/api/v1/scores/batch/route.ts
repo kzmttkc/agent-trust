@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   applyRateLimit,
   authenticateApiRequest,
+  refundRateLimitUnits,
   withRateLimitHeaders,
 } from "@/lib/api/guard";
 import { isValidAddress, parseAgentId } from "@/lib/chain/client";
@@ -75,10 +76,21 @@ export async function POST(request: NextRequest) {
         );
         return score;
       } catch {
-        return { agentId: item.agentId, error: "scoring_unavailable" };
+        return { agentId: item.agentId, error: "scoring_unavailable" as const };
       }
     },
   );
+
+  // 2026-08-15 (audit): the reservation above spent validItems.length units;
+  // credit back one unit per item that never got an answer, mirroring the
+  // single-item score routes.
+  const failedCount = scored.filter(
+    (r): r is { agentId: string; error: "scoring_unavailable" } =>
+      typeof r === "object" && r !== null && "error" in r && r.error === "scoring_unavailable",
+  ).length;
+  if (failedCount > 0) {
+    void refundRateLimitUnits(auth.ctx, failedCount);
+  }
 
   return withRateLimitHeaders(
     NextResponse.json({ results: [...invalidResults, ...scored] }),

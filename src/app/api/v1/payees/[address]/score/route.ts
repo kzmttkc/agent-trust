@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authorizeApiRequest, withRateLimitHeaders } from "@/lib/api/guard";
+import { authorizeApiRequest, refundRateLimitUnits, withRateLimitHeaders } from "@/lib/api/guard";
 import { isValidAddress } from "@/lib/chain/client";
 import { persistPayeeScoreResult } from "@/lib/db/persistence";
 import { scorePayeeWallet } from "@/lib/scoring/payee-engine";
@@ -40,6 +40,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return withRateLimitHeaders(NextResponse.json(result), auth.ctx.rateLimit);
   } catch (error) {
     logServerError("score_payee", error);
+    // 2026-08-15 (audit): see agents/[agentId]/score for rationale.
+    void refundRateLimitUnits(auth.ctx, 1);
     return NextResponse.json({ error: "scoring_unavailable" }, { status: 503 });
   }
 }

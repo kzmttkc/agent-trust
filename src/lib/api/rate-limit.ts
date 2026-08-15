@@ -139,6 +139,40 @@ function consumeMemoryOwnerRateLimit(
   return { allowed: true, usage: nextCount, limit };
 }
 
+// 2026-08-15 (audit): applyRateLimit() consumes quota BEFORE the caller
+// attempts the actual scoring/lookup work, so a downstream failure (RPC/DB
+// outage) still spent the caller's unit on a request that returned 503, not
+// an answer. Best-effort credit-back for exactly that case: called only from
+// the `catch` branch of a scoring route, after a reservation already
+// succeeded. Never throws — a failure to refund must not turn an upstream
+// outage into a second, unrelated 500. GREATEST(...,0) means an unlucky
+// interleaving with a concurrent request can only under-refund (leave a
+// caller very slightly short), never push the counter negative or over
+// credit past what was actually reserved this period.
+export async function refundRateLimit(apiKeyId: string, plan: string, units = 1): Promise<void> {
+  if (apiKeyId === "dev") return;
+  const db = getDb();
+  if (!db) return;
+
+  const period = currentUsagePeriod();
+  try {
+    const key = await getApiKeyById(apiKeyId);
+    const userId = key?.userId ?? apiKeyId;
+
+    await db
+      .update(ownerUsage)
+      .set({ count: sql`greatest(${ownerUsage.count} - ${units}, 0)` })
+      .where(and(eq(ownerUsage.userId, userId), eq(ownerUsage.period, period)));
+
+    await db
+      .update(apiUsage)
+      .set({ count: sql`greatest(${apiUsage.count} - ${units}, 0)` })
+      .where(and(eq(apiUsage.apiKeyId, apiKeyId), eq(apiUsage.period, period)));
+  } catch {
+    // Best-effort: the caller is already reporting the original failure.
+  }
+}
+
 export function rateLimitHeaders(result: RateLimitResult): Record<string, string> {
   const remaining = Math.max(0, result.limit - result.usage);
   return {

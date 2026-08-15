@@ -79,7 +79,18 @@ export async function POST(request: NextRequest) {
     }
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      const subscription = event.data.object as Stripe.Subscription;
+      // 2026-08-15 (audit): Stripe does not guarantee delivery order, and a
+      // failed delivery is retried later — so an `updated` event carrying an
+      // OLDER plan can arrive after a newer one already applied (e.g. a
+      // customer changes plan twice in quick succession and one delivery
+      // attempt is delayed). Trusting the event's own embedded snapshot lets
+      // that stale delivery overwrite the account with a plan that no longer
+      // reflects the real subscription. Re-fetching by ID gets Stripe's
+      // CURRENT state regardless of which event triggered this delivery —
+      // the same pattern `checkout.session.completed` and
+      // `invoice.payment_failed` above already use.
+      const stale = event.data.object as Stripe.Subscription;
+      const subscription = await getStripe().subscriptions.retrieve(stale.id);
       await applyPlanFromSubscription(subscription);
       break;
     }

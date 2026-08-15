@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { buttonClass } from "@/components/ui/Button";
@@ -86,9 +87,9 @@ export default function DashboardLookupPage() {
         <h2 className="dash-title">Score a payee</h2>
         <p className="dash-lede">
           The address you are about to pay. Same engine as{" "}
-          <a className="underline" href="/payee">
+          <Link className="underline" href="/payee">
             public payee lookup
-          </a>{" "}
+          </Link>{" "}
           and <code>GET /api/v1/payees/…/score</code>. Agent ID scores a payer instead.
         </p>
       </div>

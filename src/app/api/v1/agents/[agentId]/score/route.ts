@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   applyRateLimit,
   authenticateApiRequest,
+  refundRateLimitUnits,
   withRateLimitHeaders,
 } from "@/lib/api/guard";
 import { isValidAddress, parseAgentId } from "@/lib/chain/client";
@@ -61,6 +62,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return withRateLimitHeaders(NextResponse.json(result), limited.rateLimit);
   } catch (error) {
     logServerError("score_agent", error);
+    // 2026-08-15 (audit): the reservation above already spent 1 unit; this
+    // request never got an answer, so credit it back rather than charging
+    // the caller for an outage on our end.
+    void refundRateLimitUnits(auth.ctx, 1);
     return NextResponse.json({ error: "scoring_unavailable" }, { status: 503 });
   }
 }

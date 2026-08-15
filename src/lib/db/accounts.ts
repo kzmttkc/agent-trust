@@ -183,10 +183,21 @@ export async function updateAccountPlan(accountId: string, plan: string): Promis
 
   const normalized = normalizePlan(plan);
 
-  await db.update(accounts).set({ plan: normalized }).where(eq(accounts.id, accountId));
-
+  // 2026-08-15 (audit): these are two separate statements (the Neon HTTP
+  // driver's `.transaction()` batches writes and does not give this pair the
+  // interactive-transaction guarantees that would make wrapping them
+  // meaningfully safer here — introducing it untested was judged more risk
+  // than the window it closes). apiKeys.plan is what quota enforcement
+  // actually reads; accounts.plan only feeds the dashboard/billing display.
+  // Updating apiKeys FIRST means that if the second write fails, a paying
+  // customer's entitlement is already correct and only the display is
+  // briefly stale — the safer direction to fail in, versus a customer who
+  // paid for more quota and functionally does not have it yet while the UI
+  // claims they do.
   await db
     .update(apiKeys)
     .set({ plan: normalized })
     .where(eq(apiKeys.userId, accountId));
+
+  await db.update(accounts).set({ plan: normalized }).where(eq(accounts.id, accountId));
 }

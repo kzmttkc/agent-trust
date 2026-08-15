@@ -3,6 +3,7 @@ import { authenticateRequest } from "./auth";
 import {
   consumeRateLimit,
   rateLimitHeaders,
+  refundRateLimit,
   type RateLimitResult,
 } from "./rate-limit";
 
@@ -77,6 +78,16 @@ export async function authorizeApiRequest(
       rateLimit: limited.rateLimit,
     },
   };
+}
+
+// 2026-08-15 (audit): credit back quota consumed by applyRateLimit()/
+// authorizeApiRequest() when the caller's own downstream work then fails.
+// Call from the `catch` branch only, after a reservation already succeeded.
+export async function refundRateLimitUnits(
+  ctx: AuthenticatedContext,
+  units = 1,
+): Promise<void> {
+  await refundRateLimit(ctx.apiKeyId, ctx.plan, units);
 }
 
 export function withRateLimitHeaders(

@@ -139,6 +139,35 @@ export function collectProductionEnvIssues(): ProductionEnvIssue[] {
     });
   }
 
+  // 2026-08-15 (audit): STRIPE_SECRET_KEY alone is not sufficient for billing
+  // to actually work — Checkout can succeed while the webhook that applies
+  // the resulting plan silently 503s (fail-closed, not a security bug), and a
+  // customer's paid plan never lands. That failure mode is invisible unless
+  // someone thinks to check; catching it at boot is cheap. Only required when
+  // Stripe is in use at all — a deployment that never sets STRIPE_SECRET_KEY
+  // is not doing billing and should not be forced to configure it.
+  if (process.env.STRIPE_SECRET_KEY) {
+    const webhookIssue = validateRequiredString(
+      "STRIPE_WEBHOOK_SECRET",
+      process.env.STRIPE_WEBHOOK_SECRET,
+      32,
+    );
+    if (webhookIssue) issues.push(webhookIssue);
+
+    if (!process.env.STRIPE_PRICE_PRO?.trim()) {
+      issues.push({
+        level: "error",
+        message: "STRIPE_PRICE_PRO is required in production when STRIPE_SECRET_KEY is set",
+      });
+    }
+    if (!process.env.STRIPE_PRICE_SCALE?.trim()) {
+      issues.push({
+        level: "error",
+        message: "STRIPE_PRICE_SCALE is required in production when STRIPE_SECRET_KEY is set",
+      });
+    }
+  }
+
   return issues;
 }
 

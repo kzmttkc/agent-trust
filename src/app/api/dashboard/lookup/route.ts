@@ -13,6 +13,15 @@ const lookupSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // 2026-08-15 (audit): auth used to run after body parsing/validation, so an
+  // unauthenticated caller could distinguish invalid_wallet_address /
+  // invalid_agent_id / session_required from an unauthenticated POST — a
+  // parser-shape oracle with no other effect (scoring/DB/billing all still
+  // sit behind this check). Every other dashboard route authorizes first;
+  // matching that order here closes the oracle for free.
+  const auth = await authorizeDashboardRequest(request, 1);
+  if (!auth.ok) return auth.error;
+
   const body = await request.json().catch(() => null);
   const parsed = lookupSchema.safeParse(body);
   if (!parsed.success) {
@@ -34,9 +43,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid_agent_id" }, { status: 400 });
     }
   }
-
-  const auth = await authorizeDashboardRequest(request, 1);
-  if (!auth.ok) return auth.error;
 
   const ctx = { apiKeyId: auth.ctx.apiKeyId };
 

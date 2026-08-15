@@ -84,31 +84,174 @@ this document.
 
 ---
 
+## 2026-08-15 — two independent passes, same day
+
+**Still an INTERNAL self-audit, not an external penetration test.** Two
+sessions worked this repo in parallel today without coordinating in advance
+and each found real, overlapping issues; this section reconciles both into
+one record so neither is silently lost or duplicated.
+
+**Session A** (commit `89f247c`, 4-track parallel audit: SQL injection,
+auth/session/secrets, payment cryptography, web/OWASP baseline) fixed, with
+reproduced real-world impact:
+- **L1 budget TOCTOU** — the observatory's daily $25 spend cap was bypassed by
+  concurrent batch runs; $49 actual spend reproduced. Fixed with a
+  single-statement DB reservation (`reserveSpend()`) before signing, and the
+  allowed overshoot window shrunk to ≤$1 (one item).
+- **Observatory SSRF** — L0 probes and L1 purchases fetched third-party
+  catalog-supplied URLs unvalidated (link-local/private IPs reachable). Fixed
+  with a shared `safeFetch`/`isPublicUnicastIp` extracted from the existing
+  `src/lib/webhooks.ts` IP-classification logic.
+- **fail-closed spend accounting** — a crash between signing and ledger write
+  could drop real spend from the budget calculation; the reservation row is
+  now committed before signing, removing the fallback path that could miss it.
+- `/api/health` — key-less, chain-reading, and unrated; added per-IP 60/min.
+- `billing/checkout` — returned raw `error.message`; fixed to a constant code
+  (independently found and fixed the same day by Session B below — same fix,
+  landed once).
+- `dashboard login` — a control-character API key string could force an
+  unauthenticated 500; now fails closed to 401.
+
+**Session B** (this document's prior maintainer, full-`src/` pass — six
+parallel reviewers covering auth, billing/quota, payee+agent signatures,
+public API v1 + DB, admin/cron/chain, and availability/integrity) found and
+fixed:
+- **Agent passport / verified payee: `url` was not part of the signed
+  message (High).** `GET /api/v1/agents/{agentId}/passport` publishes
+  `{message, signature}` key-less by design (third-party verifiability is the
+  point). Because `url` was accepted and stored but never signed, a published
+  proof could be replayed with a different `url` and re-verify true, letting
+  anyone repoint a "verified" badge's link. **Independently found and fixed
+  the same day, differently, by whichever session landed `0ad77f9`
+  (`feat(ux): UXを業界最高水準へ`) first** — that fix binds `url` into the
+  signed message via an optional 4th/5th line
+  (`isSafeBoundUrl`/`payeeMessage(wallet, name, url?)`) with no schema change,
+  verified by re-reading `src/lib/verify-message.ts` and the two verify
+  routes after the fact. Both fixes closed the same hole via different
+  mechanisms; the version that landed first is what's live, and this
+  document does not re-litigate which approach was "better" — it works.
+  **Deferred, not fixed:** signatures remain replayable indefinitely (no
+  nonce/timestamp/expiry) — an old still-valid signature can "refresh"
+  `verifiedAt` on a stale claim, or roll back a corrected `name`/`url` to an
+  earlier value it was actually signed for (bounded now: replay can only
+  restore a value that was genuinely signed, not inject a new one). Left as a
+  residual below rather than forced in under time pressure on a second pass
+  of the same files.
+- **Quota consumed even when the request itself failed (High).**
+  `applyRateLimit()`/`authorizeApiRequest()` reserves a unit before
+  `scoreAgentById`/`scoreWallet`/`scorePayeeWallet` runs; an upstream failure
+  (RPC/Blockscout/DB outage → 503) never credited it back, so a failed,
+  answerless request still counted against the customer's monthly quota — and
+  retrying during an outage burned quota faster. Fixed with
+  `refundRateLimit()` (`src/lib/api/rate-limit.ts`), called from the `catch`
+  branch of all four scoring routes after the original failure is already
+  being reported.
+- **Stripe subscription webhooks trusted the event's own snapshot
+  (Medium).** `customer.subscription.updated`/`.deleted` applied
+  `event.data.object` directly. Stripe does not guarantee delivery order; a
+  retried, older delivery arriving after a newer one already applied could
+  pin an account to a stale plan. `checkout.session.completed` and (as of
+  Session A/B's parallel `invoice.payment_failed` additions)
+  `invoice.payment_failed` already re-fetched from Stripe — the
+  `updated`/`deleted` branch now matches, calling
+  `stripe.subscriptions.retrieve()` before applying.
+- **`dashboard/lookup` authorized after parsing the request body
+  (Low).** Reordered to match every other dashboard route (parser-shape
+  oracle only; no data or side effect was reachable either way).
+- **`STRIPE_WEBHOOK_SECRET` / price IDs were not required in production env
+  validation (Low — availability/revenue, not a security hole; the webhook
+  route already fails closed with 503 when the secret is missing).**
+  `collectProductionEnvIssues()` now requires `STRIPE_WEBHOOK_SECRET` (min 32)
+  and both `STRIPE_PRICE_*` vars whenever `STRIPE_SECRET_KEY` is set.
+- **`updateAccountPlan` writes `accounts.plan` and `apiKeys.plan` as two
+  non-transactional statements (Low).** Reordered to write `apiKeys` (what
+  quota enforcement reads) first, so a failure between the two leaves a
+  paying customer's entitlement already correct with only the display briefly
+  stale. Not wrapped in `db.transaction()`: the Neon HTTP driver's
+  transaction support was judged more risk to introduce untested than the
+  narrow window it closes here.
+- Drive-by: `src/app/dashboard/lookup/page.tsx` was using a bare `<a>` for an
+  internal link (`@next/next/no-html-link-for-pages` lint error, pre-existing
+  on `main`, unrelated to either audit) — fixed to `next/link` while touching
+  the adjacent file.
+
+### Reviewed — no change needed (evidence, not just a claim)
+
+- **`/api/health` is not a placebo** — probes the real seller-side and
+  buyer-side scoring paths concurrently; confirmed by reading `./liveness.ts`
+  and the two probes, not by trusting the endpoint name.
+- **Owner quota reservation is a single atomic SQL statement**
+  (`onConflictDoUpdate ... setWhere`) — confirmed by rendering the actual SQL
+  Drizzle 0.45.2 emits. No TOCTOU on the reservation itself (the bug fixed
+  above was about *when* the reservation happens relative to the work, not a
+  race on the reservation).
+- **Webhook (outbound) SSRF**: DNS-resolves at delivery time, validates every
+  resolved address is public unicast, and pins the socket to the validated IP
+  — the DNS-rebinding gap flagged as residual item 1 below (2026-08-06) is
+  closed.
+- **SQL injection, path traversal, command injection**: none found anywhere
+  in `src/` by either pass.
+- **cron/admin auth**: fail-closed, `secureCompare`, 32-char minimum enforced
+  at boot; all 8 cron routes match `vercel.json`'s 8 cron definitions.
+
+### New residuals (Takeshi手番 / follow-up)
+
+- **Signature replay / freshness** (see above) — add a signed `issued`
+  timestamp plus a monotonic write guard (`WHERE issued_at IS NULL OR
+  issued_at < new`) so an old signature can never roll back a newer
+  correction. No schema migration is required if `verifiedAt` itself is
+  reused as the comparison value instead of adding a new column — worth
+  doing the next time `verify-message.ts` is touched, not as a standalone
+  change.
+- **`stripe_events` de-duplication table** — the `retrieve()` fix above closes
+  the ordering bug; a dedicated idempotency table would additionally stop
+  redundant reprocessing of retried deliveries. Not urgent (reprocessing is
+  itself idempotent).
+- **Two coexisting dashboard design languages**: marketing/RFC pages use
+  `.sheet`/`.doc-head` tokens; the dashboard uses a separate `dash-*`
+  component system (`0ad77f9`) that still carries `zinc-*` utility colors
+  rather than the approved brand palette. Intentional per that commit's own
+  message, not a bug — flagged for whoever next touches dashboard visuals so
+  it isn't "fixed" back and forth between the two conventions.
+- **Webhook/watchlist registration limits (5 / 50 per key) are
+  check-then-act**, not atomic. Low impact (egress/scan surface, not money).
+- **`x402_payments` idempotency relies on a unique-constraint exception**,
+  not `ON CONFLICT DO NOTHING` — a genuine duplicate delivery gets a 503
+  instead of a clean idempotent 200. Low; data never double-records.
+- **Feedback indexer checkpoint pair is not atomic** — a crash between
+  pruning and the second checkpoint write can leave coverage stale, producing
+  a silent undercount on the next read.
+
+---
+
 ## Residuals for external penetration test (Takeshi手番)
 
 An external, contracted pentest remains a paid engagement and is Takeshi's call.
 The following are the highest-value items for it, honestly flagged:
 
-1. **Webhook DNS rebinding (SSRF, string-guard limit).** `isSafeWebhookUrl`
-   validates the URL **string**, not the **resolved IP**. A public hostname the
-   attacker controls can resolve to a private/link-local address (e.g.
-   `169.254.169.254`) at delivery time and pass every check. A robust fix
-   requires resolving the hostname and pinning the connection to a
-   validated public IP (custom fetch/agent), which the current serverless fetch
-   runtime does not expose cleanly — hence flagged rather than patched here.
-   High priority for the external test.
+1. ~~**Webhook DNS rebinding (SSRF, string-guard limit).**~~ **Resolved** —
+   delivery now resolves DNS, validates every resolved address is public
+   unicast, and pins the socket to the validated IP. See 2026-08-15 above.
 2. **Exhaustive per-resource authorization fuzzing** across every `/api/v1/**/[id]`
    route (watchlist, webhooks, events/outcome) for horizontal privilege
-   escalation between API keys / owners.
+   escalation between API keys / owners. Re-confirmed by code reading on
+   2026-08-15; a fuzzer running real requests against real tokens is still
+   the stronger form of this check and remains an external-test item.
 3. **Rate-limit correctness under multi-instance serverless.** The in-memory
    fallback is per-instance; production fails closed without a DB, but the
    DB-backed limiter's behavior under high concurrency (the atomic upsert path)
-   deserves load-level verification.
+   deserves load-level verification (confirmed correct by construction on
+   2026-08-15; a concurrency *test* is still the external-test-worthy item).
 4. **`style-src 'unsafe-inline'`** remains (Tailwind/inline styles). Low risk,
    but a CSP-focused reviewer should confirm no inline-style injection sink.
 5. **Session/cookie lifecycle**: fixation, rotation on privilege change, and
-   logout completeness across the `dashboard_sessions` table.
+   logout completeness across the `dashboard_sessions` table. (2026-08-15:
+   tokens are `randomBytes(32)`, hashed at rest, rotated on login,
+   `httpOnly`+`sameSite=strict`+`secure`; only open note is the missing
+   `__Host-` cookie prefix, low priority while hosted on `vercel.app`.)
+6. **Signature replay/freshness for verified payees and agent passports** —
+   see the 2026-08-15 residuals above.
 
 ---
 
-_Last updated 2026-08-06. Internal self-audit only._
+_Last updated 2026-08-15. Internal self-audit only — see the dated sections above for what each pass covered._
