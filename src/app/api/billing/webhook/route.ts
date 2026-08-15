@@ -43,11 +43,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "missing_signature" }, { status: 400 });
   }
 
-  const stripe = getStripe();
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(body, signature, secret);
+    // Verify before constructing a Stripe client. Missing STRIPE_SECRET_KEY
+    // must not 500 a signature check — constructEvent is a pure HMAC.
+    event = Stripe.webhooks.constructEvent(body, signature, secret);
   } catch {
     return NextResponse.json({ error: "invalid_signature" }, { status: 400 });
   }
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
 
         // Derive plan from Stripe price ID — never trust session.metadata.plan alone.
         if (subscriptionId) {
-          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
           await applyPlanFromSubscription(subscription);
         }
       }
@@ -88,8 +89,11 @@ export async function POST(request: NextRequest) {
         typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
       if (!customerId) break;
       const failedAccount = await getAccountByStripeCustomerId(customerId);
-      if (!failedAccount?.stripeSubscriptionId) break;
-      const subscription = await stripe.subscriptions.retrieve(failedAccount.stripeSubscriptionId);
+      if (!failedAccount) break;
+      const subscriptionId =
+        subscriptionIdFromInvoice(invoice) ?? failedAccount.stripeSubscriptionId;
+      if (!subscriptionId) break;
+      const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
       await applyPlanFromSubscription(subscription);
       break;
     }
@@ -98,4 +102,13 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ received: true });
+}
+
+function subscriptionIdFromInvoice(invoice: Stripe.Invoice): string | null {
+  const fromParent = invoice.parent?.subscription_details?.subscription;
+  if (typeof fromParent === "string") return fromParent;
+  if (fromParent && typeof fromParent === "object" && "id" in fromParent) {
+    return fromParent.id;
+  }
+  return null;
 }

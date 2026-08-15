@@ -113,5 +113,10 @@ export async function GET(request: NextRequest) {
   }
 
   const statusCode = deepResult.criticalFailure || payee.status === "error" ? 503 : 200;
+  const snapshotStatus =
+    payload.status === "ok" || payload.status === "degraded" || payload.status === "error"
+      ? payload.status
+      : "error";
+  void recordHealthSnapshotIfDue(snapshotStatus).catch(() => {});
   return NextResponse.json(payload, { status: statusCode });
 }

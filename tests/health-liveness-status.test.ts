@@ -23,6 +23,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { evaluateLiveness, livenessHttpStatus } from "@/lib/health/liveness";
+import { livenessBannerMessage } from "@/lib/health/banner-message";
 
 const probe = (status: "ok" | "degraded" | "error") => async () => ({ status });
 
@@ -84,12 +85,31 @@ test("both probes are run concurrently, not in sequence", async () => {
   assert.deepEqual(order, ["scoring:start", "payee:start", "scoring:end"]);
 });
 
-test("the public status banner uses the same two probes as /api/health", () => {
+test("the public status banner reads GET /api/health and does not import scoring engines", () => {
   const banner = readFileSync(
     join(process.cwd(), "src/components/site/StatusBanner.tsx"),
     "utf8",
   );
-  assert.match(banner, /evaluateLiveness/);
-  assert.match(banner, /runPayeeProbe/);
-  assert.match(banner, /runScoringProbe/);
+  const layout = readFileSync(join(process.cwd(), "src/app/layout.tsx"), "utf8");
+  const health = readFileSync(join(process.cwd(), "src/app/api/health/route.ts"), "utf8");
+  const chrome = readFileSync(
+    join(process.cwd(), "src/components/site/SiteChrome.tsx"),
+    "utf8",
+  );
+  assert.match(banner, /\/api\/health/);
+  assert.match(banner, /livenessBannerMessage/);
+  assert.doesNotMatch(banner, /evaluateLiveness/);
+  assert.doesNotMatch(banner, /runPayeeProbe/);
+  assert.doesNotMatch(banner, /runScoringProbe/);
+  assert.doesNotMatch(layout, /StatusBanner/);
+  assert.match(chrome, /StatusBanner/);
+  assert.match(health, /recordHealthSnapshotIfDue/);
+});
+
+test("outage-strip copy is silent on ok and names the failing side on error", () => {
+  assert.equal(livenessBannerMessage("ok"), null);
+  assert.equal(livenessBannerMessage("rate_limited"), null);
+  assert.equal(livenessBannerMessage(undefined), null);
+  assert.match(livenessBannerMessage("error") ?? "", /Scoring is failing/);
+  assert.match(livenessBannerMessage("degraded") ?? "", /degraded/);
 });

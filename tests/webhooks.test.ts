@@ -203,16 +203,63 @@ test("verification rejects tampering, wrong keys, and replays", () => {
 
 test("webhook signing secrets round-trip through at-rest sealing", () => {
   const previous = process.env.API_KEY_PEPPER;
+  const previousKek = process.env.WEBHOOK_SECRET_KEK;
+  const previousPrev = process.env.WEBHOOK_SECRET_KEK_PREVIOUS;
   process.env.API_KEY_PEPPER = "a".repeat(32);
+  delete process.env.WEBHOOK_SECRET_KEK;
+  delete process.env.WEBHOOK_SECRET_KEK_PREVIOUS;
   try {
     const plain = generateWebhookSecret();
     const sealed = sealWebhookSecret(plain);
     assert.notEqual(sealed, plain);
     assert.match(sealed, /^enc\.v1\./);
-    assert.equal(openWebhookSecret(sealed), plain);
-    assert.equal(openWebhookSecret(plain), plain, "legacy plaintext rows still open");
+    assert.equal(openWebhookSecret(sealed).plain, plain);
+    assert.equal(openWebhookSecret(sealed).reseal, null);
+    const legacy = openWebhookSecret(plain);
+    assert.equal(legacy.plain, plain, "legacy plaintext rows still open");
+    assert.ok(legacy.reseal, "plaintext reseals onto the current KEK");
+    assert.equal(openWebhookSecret(legacy.reseal!).plain, plain);
   } finally {
     if (previous === undefined) delete process.env.API_KEY_PEPPER;
     else process.env.API_KEY_PEPPER = previous;
+    if (previousKek === undefined) delete process.env.WEBHOOK_SECRET_KEK;
+    else process.env.WEBHOOK_SECRET_KEK = previousKek;
+    if (previousPrev === undefined) delete process.env.WEBHOOK_SECRET_KEK_PREVIOUS;
+    else process.env.WEBHOOK_SECRET_KEK_PREVIOUS = previousPrev;
+  }
+});
+
+test("webhook secrets reopen with the previous KEK and reseal to the current one", () => {
+  const saved = {
+    kek: process.env.WEBHOOK_SECRET_KEK,
+    prev: process.env.WEBHOOK_SECRET_KEK_PREVIOUS,
+    pepper: process.env.API_KEY_PEPPER,
+  };
+  const oldKek = "old-webhook-kek-32-chars-minimum!";
+  const newKek = "new-webhook-kek-32-chars-minimum!";
+  try {
+    process.env.WEBHOOK_SECRET_KEK = oldKek;
+    delete process.env.WEBHOOK_SECRET_KEK_PREVIOUS;
+    delete process.env.API_KEY_PEPPER;
+    const plain = generateWebhookSecret();
+    const sealedWithOld = sealWebhookSecret(plain);
+
+    process.env.WEBHOOK_SECRET_KEK = newKek;
+    process.env.WEBHOOK_SECRET_KEK_PREVIOUS = oldKek;
+    const opened = openWebhookSecret(sealedWithOld);
+    assert.equal(opened.plain, plain);
+    assert.ok(opened.reseal);
+    assert.notEqual(opened.reseal, sealedWithOld);
+
+    delete process.env.WEBHOOK_SECRET_KEK_PREVIOUS;
+    assert.equal(openWebhookSecret(opened.reseal!).plain, plain);
+    assert.throws(() => openWebhookSecret(sealedWithOld));
+  } finally {
+    if (saved.kek === undefined) delete process.env.WEBHOOK_SECRET_KEK;
+    else process.env.WEBHOOK_SECRET_KEK = saved.kek;
+    if (saved.prev === undefined) delete process.env.WEBHOOK_SECRET_KEK_PREVIOUS;
+    else process.env.WEBHOOK_SECRET_KEK_PREVIOUS = saved.prev;
+    if (saved.pepper === undefined) delete process.env.API_KEY_PEPPER;
+    else process.env.API_KEY_PEPPER = saved.pepper;
   }
 });

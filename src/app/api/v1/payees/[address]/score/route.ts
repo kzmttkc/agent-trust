@@ -7,6 +7,8 @@ import { logServerError } from "@/lib/util/log";
 
 type RouteContext = { params: Promise<{ address: string }> };
 
+export const maxDuration = 30;
+
 /**
  * GET /api/v1/payees/{address}/score
  *

@@ -176,3 +176,17 @@ test("faq, lookup, and methodology fire view events", () => {
   assert.ok(faq.includes('event="faq_view"'));
   assert.ok(lookup.includes("lookup_view") || lookup.includes('event="lookup_view"'));
 });
+
+test("State of x402 is reachable from the observatory index and the footer", () => {
+  const footer = read("src/components/site/SiteFooter.tsx");
+  const page = read("src/app/observatory/page.tsx");
+  assert.ok(footer.includes('href: "/observatory/state"'));
+  assert.ok(page.includes('href="/observatory/state"'));
+});
+
+test("payee score surfaces declare a 30s wall-clock budget", () => {
+  const api = read("src/app/api/v1/payees/[address]/score/route.ts");
+  const page = read("src/app/payee/[address]/page.tsx");
+  assert.match(api, /export const maxDuration = 30/);
+  assert.match(page, /export const maxDuration = 30/);
+});

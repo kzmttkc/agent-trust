@@ -36,6 +36,7 @@ openssl rand -hex 32   # CRON_SECRET
 | `DATABASE_URL` | Yes | Neon pooled connection string |
 | `API_KEY_PEPPER` | Yes | min 32 chars; also seals webhook signing secrets at rest unless `WEBHOOK_SECRET_KEK` is set |
 | `WEBHOOK_SECRET_KEK` | No | dedicated webhook-secret encryption key; prefer this over sharing the pepper |
+| `WEBHOOK_SECRET_KEK_PREVIOUS` | No | previous webhook KEK during rotation; deliveries reopen then reseal onto `WEBHOOK_SECRET_KEK` |
 | `DASHBOARD_SESSION_SECRET` | Yes | min 32 chars |
 | `ADMIN_SECRET` | Yes | global blacklist admin |
 | `CRON_SECRET` | Yes | Vercel cron auth (min 32 chars) |

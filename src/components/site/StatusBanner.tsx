@@ -37,26 +37,32 @@ export function StatusBanner() {
 
   useEffect(() => {
     let cancelled = false;
-    const cached = readCache();
-    if (cached !== undefined) {
-      setMessage(cached);
-      return;
-    }
 
-    void fetch("/api/health", { headers: { accept: "application/json" } })
-      .then(async (res) => {
-        const body = (await res.json().catch(() => null)) as { status?: string } | null;
-        if (body?.status === "rate_limited") return;
-        const next = livenessBannerMessage(body?.status);
-        writeCache(next);
-        if (!cancelled) setMessage(next);
-      })
-      .catch(() => {
-        // A broken client network is not a scoring outage. Stay silent.
-      });
+    const load = () => {
+      const cached = readCache();
+      if (cached !== undefined) {
+        if (!cancelled) setMessage(cached);
+        return;
+      }
 
+      void fetch("/api/health", { headers: { accept: "application/json" } })
+        .then(async (res) => {
+          const body = (await res.json().catch(() => null)) as { status?: string } | null;
+          if (body?.status === "rate_limited") return;
+          const next = livenessBannerMessage(body?.status);
+          writeCache(next);
+          if (!cancelled) setMessage(next);
+        })
+        .catch(() => {
+          // A broken client network is not a scoring outage. Stay silent.
+        });
+    };
+
+    load();
+    const id = window.setInterval(load, CACHE_TTL_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(id);
     };
   }, []);
 

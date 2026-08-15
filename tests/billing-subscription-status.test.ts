@@ -78,3 +78,12 @@ test("billing UI hides Upgrade while payment is past_due and still offers the po
   assert.match(page, /canChangePlan/);
   assert.match(page, /!info\.canChangePlan/);
 });
+
+test("Stripe webhook verifies the signature without constructing a Stripe client", () => {
+  const src = readFileSync(join(process.cwd(), "src/app/api/billing/webhook/route.ts"), "utf8");
+  const constructIdx = src.indexOf("Stripe.webhooks.constructEvent");
+  const getStripeCall = src.indexOf("getStripe()");
+  assert.ok(constructIdx >= 0, "signature check must use Stripe.webhooks.constructEvent");
+  assert.ok(getStripeCall > constructIdx, "getStripe() must not run before signature verification");
+  assert.match(src, /subscription_details/);
+});

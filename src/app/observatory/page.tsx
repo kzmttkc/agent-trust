@@ -127,6 +127,10 @@ export default async function ObservatoryPage({
           <div className="doc-head-col">
             <span>vet402</span>
             <span>
+              <Link href="/observatory/state" className="underline">
+                State of x402
+              </Link>
+              {" · "}
               <Link href="/observatory/methodology" className="underline">
                 Methodology
               </Link>
@@ -155,7 +159,11 @@ export default async function ObservatoryPage({
             <Link href="/payee" className="underline">
               verify a payee
             </Link>
-            ; a key is only for the score API.
+            ; a key is only for the score API. Headline numbers:{" "}
+            <Link href="/observatory/state" className="underline">
+              State of x402
+            </Link>
+            .
           </p>
         </div>
 

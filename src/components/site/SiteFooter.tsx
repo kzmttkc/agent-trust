@@ -23,6 +23,7 @@ import { Wordmark } from "@/components/site/Wordmark";
 
 const INDEX_LINKS = [
   { label: "Observatory", href: "/observatory" },
+  { label: "State of x402", href: "/observatory/state" },
   { label: "Status", href: "/status" },
   { label: "Verify a payee", href: "/payee" },
   { label: "Measured accuracy", href: "/accuracy" },

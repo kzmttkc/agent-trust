@@ -44,6 +44,7 @@ const DATA_DEPTH_NOTE: Record<string, string> = {
 // cache already absorbs the repeat cost for healthy verdicts, and it is the
 // one cache that knows which verdicts are safe to keep.
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 export async function generateMetadata({
   params,
