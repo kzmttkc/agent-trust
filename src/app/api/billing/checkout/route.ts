@@ -4,9 +4,16 @@ import {
   changeSubscriptionPlan,
   createBillingPortalSession,
   createCheckoutSession,
+  getStripe,
   SubscriptionNotChangeableError,
 } from "@/lib/billing/stripe";
-import { BILLING_PLANS, isStripeConfigured, type PaidPlan } from "@/lib/billing/plans";
+import {
+  BILLING_PLANS,
+  isStripeConfigured,
+  planFromStripePriceId,
+  type PaidPlan,
+} from "@/lib/billing/plans";
+import { resolveAccountPlanFromStripe } from "@/lib/billing/subscription-status";
 import { getAccountById, setAccountStripeIds, updateAccountPlan } from "@/lib/db/accounts";
 import { ensureOwnerUserId } from "@/lib/db/api-keys";
 import { authorizeDashboardRequest } from "@/lib/dashboard/auth";
@@ -115,10 +122,25 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  let billingHealth: "ok" | "past_due" | "canceled" | null = null;
+  if (isStripeConfigured() && account?.stripeSubscriptionId) {
+    try {
+      const subscription = await getStripe().subscriptions.retrieve(account.stripeSubscriptionId);
+      const priceId = subscription.items.data[0]?.price.id;
+      billingHealth = resolveAccountPlanFromStripe({
+        stripeStatus: subscription.status,
+        pricePlan: priceId ? planFromStripePriceId(priceId) : null,
+      }).health;
+    } catch (error) {
+      logServerError("billing_status", error);
+    }
+  }
+
   return NextResponse.json({
     plan: account?.plan ?? auth.ctx.plan,
     email: account?.email ?? null,
     stripeConfigured: isStripeConfigured(),
+    billingHealth,
     plans: BILLING_PLANS,
   });
 }

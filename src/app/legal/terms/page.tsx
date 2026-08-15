@@ -67,7 +67,7 @@ export default async function TermsPage() {
             <span>Instrument: terms of service</span>
             <span>
               {/* この頁のシアン1点。改訂日という事実。 */}
-              Revision: <span className="text-signal">August 14, 2026</span>
+              Revision: <span className="text-signal">August 15, 2026</span>
             </span>
           </div>
           <div className="doc-head-col">
@@ -78,7 +78,7 @@ export default async function TermsPage() {
         </div>
         <h1 className="doc-title mt-10">Terms of Service</h1>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
-        <p className="doc-note text-center">Last updated: August 14, 2026</p>
+        <p className="doc-note text-center">Last updated: August 15, 2026</p>
 
         <section className="space-y-2">
           <h2 className="sec-head">
@@ -572,6 +572,38 @@ export default async function TermsPage() {
             remove it, you will do so within 5 business days. Continuing to display a badge after
             the permission behind it has ended is use of our mark without a license, and section
             10 applies to claims that arise from a badge displayed in breach of this section.
+          </p>
+        </section>
+
+        <section className="space-y-2">
+          <h2 id="paid-subscriptions" className="sec-head">
+            <span className="sec-no">16.</span>
+            <span>Paid subscriptions</span>
+          </h2>
+          <p>
+            Paid plans raise the monthly lookup quota on the score API. They are business-to-business
+            subscriptions billed after an API key exists, from the dashboard, in US dollars via
+            Stripe. Public pages — the observatory and the payee lookup — stay free and do not
+            require a key.
+          </p>
+          <p>
+            <strong>What you buy.</strong> A month of the stated lookup quota for that plan, shared
+            across every key on the account. Unused lookups do not roll over. Changing plan in the
+            middle of a period is handled by Stripe; the next invoice may include a prorated
+            difference. The current plan names and prices are the ones shown on Billing at the
+            moment you pay, not a price quoted elsewhere.
+          </p>
+          <p>
+            <strong>Cancel.</strong> Cancel from the Stripe customer portal linked on Billing
+            (&quot;Manage subscription&quot;). Access to the paid quota continues until the end of
+            the current period, then the account returns to Free. We do not refund unused lookups
+            or unused time on a cancelled period.
+          </p>
+          <p>
+            <strong>Failed payment.</strong> If a renewal charge fails, Stripe retries. Until that
+            finishes, Billing will say so and the current plan stays. If retries fail, the
+            subscription ends and the account returns to Free. Card, invoices, and tax details are
+            managed in the portal, not by email from us — the service sends no email.
           </p>
         </section>
       </article>

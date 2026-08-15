@@ -6,26 +6,38 @@ import Link from "next/link";
 // malformed id; name the actual problem and offer a way forward.
 export default function AgentNotFound() {
   return (
-    <main className="mx-auto max-w-2xl px-5 py-16 md:px-8">
-      <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">Agent</p>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900">
-        That is not a valid agent id
-      </h1>
-      <p className="mt-4 text-zinc-600">
-        An agent passport URL is an ERC-8004 agent id — a whole number, e.g.{" "}
-        <code className="rounded bg-zinc-100 px-1 text-zinc-700">/agent/42</code>.
-      </p>
-      <p className="mt-6 text-sm text-zinc-600">
-        Check the id for a typo, then try again. You can also{" "}
-        <Link href="/leaderboard" className="underline">
-          browse recently verified agents
-        </Link>{" "}
-        or read{" "}
-        <Link href="/docs/api" className="underline">
-          how scoring works
-        </Link>
-        .
-      </p>
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <article className="sheet">
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>Independent Measurement</span>
+            <span>Status report</span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>x402 Economy</span>
+          </div>
+        </div>
+
+        <h1 className="doc-title mt-10">That is not a valid agent id</h1>
+        <p className="mx-auto mt-3 max-w-[56ch] text-center text-brand-lift">
+          An agent passport URL is an ERC-8004 agent id — a whole number, e.g.{" "}
+          <code>/agent/42</code>.
+        </p>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        <p className="doc-p mt-8">
+          Check the id for a typo, then try again. You can also{" "}
+          <Link href="/leaderboard" className="doc-link">
+            browse recently verified agents
+          </Link>{" "}
+          or read{" "}
+          <Link href="/docs/api" className="doc-link">
+            how scoring works
+          </Link>
+          .
+        </p>
+      </article>
     </main>
   );
 }

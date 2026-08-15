@@ -6,7 +6,7 @@ import { SITE_URL } from "@/lib/site-url";
 // 「今日更新」に化けて偽の鮮度信号になるので使わない。ここは公開面の最後の
 // 実改訂日を手で持つ定数にし、公開面に実質的な変更を入れたときだけ上げる。
 // 個々のブログ記事は post.updatedAt という本物の信号を各自持っている。
-const SITE_REVISION = "2026-08-14";
+const SITE_REVISION = "2026-08-15";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const staticRoutes: MetadataRoute.Sitemap = [
@@ -44,6 +44,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${SITE_URL}/operator-log`, lastModified: SITE_REVISION, changeFrequency: "weekly", priority: 0.5 },
     { url: `${SITE_URL}/faq`, lastModified: SITE_REVISION, changeFrequency: "monthly", priority: 0.7 },
     { url: `${SITE_URL}/blog`, lastModified: SITE_REVISION, changeFrequency: "weekly", priority: 0.8 },
+    {
+      url: `${SITE_URL}/blog/rss.xml`,
+      lastModified: SITE_REVISION,
+      changeFrequency: "weekly",
+      priority: 0.4,
+    },
     { url: `${SITE_URL}/signup`, lastModified: SITE_REVISION, changeFrequency: "monthly", priority: 0.7 },
     { url: `${SITE_URL}/legal/terms`, lastModified: SITE_REVISION, changeFrequency: "yearly", priority: 0.3 },
     { url: `${SITE_URL}/legal/privacy`, lastModified: SITE_REVISION, changeFrequency: "yearly", priority: 0.3 },

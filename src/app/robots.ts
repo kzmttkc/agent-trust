@@ -17,9 +17,14 @@ const AI_CRAWLERS = [
   "PerplexityBot", // Perplexity
   "Perplexity-User", // Perplexity（ユーザ操作）
   "Google-Extended", // Gemini/Vertex 学習可否トグル
+  "Google-CloudVertexBot", // Vertex / Gemini grounding
+  "Applebot", // Apple 検索
   "Applebot-Extended", // Apple Intelligence 学習可否トグル
+  "Bingbot", // Bing / Copilot
   "CCBot", // Common Crawl（多くの LLM の素データ）
   "cohere-ai", // Cohere
+  "MistralAI-User", // Mistral / Le Chat
+  "YouBot", // You.com
   "Meta-ExternalAgent", // Meta AI
   "Amazonbot", // Amazon
   "Bytespider", // ByteDance

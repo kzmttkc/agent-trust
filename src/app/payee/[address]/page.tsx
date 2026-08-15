@@ -329,9 +329,14 @@ export default async function PayeePage({
           <p className="doc-p mt-8">
             This wallet has not registered a verified-payee profile.{" "}
             <span className="text-brand-lift">
-              Own it? POST a signed claim to{" "}
-              <code className="break-all text-brand-deep">/api/v1/payees/verify</code> — free, no API
-              key, signature required.
+              Own it? Claiming a payee is API-only — there is no in-browser form. POST a signed
+              claim to{" "}
+              <code className="break-all text-brand-deep">/api/v1/payees/verify</code> (free, no
+              API key, signature required). See the{" "}
+              <Link href="/docs/api#post-api-v1-payees-verify" className="doc-link">
+                API reference
+              </Link>
+              .
             </span>
           </p>
         )}

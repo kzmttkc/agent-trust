@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { buttonClass } from "@/components/ui/Button";
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
+import { track } from "@/lib/analytics";
 
 type BillingInfo = {
   plan: string;
   email: string | null;
   stripeConfigured: boolean;
+  billingHealth: "ok" | "past_due" | "canceled" | null;
   plans: Record<string, { name: string; monthlyLimit: number; priceLabel: string }>;
 };
 
@@ -23,6 +26,7 @@ export default function DashboardBillingPage() {
   const [planChanged, setPlanChanged] = useState(false);
 
   useEffect(() => {
+    track("billing_view");
     dashboardFetch<BillingInfo>("/api/billing/checkout")
       .then(setInfo)
       .catch((err) => setError(err instanceof Error ? err.message : "load_failed"));
@@ -72,15 +76,32 @@ export default function DashboardBillingPage() {
   }
 
   if (!info) {
-    return <p className="text-sm text-zinc-600">Loading billing...</p>;
+    if (error) {
+      return (
+        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+          {dashboardErrorMessage(error)}
+        </p>
+      );
+    }
+    return <p className="text-sm text-zinc-700">Loading billing...</p>;
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold">Billing</h2>
-        <p className="text-sm text-zinc-600">
-          Manage your plan. Quota is shared across all API keys on your account.
+        <p className="text-sm text-zinc-700">
+          Quota is shared across every key on this account. Free is 1,000 lookups a month.
+          Upgrading agrees to the{" "}
+          <a className="underline" href="/legal/terms#paid-subscriptions">
+            Terms of Service
+          </a>
+          , including paid subscriptions (section 16). No refunds for unused lookups. Cancel from
+          Manage subscription; the account returns to Free at period end. Billing questions:{" "}
+          <a className="underline" href={SUPPORT_MAILTO}>
+            {SUPPORT_EMAIL}
+          </a>
+          .
         </p>
       </div>
 
@@ -90,16 +111,33 @@ export default function DashboardBillingPage() {
         </p>
       )}
 
-      {planChanged && (
-        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          Plan updated. Your subscription was changed without creating a new charge.
+      {checkoutStatus === "cancelled" && (
+        <p className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-800">
+          Checkout cancelled. No charge was made. You are still on {info.plan}.
         </p>
       )}
 
-      {error && <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>}
+      {info.billingHealth === "past_due" && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+          Payment failed. Your current plan stays until Stripe finishes retrying. Update the card
+          via Manage subscription.
+        </p>
+      )}
+
+      {planChanged && (
+        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Plan updated. Stripe may prorate the difference on the next invoice.
+        </p>
+      )}
+
+      {error && (
+        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+          {dashboardErrorMessage(error)}
+        </p>
+      )}
 
       <div className="rounded-xl border border-zinc-200 bg-white p-5">
-        <p className="text-sm text-zinc-500">Current plan</p>
+        <p className="text-sm text-zinc-600">Current plan</p>
         <p className="mt-1 text-2xl font-semibold capitalize">{info.plan}</p>
         {info.email && <p className="mt-1 text-sm text-zinc-600">{info.email}</p>}
       </div>
@@ -129,28 +167,33 @@ export default function DashboardBillingPage() {
                 </button>
               )}
               {isCurrent && (
-                <p className="mt-4 text-xs font-medium uppercase text-zinc-500">Current</p>
+                <p className="mt-4 text-xs font-medium uppercase text-zinc-600">Current</p>
               )}
             </div>
           );
         })}
       </div>
 
-      {info.stripeConfigured && info.plan !== "free" && (
-        <button
-          type="button"
-          onClick={openPortal}
-          disabled={loading !== null}
-          className="rounded-md border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
-        >
-          {loading === "portal" ? "Opening..." : "Manage subscription"}
-        </button>
+      {(info.stripeConfigured && (info.plan !== "free" || info.billingHealth === "past_due")) && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={openPortal}
+            disabled={loading !== null}
+            className="rounded-md border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
+          >
+            {loading === "portal" ? "Opening..." : "Manage subscription"}
+          </button>
+          <p className="text-sm text-zinc-600">
+            Change card, download invoices, or cancel from the Stripe portal. Cancel returns the
+            account to Free at period end.
+          </p>
+        </div>
       )}
 
       {!info.stripeConfigured && (
-        <p className="text-sm text-zinc-500">
-          Stripe is not configured in this environment. Set STRIPE_SECRET_KEY and price IDs for
-          paid upgrades.
+        <p className="text-sm text-zinc-600">
+          Paid upgrades are not enabled on this deploy. The Free quota still applies.
         </p>
       )}
     </div>

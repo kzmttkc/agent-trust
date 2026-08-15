@@ -75,7 +75,12 @@ export const metadata: Metadata = {
   // 自己参照 canonical（2026-08-13 監査是正）。"./" は各ルートの実パスに対して
   // metadataBase 基準で解決されるため、ここ1箇所で全ページに自己参照 canonical が
   // 付く（独自に canonical を持つページはページ側が優先される）。
-  alternates: { canonical: "./" },
+  alternates: {
+    canonical: "./",
+    types: {
+      "application/rss+xml": `${SITE_URL}/blog/rss.xml`,
+    },
+  },
   title: {
     default: SITE_TITLE,
     template: "%s | vet402",
@@ -98,9 +103,11 @@ export const metadata: Metadata = {
     url: SITE_URL,
     type: "website",
     siteName: "vet402",
+    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
+    site: "@vet_402",
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
   },

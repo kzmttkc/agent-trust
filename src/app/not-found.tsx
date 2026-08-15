@@ -46,6 +46,12 @@ export default function NotFound() {
           <Link href="/docs/api" className="doc-link">
             Docs
           </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/observatory" className="doc-link">
+            Observatory
+          </Link>
         </p>
       </article>
     </main>

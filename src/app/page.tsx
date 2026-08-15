@@ -9,6 +9,7 @@ import { X402_DEFINITION } from "@/components/site/faq-data";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 import { buttonClass } from "@/components/ui/Button";
 import { SITE_URL } from "@/lib/site-url";
+import { organizationJsonLd, publisherOrg } from "@/lib/seo";
 import { safeJsonLd } from "@/lib/util/json-ld";
 
 /**
@@ -22,7 +23,8 @@ import { safeJsonLd } from "@/lib/util/json-ld";
  *
  * Copy is the approved deck, verbatim except for typesetting breaks. Nothing on
  * this page claims a measurement that has not been made: §4 lists only what is
- * running today, §5 says out loud that the observatory is being built.
+ * running today (including the live observatory), §5 is only work that has not
+ * shipped.
  */
 
 const HEAD_LEFT = [
@@ -95,17 +97,9 @@ export default async function Home() {
   // FAQPage実装済みという状態だった)。数値はsrc/lib/billing/plans.ts(課金の
   // 単一情報源)から引用し、架空の価格を書かない。
   const nonce = (await headers()).get("x-nonce") ?? undefined;
-  const organizationJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    name: "vet402",
-    url: SITE_URL,
-    description:
-      "Independent verification of the x402 agent-payment economy. vet402 buys what x402 endpoints sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence.",
-    // 2026-08-13: ハンドルの移行完了に伴い @vouchtrust → @vet_402
-    // （@vet402 は取得不可だったため下線入り）。
-    sameAs: ["https://x.com/vet_402"],
-  };
+  const organization = organizationJsonLd(
+    "Independent verification of the x402 agent-payment economy. vet402 buys what x402 endpoints sell, verifies fulfillment against the seller's own declaration, and publishes the results with evidence.",
+  );
   // 2026-08-14 SEO/AEO: WebSite ノードが欠けていた（Organization と
   // SoftwareApplication はあった）。検索の sitelinks／エンティティ束ねに効く
   // 基本ノードで、publisher で Organization に結ぶ。site 内検索は無いので
@@ -117,8 +111,9 @@ export default async function Home() {
     url: SITE_URL,
     description:
       "Independent verification of the x402 agent-payment economy.",
-    publisher: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    publisher: publisherOrg(),
     inLanguage: "en",
+    sameAs: organization.sameAs,
   };
   const softwareApplicationJsonLd = {
     "@context": "https://schema.org",
@@ -173,7 +168,7 @@ export default async function Home() {
         type="application/ld+json"
         nonce={nonce}
         suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(organizationJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(organization) }}
       />
       <script
         type="application/ld+json"
@@ -301,9 +296,20 @@ export default async function Home() {
           <p className="mt-3 text-brand">{X402_DEFINITION.answer}</p>
           <p className="doc-note mt-3">
             <Link href="/faq" className="doc-link">
-              ERC-8004, what the score is, and what it is not
-            </Link>{" "}
-            &mdash; the rest of the questions.
+              More questions
+            </Link>
+            <span aria-hidden="true" className="mx-2 text-brand-lift">
+              ·
+            </span>
+            <Link href="/observatory" className="doc-link">
+              Live measurements
+            </Link>
+            <span aria-hidden="true" className="mx-2 text-brand-lift">
+              ·
+            </span>
+            <Link href="/payee" className="doc-link">
+              Score a wallet
+            </Link>
           </p>
         </div>
 
@@ -561,6 +567,23 @@ export default async function Home() {
         <div className="mt-6 divide-y divide-hair border-t border-brand-deep">
           <ItemRow
             state="live"
+            title="The x402 Observatory"
+            body={
+              <>
+                Every endpoint in the public discovery catalog, probed daily: is it still listed,
+                and does its payment wall answer a valid 402. No purchase is attached to the
+                public table.
+              </>
+            }
+            action={{
+              label: "Open the observatory",
+              href: "/observatory",
+              event: "lp_cta_click",
+              position: "s4_observatory",
+            }}
+          />
+          <ItemRow
+            state="live"
             title="Verified Payee"
             body={
               <>
@@ -615,21 +638,11 @@ export default async function Home() {
           <span>Status of this work</span>
         </h2>
         <p className="doc-p">
-          Under construction, in the open. These are not measurements yet, and this page will not
-          describe them as though they were.
+          Live work is in section 4. This section is only what has not shipped, and this page will
+          not describe it as though it had.
         </p>
 
         <div className="mt-6 divide-y divide-hair border-t border-brand-deep">
-          <ItemRow
-            state="building"
-            title="The observatory"
-            body={
-              <>
-                A continuous catalog of x402 endpoints across chains, probed daily, with delisting
-                alerts for claimed sellers.
-              </>
-            }
-          />
           <ItemRow
             state="building"
             title="Writing to the empty registry"

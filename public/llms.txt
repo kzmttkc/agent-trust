@@ -32,6 +32,9 @@ What the API returns today is a different, older thing: a 0–100 trust or payee
 - https://vet402.com/faq — x402, ERC-8004, and how scoring works
 - https://vet402.com/signup — get an API key (free tier: 1,000 lookups / month)
 - https://vet402.com/blog — notes on agent-to-agent payments, x402, and verification
+- https://vet402.com/blog/rss.xml — the same posts as RSS
+- https://vet402.com/llms-full.txt — full FAQ and blog text, generated from the same modules the HTML uses
+- https://vet402.com/openapi.yaml — OpenAPI 3.1 of every public endpoint
 
 Public per-subject pages: `https://vet402.com/payee/{address}`, `https://vet402.com/agent/{agentId}`, and `https://vet402.com/observatory/e/{id}` (one endpoint's full L0/L1/L2 history).
 

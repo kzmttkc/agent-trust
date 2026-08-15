@@ -178,7 +178,8 @@ export default async function LeaderboardPage({
           <p className="min-w-0 max-w-[62ch] text-brand">
             The latest verdict per subject, ranked by score. Every row is computed from public
             on-chain state &mdash; ERC-8004 identity and reputation, wallet history, x402
-            settlements. Run the same lookup yourself with an API key.
+            settlements. This is not the observatory and not a payee score. Run the same lookup
+            yourself with an API key.
           </p>
         </div>
 

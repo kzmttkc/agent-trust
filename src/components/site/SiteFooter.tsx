@@ -13,14 +13,16 @@
  * which postdates legal_requirements.md), every product carries KIZUNA Creation
  * as the maker. Vouch has no locale switching — it is English throughout — so
  * it follows Banto's English-locale page, which renders the credit in ASCII
- * parens. Contact remains email-only. No billing is live yet, so no Legal
- * Notice (tokushoho-equivalent) link is shown — /legal/notice explains this.
+ * parens. Contact remains email-only. B2B API billing, when enabled, lives on
+ * the dashboard; consumer mail-order billing is not live. /legal/notice
+ * explains the disclosure scope.
  */
 
 import Link from "next/link";
 import { Wordmark } from "@/components/site/Wordmark";
 
 const INDEX_LINKS = [
+  { label: "Observatory", href: "/observatory" },
   { label: "Verify a payee", href: "/payee" },
   { label: "Measured accuracy", href: "/accuracy" },
   { label: "API reference", href: "/docs/api" },
@@ -39,6 +41,14 @@ const INDEX_LINKS = [
   { label: "Operator log", href: "/operator-log" },
   { label: "FAQ", href: "/faq" },
   { label: "Blog", href: "/blog" },
+];
+
+// Machine-citation files. Humans pick tasks from Index / Operator; crawlers
+// and answer engines still need a crawlable link, but those files are not
+// a next step for a first-time reader.
+const CITE_LINKS = [
+  { label: "Blog RSS", href: "/blog/rss.xml" },
+  { label: "llms.txt", href: "/llms.txt" },
 ];
 
 const OPERATOR_LINKS = [
@@ -67,7 +77,7 @@ export function SiteFooter() {
           <span>[Page 1]</span>
         </div>
 
-        <div className="mt-10 grid gap-8 sm:grid-cols-2">
+        <div className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
           <nav aria-label="Document index">
             <p className="doc-caption">Index</p>
             {/* 2026-08-14: 索引/奥付の文字を 13px → 14px。AA は 13px でも
@@ -87,6 +97,19 @@ export function SiteFooter() {
             <p className="doc-caption">Operator</p>
             <ul className="mt-4 space-y-2 text-sm">
               {OPERATOR_LINKS.map((item) => (
+                <li key={item.href}>
+                  <Link href={item.href} className="text-brand hover:text-brand-deep">
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <nav aria-label="Machine-readable citations">
+            <p className="doc-caption">Cite</p>
+            <ul className="mt-4 space-y-2 text-sm">
+              {CITE_LINKS.map((item) => (
                 <li key={item.href}>
                   <Link href={item.href} className="text-brand hover:text-brand-deep">
                     {item.label}

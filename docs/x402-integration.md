@@ -101,7 +101,7 @@ This verifies the wallet matches the agent's on-chain `agentWallet` metadata.
 
 Register your own agents to avoid false BLOCKs:
 
-1. Dashboard → **WL / BL** → add wallet as whitelist
+1. Dashboard → **Lists** → add wallet to Allow
 2. Or API: customer-scoped lists apply per API key
 
 Whitelisted wallets get score floor 80; WARN can be promoted to ALLOW.

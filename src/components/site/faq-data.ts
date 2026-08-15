@@ -50,17 +50,32 @@ export const FAQS: FaqItem[] = [
   {
     question: "Which chain does vet402 support?",
     answer:
-      "Base. Wallet and ERC-8004 signals are read from Base mainnet. Support for additional chains isn't ruled out, but nothing beyond Base is live today — check the API reference for the current signal set.",
+      "Scoring (the 0–100 ALLOW / WARN / BLOCK API) reads wallet and ERC-8004 signals from Base mainnet; an unknown or disabled chain on that API is a 400, never a silent fallback. The observatory is a separate system: L0 probes run across every chain in the public x402 discovery catalog, and /observatory/state reports the per-chain breakdown. L1 purchases are Base-only for now.",
+  },
+  {
+    question: "What is the difference between the observatory and a score?",
+    answer:
+      "The observatory publishes catalog measurements: L0 liveness (pass / fail / unverified) and, on each endpoint page, L1 settle-through when a purchase has been made. Those are not 0–100 scores. A score is the older ALLOW / WARN / BLOCK API for a wallet or agent, sold by lookup quota. A score is never reported as an L0–L2 result.",
+  },
+  {
+    question: "Do I need an account?",
+    answer:
+      "No. The observatory (catalog measurements) and the payee lookup are public. An API key is only for programmatic score lookups — 1,000 a month on Free, then upgrade from Billing after you have a key.",
   },
   {
     question: "How much does it cost?",
     answer:
-      "The free tier covers 1,000 lookups a month, enough to wire a score check into an x402 flow and see real results before committing to anything. Paid plans add higher volume and score-history access. See the pricing section on the homepage for current tiers.",
+      "Public pages are free. The score API is free for 1,000 lookups a month. Paid plans raise that quota; you upgrade from the dashboard once a key exists. See Access tiers on the homepage.",
+  },
+  {
+    question: "I lost my API key. How do I get back in?",
+    answer:
+      "The key is shown once at signup and is not stored in recoverable form. If you still have a dashboard session, open API keys and create a spare. If the session expired, email support@vet402.com from the address you used at signup — we issue a replacement after verifying control. Signing up again with the same email is refused.",
   },
   {
     question: "How do I integrate it?",
     answer:
-      "Score by agent ID (GET /api/v1/agents/:agentId/score) or by wallet address (GET /api/v1/wallets/:address/score — the primary path for x402 middleware), batch up to 25 at once, or attest an x402 settlement after verification. Full request/response shapes, error codes, and an OpenAPI schema are on the API reference page.",
+      "Score a payee (GET /api/v1/payees/:address/score — the primary path for buyers), a payer wallet (GET /api/v1/wallets/:address/score), or an agent ID (GET /api/v1/agents/:agentId/score), batch up to 25 at once, or attest an x402 settlement after verification. Full request/response shapes, error codes, and an OpenAPI schema are on the API reference page.",
   },
 ];
 

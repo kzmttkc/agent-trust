@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { planFromStripePriceId } from "@/lib/billing/plans";
+import { resolveAccountPlanFromStripe } from "@/lib/billing/subscription-status";
 import { getStripe } from "@/lib/billing/stripe";
 import {
   getAccountByStripeCustomerId,
@@ -19,19 +20,15 @@ async function applyPlanFromSubscription(subscription: Stripe.Subscription): Pro
 
   const priceId = subscription.items.data[0]?.price.id;
   const plan = priceId ? planFromStripePriceId(priceId) : null;
+  const resolved = resolveAccountPlanFromStripe({
+    stripeStatus: subscription.status,
+    pricePlan: plan,
+  });
 
-  if (subscription.status === "active" || subscription.status === "trialing") {
-    if (plan) {
-      await updateAccountPlan(account.id, plan);
-      await setAccountStripeIds(account.id, {
-        stripeSubscriptionId: subscription.id,
-      });
-    }
-    return;
-  }
-
-  await updateAccountPlan(account.id, "free");
-  await setAccountStripeIds(account.id, { stripeSubscriptionId: null });
+  await updateAccountPlan(account.id, resolved.plan);
+  await setAccountStripeIds(account.id, {
+    stripeSubscriptionId: resolved.health === "canceled" ? null : subscription.id,
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -82,6 +79,17 @@ export async function POST(request: NextRequest) {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
+      await applyPlanFromSubscription(subscription);
+      break;
+    }
+    case "invoice.payment_failed": {
+      const invoice = event.data.object as Stripe.Invoice;
+      const customerId =
+        typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+      if (!customerId) break;
+      const failedAccount = await getAccountByStripeCustomerId(customerId);
+      if (!failedAccount?.stripeSubscriptionId) break;
+      const subscription = await stripe.subscriptions.retrieve(failedAccount.stripeSubscriptionId);
       await applyPlanFromSubscription(subscription);
       break;
     }

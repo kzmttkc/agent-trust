@@ -93,11 +93,16 @@ export default function DashboardKeysPage() {
       <div>
         <h2 className="text-2xl font-semibold">API keys</h2>
         <p className="text-sm text-zinc-600">
-          Create and revoke keys in your account. The active session key cannot be revoked here.
+          Create a spare key while you are signed in. The secret is shown once and cannot be
+          retrieved later. The key used for this session cannot be revoked here.
         </p>
       </div>
 
-      {error && <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>}
+      {error && (
+        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+          {dashboardErrorMessage(error)}
+        </p>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
         <table className="min-w-full text-left text-sm">
@@ -115,7 +120,7 @@ export default function DashboardKeysPage() {
               <tr key={key.id} className="border-b border-zinc-100">
                 <td className="px-4 py-3">
                   <div className="font-medium">{key.name ?? "Unnamed"}</div>
-                  <div className="font-mono text-xs text-zinc-500">{key.id}</div>
+                  <div className="font-mono text-xs text-zinc-600">{key.id}</div>
                 </td>
                 <td className="px-4 py-3 capitalize">{key.plan}</td>
                 <td className="px-4 py-3">
@@ -145,8 +150,8 @@ export default function DashboardKeysPage() {
             ))}
             {keys.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-zinc-500">
-                  No API keys found.
+                <td colSpan={5} className="px-4 py-6 text-center text-zinc-600">
+                  No keys on this account yet. Create one below — the secret is shown once.
                 </td>
               </tr>
             )}

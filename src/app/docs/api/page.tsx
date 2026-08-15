@@ -248,6 +248,17 @@ export default async function ApiDocsPage() {
     { name: "Home", path: "/" },
     { name: "API reference", path: "/docs/api" },
   ]);
+  const article = {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    headline: "API reference",
+    description:
+      "REST v1 reference for vet402: score a payee before paying it, register a verified payee, read the public accuracy ledger.",
+    url: `${SITE_URL}/docs/api`,
+    author: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    publisher: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    inLanguage: "en",
+  };
 
   return (
     // 2026-08-06 (320px persona audit A-5): `p-8` had no breakpoint, so a 320px
@@ -266,7 +277,13 @@ export default async function ApiDocsPage() {
         type="application/ld+json"
         nonce={nonce}
         suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(article) }}
       />
 
       {/* 2026-08-11 UI監査5: このページはモバイル375pxで約21,000px の一枚岩で、

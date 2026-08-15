@@ -137,111 +137,119 @@ export default async function AgentPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-2xl px-5 py-16 md:px-8">
-      <script
-        type="application/ld+json"
-        nonce={nonce}
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
-      />
-      <TrackView event="passport_view" props={{ band, verified: Boolean(entry) }} withReferrerType />
-      <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-        {entry ? "Verified agent" : "Agent"}
-      </p>
-      <h1 className="mt-2 font-mono text-2xl font-semibold text-zinc-900">Agent #{agentId.toString()}</h1>
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+        <TrackView event="passport_view" props={{ band, verified: Boolean(entry) }} withReferrerType />
 
-      {entry ? (
-        <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="font-semibold text-emerald-900">{entry.name}</p>
-          <p className="mt-1 text-sm text-emerald-800">
-            Control of this agent was proven by a signature from its on-chain wallet
-            {entry.verifiedAt ? ` on ${entry.verifiedAt.toISOString().slice(0, 10)}` : ""}.
-          </p>
-          <p className="mt-1 break-all font-mono text-xs text-emerald-800">{entry.wallet}</p>
-          {entry.url ? (
-            <p className="mt-1 text-sm text-emerald-800">
-              Site:{" "}
-              <a href={entry.url} rel="noopener noreferrer nofollow" target="_blank" className="underline">
-                {entry.url}
-              </a>
-            </p>
-          ) : null}
-          <p className="mt-2 text-xs text-emerald-700">
-            Verification proves wallet control only — it is not an endorsement, and the score below is
-            computed independently of it.
-          </p>
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>{entry ? "Verified agent" : "Agent passport"}</span>
+            <span>Subject: ERC-8004 agent id</span>
+            <span>
+              Identity:{" "}
+              <span className="text-signal">{entry ? "claimed and proven" : "unclaimed"}</span>
+            </span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>Claim: wallet control by signature</span>
+            <span>Engine: agent/wallet, computed on request</span>
+          </div>
         </div>
-      ) : (
-        <p className="mt-6 text-zinc-600">
-          This agent has not registered a trust passport.{" "}
-          <span className="text-zinc-500">
-            Own it? POST a signed claim to{" "}
-            <code className="rounded bg-zinc-100 px-1 text-zinc-700">/api/v1/agents/verify</code> — free, no API key,
-            signature required.
-          </span>
-        </p>
-      )}
 
-      <div className="mt-8 rounded-xl border border-zinc-200 p-5">
-        <p className="text-sm text-zinc-500">Live trust score</p>
-        {score?.degraded ? (
-          // 2026-08-13 parity with /payee/[address]: a degraded result is a
-          // refusal, not a reading. The API and the SDK still receive the
-          // fail-closed verdict — "do not pay right now" is the correct answer
-          // to a caller about to move money on a check that could not be
-          // completed. But this page is read by humans, and printing "39 BLOCK"
-          // here publishes a specific accusation about a named agent on the
-          // strength of an upstream outage. The payee side already said the one
-          // true thing instead; this side kept printing the number, so the same
-          // outage read as "not verifiable" on one profile and as a BLOCK verdict
-          // on the other.
-          <>
-            <p className="mt-1 text-xl font-semibold text-zinc-900">Not verifiable right now</p>
-            <p className="mt-2 text-sm text-zinc-600">
-              One or more upstream checks could not be completed, so no score is published for this
-              agent. This is not a finding against it. Callers of the API receive a fail-closed{" "}
-              <code className="rounded bg-zinc-100 px-1 text-zinc-700">BLOCK</code> until the checks
-              succeed.
+        <h1 className="doc-title mt-10">Agent #{agentId.toString()}</h1>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        {entry ? (
+          <div className="mt-8 border-l-[3px] border-emerald-700 bg-emerald-50 px-5 py-4">
+            <p className="text-emerald-900">{entry.name}</p>
+            <p className="mt-2 text-[0.8125rem] text-emerald-800">
+              Control of this agent was proven by a signature from its on-chain wallet
+              {entry.verifiedAt ? ` on ${entry.verifiedAt.toISOString().slice(0, 10)}` : ""}.
             </p>
-          </>
-        ) : score ? (
-          <p className="mt-1 text-3xl font-semibold text-zinc-900">
-            <span
-              role="img"
-              aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
-            >
-              {score.value}
-              {/* 2026-08-13 parity with /payee/[address]: the scale existed only
-                  in the aria-label. Sighted readers saw a bare "49" with no way
-                  to tell 100-point from 1000-point. */}
-              <span className="align-baseline text-base font-normal text-zinc-500"> / 100</span>{" "}
-              <VerdictBadge verdict={score.recommendation} className="align-middle" />
+            <p className="mt-1 break-all font-mono text-xs text-emerald-800">{entry.wallet}</p>
+            {entry.url ? (
+              <p className="mt-2 text-[0.8125rem] text-emerald-800">
+                Site:{" "}
+                <a href={entry.url} rel="noopener noreferrer nofollow" target="_blank" className="underline">
+                  {entry.url}
+                </a>
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs text-emerald-800">
+              Verification proves wallet control only — it is not an endorsement, and the score below is
+              computed independently of it.
+            </p>
+          </div>
+        ) : (
+          <p className="doc-p mt-8">
+            This agent has not registered a trust passport.{" "}
+            <span className="text-brand-lift">
+              Own it? Claiming a passport is API-only — there is no in-browser form. POST a signed
+              claim to{" "}
+              <code className="break-all text-brand-deep">/api/v1/agents/verify</code> (free, no API
+              key, signature required). See the{" "}
+              <Link href="/docs/api#post-api-v1-agents-verify" className="doc-link">
+                API reference
+              </Link>
+              .
             </span>
           </p>
-        ) : (
-          <p className="mt-1 text-zinc-500">Score unavailable right now.</p>
         )}
-        {score && !score.degraded ? (
-          <p className="mt-2 text-xs text-zinc-500">
-            x402 settlement record: {score.paymentCount} payment{score.paymentCount === 1 ? "" : "s"} over{" "}
-            {score.uniqueDays} distinct day{score.uniqueDays === 1 ? "" : "s"}.{" "}
-            {/* 2026-08-13 parity: /payee links its score to the weights that
-                produced it; this side left the reader with a number and no way
-                to find out what went into it. */}
-            <Link href="/docs/api#score-breakdown" className="underline">
-              Score breakdown
-            </Link>
-            .
+
+        <div className="dashbox mt-8">
+          <p className="doc-caption">Live trust score</p>
+          {score?.degraded ? (
+            <>
+              <h2 className="mt-3 font-[family-name:var(--font-display)] text-[1.375rem] font-semibold leading-tight text-brand-deep">
+                Not verifiable right now
+              </h2>
+              <p className="mt-2 text-[0.8125rem] text-brand-lift">
+                One or more upstream checks could not be completed, so no score is published for this
+                agent. This is not a finding against it. Callers of the API receive a fail-closed{" "}
+                <code className="text-brand-deep">BLOCK</code> until the checks succeed.
+              </p>
+            </>
+          ) : score ? (
+            <p className="mt-3 font-[family-name:var(--font-display)] text-[1.75rem] font-semibold text-brand-deep">
+              <span
+                role="img"
+                aria-label={`Trust score ${score.value} out of 100, recommendation ${score.recommendation}`}
+              >
+                {score.value}
+                <span className="align-baseline text-base font-normal text-brand-lift"> / 100</span>{" "}
+                <VerdictBadge verdict={score.recommendation} className="align-middle" />
+              </span>
+            </p>
+          ) : (
+            <p className="mt-3 text-brand-lift">Score unavailable right now.</p>
+          )}
+          {score && !score.degraded ? (
+            <p className="mt-2 text-[0.8125rem] text-brand-lift">
+              x402 settlement record: {score.paymentCount} payment{score.paymentCount === 1 ? "" : "s"} over{" "}
+              {score.uniqueDays} distinct day{score.uniqueDays === 1 ? "" : "s"}.{" "}
+              <Link href="/docs/api#score-breakdown" className="doc-link">
+                Score breakdown
+              </Link>
+              .
+            </p>
+          ) : null}
+          <p className="mt-2 text-[0.8125rem] text-brand-lift">
+            This is an agent/wallet-engine score, not an observatory measurement and not a payee score.{" "}
+            <Link href="/accuracy" className="doc-link">Methodology and measured accuracy</Link>.{" "}
+            Machine-readable passport:{" "}
+            <code className="break-all text-brand-deep">/api/v1/agents/{agentId.toString()}/passport</code>.{" "}
+            Badge:{" "}
+            <code className="break-all text-brand-deep">/api/badge/agent/{agentId.toString()}</code>
           </p>
-        ) : null}
-        <p className="mt-2 text-xs text-zinc-500">
-          <Link href="/accuracy" className="underline">Methodology and measured accuracy</Link>.{" "}
-          Machine-readable passport:{" "}
-          <code className="break-all rounded bg-zinc-100 px-1 text-zinc-700">/api/v1/agents/{agentId.toString()}/passport</code>.{" "}
-          Badge for your site:{" "}
-          <code className="break-all rounded bg-zinc-100 px-1 text-zinc-700">/api/badge/agent/{agentId.toString()}</code>
-        </p>
-      </div>
+        </div>
+      </article>
     </main>
   );
 }

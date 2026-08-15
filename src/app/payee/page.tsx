@@ -6,6 +6,7 @@ import { isValidAddress } from "@/lib/chain/client";
 import TrackView from "@/components/site/TrackView";
 import { buttonClass } from "@/components/ui/Button";
 import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { SITE_URL } from "@/lib/site-url";
 import { safeJsonLd } from "@/lib/util/json-ld";
 
 /**
@@ -76,6 +77,34 @@ export default async function PayeeIndexPage({
   const invalid = submitted.length > 0;
   const errored = empty || invalid;
   const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const howTo = {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name: "Look up a payee on vet402",
+    description:
+      "Look up any Base wallet address: the signature-proven identity claim on file, if there is one, and a live payee score. No account required.",
+    url: `${SITE_URL}/payee`,
+    step: [
+      {
+        "@type": "HowToStep",
+        position: 1,
+        name: "Open the payee lookup",
+        text: "Go to https://vet402.com/payee. No account or API key is required.",
+      },
+      {
+        "@type": "HowToStep",
+        position: 2,
+        name: "Enter a wallet address",
+        text: "Paste a 0x-prefixed address and submit the form. Invalid input stays on this page with an error.",
+      },
+      {
+        "@type": "HowToStep",
+        position: 3,
+        name: "Read the claim and the score",
+        text: "The profile shows whether a signed wallet-control claim exists, and the live payee score. A score is informational, not a guarantee.",
+      },
+    ],
+  };
   const breadcrumb = breadcrumbJsonLd([
     { name: "Home", path: "/" },
     { name: "Verify a payee", path: "/payee" },
@@ -89,6 +118,12 @@ export default async function PayeeIndexPage({
         nonce={nonce}
         suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+      />
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(howTo) }}
       />
       <article className="sheet">
         <div className="doc-head">
@@ -236,8 +271,12 @@ export default async function PayeeIndexPage({
             API reference
           </Link>
           <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
+          <Link href="/observatory" className="doc-link">
+            Catalog measurements
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
           <Link href="/accuracy" className="doc-link">
-            Methodology and measured accuracy
+            Score accuracy ledger
           </Link>
         </p>
       </article>

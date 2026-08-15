@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { isValidAddress, parseAgentId } from "@/lib/chain/client";
 import { authorizeDashboardRequest } from "@/lib/dashboard/auth";
-import { persistScoreResult } from "@/lib/db/persistence";
+import { persistPayeeScoreResult, persistScoreResult } from "@/lib/db/persistence";
 import { logServerError } from "@/lib/util/log";
-import { scoreAgentById, scoreWallet } from "@/lib/scoring/engine";
+import { scoreAgentById } from "@/lib/scoring/engine";
+import { scorePayeeWallet } from "@/lib/scoring/payee-engine";
 
 const lookupSchema = z.object({
   agentId: z.string().optional(),
@@ -49,11 +50,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result);
     }
 
-    const result = await scoreWallet(wallet!, ctx);
-    void persistScoreResult(auth.ctx.apiKeyId, result).catch((error) =>
+    const result = await scorePayeeWallet(wallet!);
+    void persistPayeeScoreResult(auth.ctx.apiKeyId, result).catch((error) =>
       logServerError("persist_score", error),
     );
-    return NextResponse.json(result);
+    return NextResponse.json({ kind: "payee", ...result });
   } catch {
     return NextResponse.json({ error: "scoring_unavailable" }, { status: 503 });
   }

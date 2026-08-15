@@ -6,10 +6,10 @@
 // the primary reason full communication-sales disclosure (e.g. Japan's
 // Act on Specified Commercial Transactions) does not currently apply — that
 // statute governs consumer mail-order sales, not B2B API subscriptions.
-// No live consumer billing exists yet either way. If/when that changes,
-// a full disclosure block (entity name, address, phone) will be added here
-// before any consumer-facing billing goes live, mirroring KoeWall's
-// billing-flag-linked tokushoho pattern.
+// No live consumer billing exists yet either way. B2B API subscriptions, when
+// enabled, are billed from the dashboard after a key exists. If/when consumer
+// billing starts, a full disclosure block (entity name, address, phone) will be
+// added here first, mirroring KoeWall's billing-flag-linked tokushoho pattern.
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
@@ -74,13 +74,15 @@ export default async function LegalNoticePage() {
         <section className="space-y-2">
           <h2 className="sec-head">Why disclosure is minimal today</h2>
           <p>
-            The operator&apos;s name is disclosed above. Because vet402 has no live consumer billing
-            and is used B2B, statutes that require full public disclosure of the operator&apos;s home
-            address and phone number for consumer mail-order sales (such as Japan&apos;s Act on
-            Specified Commercial Transactions) do not currently apply. We keep the home address and
-            phone number off this public page for the same reason many independent developers do —
-            but we will disclose them without delay to anyone who requests it in good faith, and we
-            will add a full disclosure block here before any consumer-facing billing goes live.
+            The operator&apos;s name is disclosed above. Because vet402 is a B2B API — not consumer
+            mail-order — statutes that require full public disclosure of the operator&apos;s home
+            address and phone number (such as Japan&apos;s Act on Specified Commercial Transactions)
+            do not currently apply. Paid API subscriptions, when enabled, are billed from the
+            dashboard after a key exists; that is not consumer-facing billing. We keep the home
+            address and phone number off this public page for the same reason many independent
+            developers do — but we will disclose them without delay to anyone who requests it in
+            good faith, and we will add a full disclosure block here before any consumer-facing
+            billing goes live.
           </p>
         </section>
 

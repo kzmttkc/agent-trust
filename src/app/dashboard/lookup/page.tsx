@@ -1,11 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { dashboardFetch } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { buttonClass } from "@/components/ui/Button";
+import { track } from "@/lib/analytics";
 
-type ScoreResult = {
+type PayeeResult = {
+  kind: "payee";
+  payee: string;
+  score: number;
+  recommendation: "ALLOW" | "WARN" | "BLOCK";
+  dataDepth: string;
+  degraded: boolean;
+  signalsUnavailable: string[];
+  signals: {
+    receiving: { paymentCount: number; uniqueDays: number; score: number };
+    walletHealth: { ageDays: number; txCount: number; isBurner: boolean };
+    drainPattern: { detected: boolean; drainRatio: number | null };
+    outcomeHistory: { types: string[]; adjustment: number };
+    flags: string[];
+  };
+};
+
+type AgentResult = {
+  kind?: "agent";
   agentId: string;
   wallet: string | null;
   trustScore: number;
@@ -20,11 +39,13 @@ type ScoreResult = {
     sybil: { risk: string; flags: string[] };
     manual: { list: string };
   };
-  dataCoverage?: {
-    ownerIndexer: { status: string; blocksBehind: number | null; staleRisk: boolean };
-    settlement: { paymentRows: number; walletHasHistory: boolean };
-  };
 };
+
+type ScoreResult = PayeeResult | AgentResult;
+
+function isPayee(result: ScoreResult): result is PayeeResult {
+  return result.kind === "payee";
+}
 
 export default function DashboardLookupPage() {
   const [agentId, setAgentId] = useState("");
@@ -32,6 +53,10 @@ export default function DashboardLookupPage() {
   const [result, setResult] = useState<ScoreResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    track("lookup_view");
+  }, []);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -58,26 +83,32 @@ export default function DashboardLookupPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">Agent lookup</h2>
-        <p className="text-sm text-zinc-600">Search by agent ID and/or wallet address.</p>
+        <h2 className="text-2xl font-semibold">Score a payee</h2>
+        <p className="text-sm text-zinc-600">
+          The address you are about to pay. Same engine as{" "}
+          <a className="underline" href="/payee">
+            public payee lookup
+          </a>{" "}
+          and <code>GET /api/v1/payees/…/score</code>. Agent ID scores a payer instead.
+        </p>
       </div>
 
       <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
         <label className="block space-y-1 text-sm">
-          <span className="font-medium">Agent ID</span>
-          <input
-            value={agentId}
-            onChange={(event) => setAgentId(event.target.value)}
-            placeholder="1"
-            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
-          />
-        </label>
-        <label className="block space-y-1 text-sm">
-          <span className="font-medium">Wallet (optional verification)</span>
+          <span className="font-medium">Payee wallet</span>
           <input
             value={wallet}
             onChange={(event) => setWallet(event.target.value)}
             placeholder="0x..."
+            className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
+          />
+        </label>
+        <label className="block space-y-1 text-sm">
+          <span className="font-medium">Payer agent ID (optional)</span>
+          <input
+            value={agentId}
+            onChange={(event) => setAgentId(event.target.value)}
+            placeholder="Leave blank to score the payee"
             className="w-full rounded-md border border-zinc-500 px-3 py-2 font-mono text-sm"
           />
         </label>
@@ -86,16 +117,53 @@ export default function DashboardLookupPage() {
           disabled={loading}
           className={buttonClass()}
         >
-          {loading ? "Looking up..." : "Lookup score"}
+          {loading ? "Scoring..." : "Score"}
         </button>
       </form>
 
-      {error && <p className="text-sm text-red-600">{dashboardErrorMessage(error)}</p>}
+      {error && (
+        <p role="alert" aria-live="assertive" className="text-sm text-red-700">
+          {dashboardErrorMessage(error)}
+        </p>
+      )}
 
-      {result && (
+      {result && isPayee(result) && (
         <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Result</h3>
+            <h3 className="text-lg font-semibold">Payee score</h3>
+            <Badge value={result.recommendation} />
+          </div>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+            <Item label="Payee" value={result.payee} />
+            <Item label="Score" value={String(result.score)} />
+            <Item label="Data depth" value={result.dataDepth} />
+            <Item label="Degraded" value={result.degraded ? "yes" : "no"} />
+            <Item label="Receiving payments" value={String(result.signals.receiving.paymentCount)} />
+            <Item label="Wallet age (days)" value={String(result.signals.walletHealth.ageDays)} />
+            <Item
+              label="Drain pattern"
+              value={result.signals.drainPattern.detected ? "detected" : "none"}
+            />
+            <Item
+              label="Outcome adjustment"
+              value={String(result.signals.outcomeHistory.adjustment)}
+            />
+          </dl>
+          {result.signalsUnavailable.length > 0 && (
+            <p className="text-sm text-zinc-600">
+              Unread inputs: {result.signalsUnavailable.join(", ")}
+            </p>
+          )}
+          {result.signals.flags.length > 0 && (
+            <p className="text-sm text-zinc-600">Flags: {result.signals.flags.join(", ")}</p>
+          )}
+        </div>
+      )}
+
+      {result && !isPayee(result) && (
+        <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Payer score</h3>
             <Badge value={result.recommendation} />
           </div>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -106,31 +174,13 @@ export default function DashboardLookupPage() {
             <Item label="Manual override" value={result.manualOverride ? "yes" : "no"} />
             <Item label="Block reason" value={result.blockReason ?? "—"} />
             <Item label="Registered" value={result.signals.identity.registered ? "yes" : "no"} />
-            <Item label="Metadata URI" value={result.signals.identity.hasMetadataUri ? "yes" : "no"} />
-            <Item label="Feedback count" value={String(result.signals.reputation.feedbackCount)} />
-            <Item label="On-chain avg score" value={String(result.signals.reputation.onChainAvgScore)} />
             <Item label="Wallet age (days)" value={String(result.signals.wallet.ageDays)} />
             <Item
               label="x402 payments"
               value={String(result.signals.x402?.paymentCount ?? 0)}
             />
-            <Item
-              label="x402 score"
-              value={String(result.signals.x402?.score ?? 50)}
-            />
             <Item label="Sybil risk" value={result.signals.sybil.risk} />
           </dl>
-          {result.dataCoverage && (
-            <p className="text-sm text-zinc-600">
-              Coverage: indexer {result.dataCoverage.ownerIndexer.status}
-              {result.dataCoverage.ownerIndexer.blocksBehind !== null
-                ? ` (${result.dataCoverage.ownerIndexer.blocksBehind} behind)`
-                : ""}
-              {" · "}
-              settlement rows {result.dataCoverage.settlement.paymentRows}
-              {result.dataCoverage.settlement.walletHasHistory ? " · wallet has history" : ""}
-            </p>
-          )}
           {result.signals.sybil.flags.length > 0 && (
             <p className="text-sm text-zinc-600">
               Flags: {result.signals.sybil.flags.join(", ")}
@@ -158,7 +208,7 @@ function Badge({ value }: { value: string }) {
 function Item({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-zinc-500">{label}</dt>
+      <dt className="text-zinc-600">{label}</dt>
       <dd className="font-mono text-zinc-900">{value}</dd>
     </div>
   );

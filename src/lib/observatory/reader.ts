@@ -23,6 +23,7 @@ import {
 } from "@/lib/db/schema";
 import { publishedVerdict, MIN_CONSECUTIVE_FAILS_TO_PUBLISH } from "./l0-probe";
 import { chainLabel, isTestnet } from "./chains";
+import type { ObservatoryQuery, ObservatoryVerdict } from "./query";
 
 export type ObservatoryListRow = {
   id: string;
@@ -51,10 +52,13 @@ export type ObservatoryOverview = {
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function getObservatoryOverview(
-  options: { page?: number; pageSize?: number } = {},
+  options: Partial<ObservatoryQuery> = {},
 ): Promise<ObservatoryOverview> {
-  const pageSize = Math.min(Math.max(options.pageSize ?? 100, 1), 200);
+  const pageSize = Math.min(Math.max(options.pageSize ?? 40, 1), 100);
   const page = Math.max(options.page ?? 1, 1);
+  const q = options.q ?? null;
+  const network = options.network ?? null;
+  const verdict = (options.verdict ?? null) as ObservatoryVerdict | null;
   const db = getDb();
   const empty: ObservatoryOverview = {
     rows: [],
@@ -65,29 +69,61 @@ export async function getObservatoryOverview(
   };
   if (!db) return empty;
 
-  try {
-    const [countRow] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(x402Endpoints);
-    const totalEndpoints = countRow?.n ?? 0;
+  const like = q ? `%${q}%` : null;
+  const filters = sql`
+    ${like ? sql`AND e.resource_key ILIKE ${like}` : sql``}
+    ${network ? sql`AND e.network = ${network}` : sql``}
+    ${
+      verdict
+        ? sql`AND (
+            CASE
+              WHEN (lp.verdicts)[1] = 'pass' THEN 'pass'
+              WHEN (
+                SELECT count(*) FROM unnest(lp.verdicts) WITH ORDINALITY AS u(x, n)
+                WHERE n <= ${MIN_CONSECUTIVE_FAILS_TO_PUBLISH} AND x = 'fail'
+              ) = ${MIN_CONSECUTIVE_FAILS_TO_PUBLISH} THEN 'fail'
+              ELSE 'unverified'
+            END
+          ) = ${verdict}`
+        : sql``
+    }
+  `;
 
-    // Recent-verdicts lateral: only for the rows on this page, newest first,
-    // just enough (2) for the publication gate.
+  const lateral = sql`
+    LEFT JOIN LATERAL (
+      SELECT array_agg(v.verdict) AS verdicts, max(v.probed_at) AS last_probed_at
+      FROM (
+        SELECT verdict, probed_at FROM x402_l0_probes p
+        WHERE p.endpoint_id = e.id
+        ORDER BY probed_at DESC
+        LIMIT ${MIN_CONSECUTIVE_FAILS_TO_PUBLISH}
+      ) v
+    ) lp ON true
+  `;
+
+  try {
+    const countRaw = await db.execute(sql`
+      SELECT count(*)::int AS n
+      FROM x402_endpoints e
+      ${lateral}
+      WHERE true
+      ${filters}
+    `);
+    const countList = (Array.isArray(countRaw) ? countRaw : (countRaw as { rows?: unknown[] }).rows ?? []) as Record<
+      string,
+      unknown
+    >[];
+    const totalEndpoints = Number(countList[0]?.n ?? 0);
+
     const raw = await db.execute(sql`
       SELECT e.id, e.resource_key, e.network, e.method, e.status,
              e.quality_calls_30d,
              lp.verdicts AS verdicts,
              lp.last_probed_at AS last_probed_at
       FROM x402_endpoints e
-      LEFT JOIN LATERAL (
-        SELECT array_agg(v.verdict) AS verdicts, max(v.probed_at) AS last_probed_at
-        FROM (
-          SELECT verdict, probed_at FROM x402_l0_probes p
-          WHERE p.endpoint_id = e.id
-          ORDER BY probed_at DESC
-          LIMIT ${MIN_CONSECUTIVE_FAILS_TO_PUBLISH}
-        ) v
-      ) lp ON true
+      ${lateral}
+      WHERE true
+      ${filters}
       ORDER BY e.quality_calls_30d DESC NULLS LAST, e.resource_key ASC
       LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
     `);

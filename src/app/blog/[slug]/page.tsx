@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { getAllPosts, getPostBySlug } from "@/lib/blog";
 import { SITE_URL } from "@/lib/site-url";
 import { safeJsonLd } from "@/lib/util/json-ld";
-import { breadcrumbJsonLd } from "@/lib/seo";
+import { pageMetadata, breadcrumbJsonLd, publisherOrg } from "@/lib/seo";
 
 export function generateStaticParams() {
   return getAllPosts().map((post) => ({ slug: post.slug }));
@@ -20,29 +20,14 @@ export async function generateMetadata({
   const post = getPostBySlug(slug);
   if (!post) return {};
 
-  return {
-    // 2026-08-13 UX監査2巡目 [m2]: ここで " — vet402" を足したうえに、
-    // layout の template "%s | vet402" が更に足していたので、タブは
-    // 「… — vet402 | vet402」になっていた。接尾辞は template の1本だけにする。
+  return pageMetadata({
     title: post.title,
     description: post.description,
-    alternates: { canonical: `${SITE_URL}/blog/${post.slug}` },
-    openGraph: {
-      type: "article",
-      title: post.title,
-      description: post.description,
-      url: `${SITE_URL}/blog/${post.slug}`,
-      siteName: "vet402",
-      publishedTime: post.publishedAt,
-      modifiedTime: post.updatedAt,
-    },
-    // 2026-08-14: twitter を未設定のままだと layout 既定（LP の題名）が出る。
-    twitter: {
-      card: "summary_large_image",
-      title: post.title,
-      description: post.description,
-    },
-  };
+    path: `/blog/${post.slug}`,
+    ogType: "article",
+    publishedTime: post.publishedAt,
+    modifiedTime: post.updatedAt,
+  });
 }
 
 export default async function BlogPostPage({
@@ -68,7 +53,7 @@ export default async function BlogPostPage({
     author: { "@type": "Organization", name: "vet402", url: SITE_URL },
     image: `${SITE_URL}/opengraph-image.png`,
     mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}/blog/${post.slug}` },
-    publisher: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    publisher: publisherOrg(),
     url: `${SITE_URL}/blog/${post.slug}`,
   };
   const breadcrumb = breadcrumbJsonLd([
@@ -78,53 +63,74 @@ export default async function BlogPostPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6 p-8">
-      <script
-        type="application/ld+json"
-        nonce={nonce}
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
-      />
-      <script
-        type="application/ld+json"
-        nonce={nonce}
-        // Browsers blank the reflected `nonce` attribute right after the
-        // element is inserted (a CSP anti-exfiltration measure), which
-        // otherwise trips a harmless React hydration-mismatch warning here.
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
-      />
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          // Browsers blank the reflected `nonce` attribute right after the
+          // element is inserted (a CSP anti-exfiltration measure), which
+          // otherwise trips a harmless React hydration-mismatch warning here.
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
+        />
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">vet402</p>
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">{post.title}</h1>
-        <p className="text-sm text-zinc-500">
-          Published {post.publishedAt}
-          {post.updatedAt !== post.publishedAt ? ` · Updated ${post.updatedAt}` : ""}
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>Independent Measurement</span>
+            <span>Note</span>
+            <span>
+              Published <span className="text-signal">{post.publishedAt}</span>
+            </span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>x402 Economy</span>
+            <span>
+              {post.updatedAt !== post.publishedAt ? `Updated ${post.updatedAt}` : "August 2026"}
+            </span>
+          </div>
+        </div>
+
+        <h1 className="doc-title mt-10">{post.title}</h1>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        {post.editorsNote ? (
+          <p className="doc-note mt-8">{post.editorsNote}</p>
+        ) : null}
+
+        <div className="mt-8 space-y-4 text-brand">
+          {post.body.map((paragraph, i) => (
+            <p key={i} className="doc-p">
+              {paragraph}
+            </p>
+          ))}
+        </div>
+
+        <p className="mt-10 text-[0.8125rem]">
+          <Link href="/blog" className="doc-link">
+            All posts
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/docs/api" className="doc-link">
+            API reference
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/signup" className="doc-link">
+            Get an API key
+          </Link>
         </p>
-      </div>
-
-      {post.editorsNote ? (
-        <p className="text-sm italic text-zinc-500">{post.editorsNote}</p>
-      ) : null}
-
-      <article className="space-y-4 text-zinc-700 leading-relaxed">
-        {post.body.map((paragraph, i) => (
-          <p key={i}>{paragraph}</p>
-        ))}
       </article>
-
-      <div className="flex flex-wrap gap-3 border-t border-zinc-200 pt-6 text-sm">
-        <Link href="/blog" className="underline">
-          All posts
-        </Link>
-        <Link href="/docs/api" className="underline">
-          API reference
-        </Link>
-        <Link href="/signup" className="underline">
-          Get an API key
-        </Link>
-      </div>
     </main>
   );
 }

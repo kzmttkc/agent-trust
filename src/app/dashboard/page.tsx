@@ -52,7 +52,7 @@ export default function DashboardOverviewPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold">Overview</h2>
-        <p className="text-sm text-zinc-600">Monitor usage and plan limits for your API key.</p>
+        <p className="text-sm text-zinc-600">This month&apos;s quota, and what to do next.</p>
       </div>
 
       {noLookupsYet && <FirstCallGuide hasKey={Boolean(data.apiKey)} />}
@@ -79,28 +79,43 @@ export default function DashboardOverviewPage() {
       <div className="rounded-xl border border-zinc-200 bg-white p-5">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-medium text-zinc-700">Monthly quota</span>
-          <span className="text-zinc-500">{usagePct}%</span>
+          <span className="text-zinc-600">{usagePct}%</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
           <div className="h-full rounded-full bg-zinc-900" style={{ width: `${usagePct}%` }} />
         </div>
-        <p className="mt-2 text-xs text-zinc-500">Period: {data.usage.period}</p>
+        <p className="mt-2 text-xs text-zinc-600">Period: {data.usage.period}</p>
+        {data.usage.remaining <= Math.max(50, Math.floor(data.usage.limit * 0.1)) && (
+          <p className="mt-2 text-sm text-zinc-700">
+            Quota is running low.{" "}
+            <Link href="/dashboard/billing" className="underline">
+              Upgrade on Billing
+            </Link>
+            .
+          </p>
+        )}
       </div>
 
       <div className="rounded-xl border border-zinc-200 bg-white p-5 text-sm text-zinc-700">
-        <p className="font-medium text-zinc-900">Channels</p>
+        <p className="font-medium text-zinc-900">Next</p>
         <ul className="mt-2 list-inside list-disc space-y-1">
+          <li>
+            <a className="underline" href="/dashboard/lookup">
+              Lookup
+            </a>{" "}
+            — score a wallet from this session
+          </li>
+          <li>
+            <a className="underline" href="/dashboard/billing">
+              Billing
+            </a>{" "}
+            — raise the monthly quota
+          </li>
           <li>
             <a className="underline" href="/dashboard/integrations">
               Integrations
             </a>{" "}
-            — API, MCP, x402 middleware
-          </li>
-          <li>
-            <a className="underline" href="/dashboard/settlements">
-              Settlements
-            </a>{" "}
-            — attested payment history
+            — REST, MCP, x402 middleware
           </li>
           <li>
             <a className="underline" href="/docs/api">
@@ -122,8 +137,8 @@ function FirstCallGuide({ hasKey }: { hasKey: boolean }) {
     typeof window !== "undefined"
       ? `${window.location.origin}/api/v1`
       : `${SITE_URL}/api/v1`;
-  const curl = `curl -H "Authorization: Bearer $VOUCH_API_KEY" \\
-  ${base}/wallets/0xd8da6bf26964af9d7eed9e03e53415d37aa96045/score`;
+  const curl = `curl -H "Authorization: Bearer $API_KEY" \\
+  ${base}/payees/0xd8da6bf26964af9d7eed9e03e53415d37aa96045/score`;
   return (
     <div className="rounded-xl border border-zinc-900/10 bg-zinc-900 p-5 text-zinc-100">
       <p className="text-sm font-semibold">Make your first score lookup</p>
@@ -148,6 +163,9 @@ function FirstCallGuide({ hasKey }: { hasKey: boolean }) {
         <Link href="/docs/api" className="text-white underline">
           API reference
         </Link>
+        <Link href="/dashboard/billing" className="text-white underline">
+          Billing
+        </Link>
       </div>
     </div>
   );
@@ -164,7 +182,7 @@ function Card({
 }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-zinc-600">{title}</p>
       <p className="mt-2 text-2xl font-semibold capitalize">{value}</p>
       <p className="mt-1 text-sm text-zinc-600">{subtitle}</p>
     </div>

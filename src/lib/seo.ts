@@ -18,6 +18,37 @@
 // ならないよう素のタイトルを OG に入れている）。
 import type { Metadata } from "next";
 import { SITE_URL } from "@/lib/site-url";
+import { SUPPORT_EMAIL } from "@/lib/support";
+
+export const TWITTER_SITE = "@vet_402";
+
+export const ORG_SAME_AS = [
+  "https://x.com/vet_402",
+  "https://github.com/kzmttkc/agent-trust",
+  "https://www.npmjs.com/package/@vouchscore/sdk",
+] as const;
+
+export function publisherOrg() {
+  return {
+    "@type": "Organization" as const,
+    name: "vet402",
+    url: SITE_URL,
+    logo: { "@type": "ImageObject" as const, url: `${SITE_URL}/brand/icon-512.png` },
+  };
+}
+
+export function organizationJsonLd(description: string) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "vet402",
+    url: SITE_URL,
+    description,
+    email: SUPPORT_EMAIL,
+    logo: `${SITE_URL}/brand/icon-512.png`,
+    sameAs: [...ORG_SAME_AS],
+  };
+}
 
 type PageMetaInput = {
   /** 接尾辞 " | vet402" を含まない素のページ名。<title> は layout の template が付ける。 */
@@ -27,6 +58,8 @@ type PageMetaInput = {
   path: string;
   /** OpenGraph の type。既定は "website"、記事は "article"。 */
   ogType?: "website" | "article";
+  publishedTime?: string;
+  modifiedTime?: string;
 };
 
 // BreadcrumbList の JSON-LD を組む（2026-08-14 AEO）。回答エンジン・検索が
@@ -50,23 +83,35 @@ export function pageMetadata({
   description,
   path,
   ogType = "website",
+  publishedTime,
+  modifiedTime,
 }: PageMetaInput): Metadata {
   const url = path === "/" ? SITE_URL : `${SITE_URL}${path}`;
   return {
     title,
     description,
-    alternates: { canonical: url },
+    alternates: {
+      canonical: url,
+      types: {
+        "application/rss+xml": `${SITE_URL}/blog/rss.xml`,
+      },
+    },
     openGraph: {
       title,
       description,
       url,
       type: ogType,
       siteName: "vet402",
+      locale: "en_US",
+      ...(ogType === "article" && publishedTime
+        ? { publishedTime, modifiedTime: modifiedTime ?? publishedTime }
+        : {}),
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
+      site: TWITTER_SITE,
     },
   };
 }

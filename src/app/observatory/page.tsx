@@ -6,6 +6,11 @@ import { safeJsonLd } from "@/lib/util/json-ld";
 import { SITE_URL } from "@/lib/site-url";
 import { TableScroll } from "@/components/site/TableScroll";
 import { getObservatoryOverview } from "@/lib/observatory/reader";
+import {
+  parseObservatorySearchParams,
+  type ObservatoryQuery,
+} from "@/lib/observatory/query";
+import TrackView from "@/components/site/TrackView";
 
 /**
  * /observatory — the L0 fact table over the x402 catalog (design §5).
@@ -37,15 +42,32 @@ function fmtDate(d: Date | null): string {
   return d ? d.toISOString().slice(0, 16).replace("T", " ") + " UTC" : "—";
 }
 
+function observatoryHref(query: ObservatoryQuery, page: number): string {
+  const params = new URLSearchParams();
+  if (page > 1) params.set("page", String(page));
+  if (query.q) params.set("q", query.q);
+  if (query.verdict) params.set("verdict", query.verdict);
+  if (query.network) params.set("network", query.network);
+  const encoded = params.toString();
+  return encoded ? `/observatory?${encoded}` : "/observatory";
+}
+
 export default async function ObservatoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    q?: string;
+    verdict?: string;
+    network?: string;
+    pageSize?: string;
+  }>;
 }) {
   const params = await searchParams;
-  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
-  const overview = await getObservatoryOverview({ page });
+  const query = parseObservatorySearchParams(params);
+  const overview = await getObservatoryOverview(query);
   const totalPages = Math.max(1, Math.ceil(overview.totalEndpoints / overview.pageSize));
+  const page = overview.page;
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   // ItemList reflects only this page's rows — position accounts for the
@@ -70,6 +92,7 @@ export default async function ObservatoryPage({
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <TrackView event="observatory_view" />
       <article className="sheet">
         <script
           type="application/ld+json"
@@ -108,7 +131,7 @@ export default async function ObservatoryPage({
                 Methodology
               </Link>
             </span>
-            <span>No purchases attached · facts only</span>
+            <span>Table: L0. L1 is on each endpoint page</span>
           </div>
         </div>
 
@@ -120,16 +143,61 @@ export default async function ObservatoryPage({
           <p className="min-w-0 max-w-[62ch] text-brand">
             Every endpoint in the public x402 discovery catalog, observed daily: is it still
             listed, and does its payment wall answer a valid <code>402</code> challenge when
-            approached with the method it declares. No purchase is ever attached; the challenge
-            itself is the observable. <strong>pass / fail / unverified</strong> are defined
-            measurements, not opinions —{" "}
+            approached with the method it declares. This table is L0: no purchase is attached; the
+            challenge itself is the observable. L1 settle-through purchases, when made, are on each
+            endpoint&apos;s page — they are not mixed into these cells.{" "}
+            <strong>pass / fail / unverified</strong> are defined measurements, not opinions —{" "}
             <Link href="/observatory/methodology" className="underline">
               definitions here
             </Link>
             . <em>unverified is not a failure</em>: it means the catalog entry does not declare
-            enough for a machine to check.
+            enough for a machine to check. No account. To verify a payee before you pay,{" "}
+            <Link href="/payee" className="underline">
+              verify a payee
+            </Link>
+            ; a key is only for the score API.
           </p>
         </div>
+
+        <form method="get" action="/observatory" className="mt-8 border-t border-brand-deep pt-6">
+          <p className="doc-caption">Find an endpoint</p>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <label className="block min-w-0 flex-1 text-[0.8125rem]">
+              <span className="doc-caption block">Contains</span>
+              <input
+                name="q"
+                type="search"
+                defaultValue={query.q ?? ""}
+                className="mt-1 w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 text-brand-deep"
+              />
+            </label>
+            <label className="block text-[0.8125rem]">
+              <span className="doc-caption block">L0</span>
+              <select
+                name="verdict"
+                defaultValue={query.verdict ?? ""}
+                className="mt-1 rounded-[2px] border border-brand-lift bg-paper px-3 py-2 text-brand-deep"
+              >
+                <option value="">any</option>
+                <option value="pass">pass</option>
+                <option value="fail">fail</option>
+                <option value="unverified">unverified</option>
+              </select>
+            </label>
+            <label className="block min-w-[16ch] text-[0.8125rem]">
+              <span className="doc-caption block">Network</span>
+              <input
+                name="network"
+                defaultValue={query.network ?? ""}
+                placeholder="eip155:8453"
+                className="mt-1 w-full rounded-[2px] border border-brand-lift bg-paper px-3 py-2 text-brand-deep placeholder:text-brand-lift"
+              />
+            </label>
+            <button type="submit" className="text-[0.8125rem] text-brand-deep underline">
+              Apply
+            </button>
+          </div>
+        </form>
 
         <h2 className="sec-head">
           <span className="sec-no">1.</span>
@@ -142,8 +210,9 @@ export default async function ObservatoryPage({
 
         {overview.rows.length === 0 ? (
           <p className="doc-p text-brand-lift">
-            No observations yet. The first catalog ingest populates this table; measurements
-            accumulate daily after that.
+            {query.q || query.verdict || query.network
+              ? "No endpoints match those filters."
+              : "No observations yet. The first catalog ingest populates this table; measurements accumulate daily after that."}
           </p>
         ) : (
           <TableScroll label="L0 observations over catalog endpoints">
@@ -189,14 +258,17 @@ export default async function ObservatoryPage({
           </TableScroll>
         )}
 
-        <nav aria-label="Observatory pages" className="doc-p flex gap-4">
+        <nav aria-label="Observatory pages" className="doc-p flex flex-wrap items-center gap-x-4 gap-y-2">
           {page > 1 && (
-            <Link href={`/observatory?page=${page - 1}`} className="underline">
+            <Link href={observatoryHref(query, page - 1)} className="underline">
               ← Previous
             </Link>
           )}
+          <span>
+            Page {page} of {totalPages}
+          </span>
           {page < totalPages && (
-            <Link href={`/observatory?page=${page + 1}`} className="underline">
+            <Link href={observatoryHref(query, page + 1)} className="underline">
               Next →
             </Link>
           )}
@@ -217,6 +289,17 @@ export default async function ObservatoryPage({
           <code>unverified</code> — not enough declared to measure, or the evidence threshold is
           not yet met. A day on which our own fetch was incomplete produces no delisting
           judgements at all.
+        </p>
+        <p className="doc-p">
+          <Link href="/payee" className="underline">
+            Verify a payee
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/signup" className="underline">
+            Get an API key
+          </Link>
         </p>
       </article>
     </main>

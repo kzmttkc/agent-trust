@@ -34,45 +34,71 @@ export default async function BlogIndexPage() {
   ]);
 
   return (
-    <main className="mx-auto max-w-3xl space-y-8 p-8">
-      <script
-        type="application/ld+json"
-        nonce={nonce}
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }}
-      />
-      <script
-        type="application/ld+json"
-        nonce={nonce}
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
-      />
-      <div className="space-y-2">
-        <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">vet402</p>
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">Blog</h1>
-        <p className="text-zinc-600">Notes on agent-to-agent payments, x402, and trust scoring on Base.</p>
-      </div>
+    <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <article className="sheet">
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+        <div className="doc-head">
+          <div className="doc-head-col">
+            <span>Independent Measurement</span>
+            <span>Notes</span>
+            <span>
+              Entries: <span className="text-signal">{posts.length}</span>
+            </span>
+          </div>
+          <div className="doc-head-col">
+            <span>vet402</span>
+            <span>x402 Economy</span>
+            <span>August 2026</span>
+          </div>
+        </div>
 
-      <ul className="space-y-6">
-        {posts.map((post) => (
-          <li key={post.slug} className="rounded-lg border border-zinc-200 bg-white p-5">
-            <Link href={`/blog/${post.slug}`} className="text-lg font-semibold text-zinc-900 hover:underline">
-              {post.title}
-            </Link>
-            <p className="mt-1 text-sm text-zinc-500">{post.publishedAt}</p>
-            <p className="mt-2 text-sm text-zinc-600">{post.description}</p>
-          </li>
-        ))}
-      </ul>
+        <h1 className="doc-title mt-10">Blog</h1>
+        <p className="mx-auto mt-3 max-w-[56ch] text-center text-brand-lift">
+          Notes on agent-to-agent payments, x402, and trust scoring on Base.
+        </p>
+        <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
 
-      <div className="flex flex-wrap gap-3 text-sm">
-        <Link href="/" className="underline">
-          Home
-        </Link>
-        <Link href="/docs/api" className="underline">
-          API reference
-        </Link>
-      </div>
+        <ul className="mt-10 border-t border-brand-deep">
+          {posts.map((post) => (
+            <li key={post.slug} className="border-b border-hair py-6">
+              <Link href={`/blog/${post.slug}`} className="doc-link text-[1.0625rem]">
+                {post.title}
+              </Link>
+              <p className="doc-note mt-1">{post.publishedAt}</p>
+              <p className="doc-p mt-2">{post.description}</p>
+            </li>
+          ))}
+        </ul>
+
+        <p className="mt-8 text-[0.8125rem]">
+          <Link href="/" className="doc-link">
+            Home
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/docs/api" className="doc-link">
+            API reference
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <a href="/blog/rss.xml" className="doc-link">
+            RSS
+          </a>
+        </p>
+      </article>
     </main>
   );
 }

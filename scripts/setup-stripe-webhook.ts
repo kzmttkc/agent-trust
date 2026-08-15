@@ -10,6 +10,7 @@ const EVENTS: Stripe.WebhookEndpointCreateParams.EnabledEvent[] = [
   "checkout.session.completed",
   "customer.subscription.updated",
   "customer.subscription.deleted",
+  "invoice.payment_failed",
 ];
 
 async function main() {

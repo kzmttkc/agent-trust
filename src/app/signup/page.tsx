@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
+import { dashboardErrorMessage } from "@/lib/dashboard/errors";
 import { track } from "@/lib/analytics";
 import { signupAction, type SignupState } from "./actions";
 import { buttonClass } from "@/components/ui/Button";
@@ -55,6 +56,8 @@ function invalidFieldMessage(field: HTMLInputElement): string {
   // 将来ここに欄が増えた時に無言にならないための受け皿。ブラウザの文面をそのまま出す。
   return field.validationMessage || "Something in this form is not filled in correctly.";
 }
+
+const SAMPLE_WALLET = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
 
 export default function SignupPage() {
   const [inviteCode, setInviteCode] = useState("");
@@ -137,7 +140,7 @@ export default function SignupPage() {
         ? `${window.location.origin}/api/v1`
         : `${SITE_URL}/api/v1`;
     const curlExample = `curl -H "Authorization: Bearer ${apiKey}" \\
-  ${base}/wallets/0x1234567890123456789012345678901234567890/score`;
+  ${base}/payees/${SAMPLE_WALLET}/score`;
 
     return (
       <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
@@ -172,7 +175,8 @@ export default function SignupPage() {
             <span>Try your first lookup</span>
           </h2>
           <p className="doc-p">
-            Score any wallet address (replace the placeholder below with a real one):
+            Score any Base wallet. The address below is a public example — swap it for the payee
+            you are about to pay:
           </p>
           {/* 2026-08-13 全盲ペルソナ監査 R2: ここは素の <pre className="overflow-x-auto">
               だった。サイト内の他 24 個のコードブロックには role="region" +
@@ -189,15 +193,23 @@ export default function SignupPage() {
             code={curlExample}
           />
           <p className="doc-p">
-            Prefer the browser? Open any public{" "}
-            <Link href="/payee" className="doc-link">
+            Prefer the browser? Open a public{" "}
+            <Link href={`/payee/${SAMPLE_WALLET}`} className="doc-link">
               payee profile
-            </Link>{" "}
-            to see a live score, or read the{" "}
+            </Link>
+            , read the{" "}
             <Link href="/docs/api" className="doc-link">
               API reference
             </Link>
-            .
+            , or raise the quota on{" "}
+            <Link href="/dashboard/billing" className="doc-link">
+              Billing
+            </Link>{" "}
+            when Free is not enough. No second signup. Create a spare key on{" "}
+            <Link href="/dashboard/keys" className="doc-link">
+              API keys
+            </Link>{" "}
+            while this session is open — the secret is not recoverable later.
           </p>
           <div className="mt-8">
 
@@ -234,11 +246,11 @@ export default function SignupPage() {
             eyebrow の "Vouch" は削除した — craft-floor が kicker/eyebrow を
             明示的に禁じており、ワードマークは走り出しに既に在る。 */}
         <h1 className="doc-title mt-10 max-w-[42ch]">
-          Know if the other side of an x402 payment can be trusted — in one API call, before you
-          pay.
+          Score a payee before you pay — one API call.
         </h1>
         <p className="mx-auto mt-3 max-w-[56ch] text-center text-brand-lift">
-          Get an API key instantly. 1,000 score lookups per month on the Free plan.
+          A key is for programmatic lookups. The observatory and payee lookup stay public without
+          one. Free: 1,000 lookups a month. No card.
         </p>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
 
@@ -362,7 +374,7 @@ export default function SignupPage() {
             {formError.text}
           </p>
         ) : state.status === "error" && state.error ? (
-          <p role="alert" className="border-l-[3px] border-red-700 bg-red-50 px-4 py-3 text-[0.8125rem] text-red-800">{state.error.replaceAll("_", " ")}</p>
+          <p role="alert" className="border-l-[3px] border-red-700 bg-red-50 px-4 py-3 text-[0.8125rem] text-red-800">{dashboardErrorMessage(state.error)}</p>
         ) : null}
 
         {/* 2026-08-13 全盲ペルソナ監査 R2: 同意が前提であることを、送信して失敗する
@@ -394,6 +406,12 @@ export default function SignupPage() {
           Already have a key?{" "}
           <Link href="/dashboard/login" className="doc-link">
             Sign in
+          </Link>
+          <span aria-hidden="true" className="mx-2 text-brand-lift">
+            ·
+          </span>
+          <Link href="/observatory" className="doc-link">
+            Read measurements
           </Link>
         </p>
       </article>

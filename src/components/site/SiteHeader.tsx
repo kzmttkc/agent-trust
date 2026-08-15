@@ -25,12 +25,13 @@ import { Wordmark } from "@/components/site/Wordmark";
 type NavItem = { label: string; href: string };
 
 // 5項目まで。ヘッダの内寸は紙面と同じ幅に揃えてあり（下の max-w）、7項目では
-// 収まらない。Leaderboard と Blog はフッタの索引に載っているので、上には
-// 「読む・試す・繋ぐ」の主導線だけを置く。
+// 収まらない。Accuracy / Leaderboard / Blog はフッタの索引に載っているので、上には
+// 「読む・測る・試す・繋ぐ」の主導線だけを置く。観測所は公開の実測であり、
+// スコア帳 Accuracy より先に辿り着ける必要がある。
 const NAV_ITEMS: NavItem[] = [
   { label: "Method", href: "/#methodology" },
+  { label: "Observatory", href: "/observatory" },
   { label: "Verify", href: "/payee" },
-  { label: "Accuracy", href: "/accuracy" },
   { label: "Docs", href: "/docs/api" },
   { label: "FAQ", href: "/faq" },
 ];
@@ -41,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
 // [menu] には運営者への導線が1本も無かったので About（=運営者情報の Legal
 // Notice）を足す。新規ページは作らず既存の /legal/notice へ繋ぐだけ。
 const NAV_SECONDARY: NavItem[] = [
+  { label: "Accuracy", href: "/accuracy" },
   { label: "Leaderboard", href: "/leaderboard" },
   { label: "Blog", href: "/blog" },
   { label: "About", href: "/legal/notice" },

@@ -138,7 +138,12 @@ export default async function AccuracyPage() {
             matters is what happened <em>after</em> the verdict. Every score vet402 issues becomes a
             watched event: an on-chain detector and partner reports label what the wallet actually
             did next, and the aggregate is published here &mdash;{" "}
-            <strong>including the number that flatters us least.</strong>
+            <strong>including the number that flatters us least.</strong> This ledger is for
+            score verdicts (ALLOW / WARN / BLOCK), not observatory L0–L2 facts —{" "}
+            <Link href="/observatory" className="doc-link">
+              those live on the observatory
+            </Link>
+            .
           </p>
         </div>
 

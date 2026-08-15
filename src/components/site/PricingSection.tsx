@@ -12,6 +12,7 @@
  * external links point at it.
  */
 
+import Link from "next/link";
 import TrackedLink from "@/components/site/TrackedLink";
 import { TableScroll } from "@/components/site/TableScroll";
 import { BILLING_PLANS } from "@/lib/billing/plans";
@@ -117,8 +118,12 @@ export function PricingSection() {
           Get a free API key
         </TrackedLink>
         <p className="doc-note mt-4">
-          Paid tiers are upgraded from the dashboard once a key exists. No card is required to
-          start.
+          Paid tiers are upgraded from Billing once a key exists. No card is required to start.
+          Already have a key?{" "}
+          <Link href="/dashboard/billing" className="doc-link">
+            Open Billing
+          </Link>
+          .
         </p>
       </div>
     </section>

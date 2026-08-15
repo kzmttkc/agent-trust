@@ -44,6 +44,14 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      // llmstxt.org lives at /llms.txt. Some agents still probe
+      // /.well-known/llms.txt or /ai.txt; alias them rather than 404.
+      { source: "/.well-known/llms.txt", destination: "/llms.txt" },
+      { source: "/ai.txt", destination: "/llms.txt" },
+    ];
+  },
   // 2026-08-06 (JS-disabled / navigation audit): the header's "Pricing" item
   // points at the in-page anchor /#pricing, but developers type URLs directly
   // and inbound links get written as /pricing — which returned a hard 404. The

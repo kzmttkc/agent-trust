@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
+import { SITE_URL } from "@/lib/site-url";
 import { safeJsonLd } from "@/lib/util/json-ld";
+import TrackView from "@/components/site/TrackView";
 import {
   MIN_CONSECUTIVE_FAILS_TO_PUBLISH,
 } from "@/lib/observatory/l0-probe";
@@ -38,15 +40,34 @@ export default async function ObservatoryMethodologyPage() {
     { name: "Observatory", path: "/observatory" },
     { name: "Methodology", path: "/observatory/methodology" },
   ]);
+  const article = {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    headline: "Observatory methodology",
+    description:
+      "Definitions behind the x402 Observatory: L0 liveness probes, L1 real-money settle-through purchases, L2 structural conformance checks, and how delisting is detected.",
+    url: `${SITE_URL}/observatory/methodology`,
+    dateModified: "2026-08-15",
+    author: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    publisher: { "@type": "Organization", name: "vet402", url: SITE_URL },
+    inLanguage: "en",
+  };
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <TrackView event="methodology_view" />
       <article className="sheet">
         <script
           type="application/ld+json"
           nonce={nonce}
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumb) }}
+        />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(article) }}
         />
 
         <div className="doc-head">
@@ -68,6 +89,15 @@ export default async function ObservatoryMethodologyPage() {
 
         <h1 className="doc-title mt-10">What these measurements mean</h1>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
+
+        <div className="mt-8 flex flex-col gap-1 sm:flex-row sm:gap-0">
+          <p className="shrink-0 text-brand-deep sm:w-[10ch]">In 60 seconds</p>
+          <p className="min-w-0 max-w-[62ch] text-brand">
+            L0 asks whether the payment wall answers. L1 asks whether a real purchase settles. L2
+            asks whether the response matches the seller&apos;s declaration. Unverified is not a
+            failure. A 0–100 score is a different API and is never an L0–L2 result.
+          </p>
+        </div>
 
         <h2 className="sec-head">
           <span className="sec-no">1.</span>

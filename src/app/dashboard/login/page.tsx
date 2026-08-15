@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { markDashboardAuthenticated } from "@/lib/dashboard/client";
 import { dashboardErrorMessage } from "@/lib/dashboard/errors";
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
 import { track } from "@/lib/analytics";
 import { loginAction } from "./actions";
 import { buttonClass } from "@/components/ui/Button";
@@ -96,8 +97,16 @@ function LoginForm({ redirectError }: { redirectError: string | null }) {
           </Link>
           <h1 className="mt-1 text-2xl font-semibold text-zinc-900">Dashboard sign in</h1>
           <p className="mt-2 text-sm text-zinc-600">
-            Your API key is exchanged for a secure httpOnly session cookie. It is never stored in
-            the browser.
+            Paste the API key shown at signup. We keep a session cookie, not the key. Lost the key?
+            If this browser is still signed in, create a spare on{" "}
+            <a href="/dashboard/keys" className="font-medium text-zinc-900 underline">
+              API keys
+            </a>
+            . Otherwise email{" "}
+            <a href={SUPPORT_MAILTO} className="font-medium text-zinc-900 underline">
+              {SUPPORT_EMAIL}
+            </a>{" "}
+            from the address you used at signup.
           </p>
         </div>
 

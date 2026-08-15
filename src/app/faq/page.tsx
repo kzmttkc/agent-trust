@@ -7,6 +7,7 @@ import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
 // LP が Q1（x402 の定義）を引用するので、同じ文が2箇所に転記された状態を
 // 作らないため。中身は1文字も変えていない。
 import { FAQS } from "@/components/site/faq-data";
+import TrackView from "@/components/site/TrackView";
 
 export const metadata: Metadata = pageMetadata({
   title: "Frequently asked questions",
@@ -36,6 +37,7 @@ export default async function FaqPage() {
 
   return (
     <main className="px-4 pt-8 pb-4 sm:px-6 md:px-8 md:pt-12">
+      <TrackView event="faq_view" />
       <article className="sheet">
         <script
           type="application/ld+json"
@@ -71,7 +73,7 @@ export default async function FaqPage() {
 
         <h1 className="doc-title mt-10">Frequently asked questions</h1>
         <p className="mx-auto mt-3 max-w-[56ch] text-center text-brand-lift">
-          x402 payments, ERC-8004 identity, and how the verification behind vet402 is put together.
+          x402 payments, public measurements, and the score API.
         </p>
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
 
