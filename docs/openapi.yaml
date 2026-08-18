@@ -1165,6 +1165,43 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /api/badge/endpoint/{id}.svg:
+    get:
+      operationId: getEndpointReceiptBadge
+      tags: [Badges]
+      summary: Embeddable SVG receipt badge for one x402 endpoint
+      description: |
+        States the measured settlement of L1 real purchases against one
+        endpoint — e.g. "vet402: 3/5 settled" — for a seller to embed on their
+        own site. Facts only: no trust judgment and no green/red. The
+        denominator counts paid attempts only (settled / settle_failed /
+        delivered_no_receipt), the same definition the /observatory/state
+        aggregate uses, so this badge, the endpoint page, and the network
+        totals never disagree. An unknown or not-yet-measured endpoint renders
+        an honest "not yet measured" badge (still HTTP 200) rather than a
+        broken image. The `.svg` suffix is part of the path. 60 requests per
+        minute per IP; embeds are served from the CDN and rarely reach the
+        limiter.
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The endpoint's UUID (as shown on /observatory/e/{id}).
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: SVG badge (measured counts, or an honest not-yet-measured state)
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/health:
     get:
       operationId: getHealth
