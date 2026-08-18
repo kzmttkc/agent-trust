@@ -65,6 +65,26 @@ const nextConfig: NextConfig = {
         destination: "/#pricing",
         permanent: false,
       },
+      // 2026-08-19: note.com's link auto-embed (and its explicit "埋め込み"
+      // insert command) silently fails to build a card for any URL with a
+      // query string — verified by hand in the Sen note.com editor and
+      // already fixed the same way on Verilot (verilot.app/s/sen-note-a|b,
+      // 2026-08-16). Same bug, same fix here: a query-string-free short path
+      // that redirects to the real UTM-tagged destination, so note's embed
+      // fetcher can follow it and read the landed page's OGP tags while
+      // Plausible still sees the full utm_source/medium/campaign/content.
+      {
+        source: "/s/sen-note-a",
+        destination:
+          "/?utm_source=sen_note&utm_medium=cta&utm_campaign=vouch&utm_content=sen_note_a",
+        permanent: false,
+      },
+      {
+        source: "/s/sen-note-b",
+        destination:
+          "/?utm_source=sen_note&utm_medium=cta&utm_campaign=vouch&utm_content=sen_note_b",
+        permanent: false,
+      },
       // 2026-08-13 UX監査R1 [B2]: 旧 Vercel ドメイン
       // agent-trust-tawny.vercel.app が本番とバイト同一の複製を配信し続けて
       // いた（実測: HTTP 200、同じ HTML）。GitHub リポの homepage も当時そこを
