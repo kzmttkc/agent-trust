@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyMessage } from "viem";
+import { sql } from "drizzle-orm";
 import { getClientIp } from "@/lib/api/client-ip";
 import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { getDb } from "@/lib/db/client";
@@ -12,13 +13,13 @@ import { logServerError } from "@/lib/util/log";
 // payeeMessage to @/lib/verify-message so this route file no longer exports a
 // shared helper (Next 16 route-type contract — a route may only export handlers).
 import { isCanonicalName } from "@/lib/validation/canonical-name";
-import { isSafeBoundUrl, payeeMessage } from "@/lib/verify-message";
+import { isSafeBoundUrl, isValidIssuedAt, payeeMessage } from "@/lib/verify-message";
 
 // N-16 — payee self-verification. Sign the canonical message (payeeMessage,
 // @/lib/verify-message) with the payee wallet; a valid signature IS the proof of
-// control (EIP-191 via viem, which also handles smart accounts per EIP-6492 where
-// supported). No API key required: registering yourself as a payee should have
-// zero friction, and the signature requirement is the anti-abuse gate.
+// control (EIP-191 via viem — EOA wallets only). No API key required:
+// registering yourself as a payee should have zero friction, and the
+// signature requirement is the anti-abuse gate.
 
 const schema = z.object({
   wallet: z.string(),
@@ -26,8 +27,18 @@ const schema = z.object({
   // control chars, <= NAME_MAX_LENGTH. See isCanonicalName above for why.
   name: z.string().refine(isCanonicalName, { message: "invalid_name" }),
   url: z.string().url().max(200).optional(),
+  // 2026-08-18 (audit residual): the exact `issued` the caller signed. Required
+  // on writes so every registration carries a freshness timestamp; the GET
+  // preview mints one. Signatures without it (legacy shape) are refused.
+  issued: z.string().refine(isValidIssuedAt, { message: "invalid_issued_at" }),
   signature: z.string().max(4000),
 });
+
+// How far a client-supplied `issued` may drift from server time. Bounds both
+// directions: too old is a replayed stale signature, too far in the future
+// would let a signer "lock" the row against real future updates under the
+// monotonic guard below.
+const ISSUED_WINDOW_MS = 10 * 60_000;
 
 // Key-less path rate limits (item 1). The write path (POST) is stricter than
 // the read/preview path (GET), and POST additionally caps per-wallet churn so
@@ -68,7 +79,14 @@ export async function GET(request: NextRequest) {
     }
     url = urlParam;
   }
-  return NextResponse.json({ message: payeeMessage(wallet, name, url) }, { headers: rlHeaders });
+  // Mint `issued` here so a caller that signs-and-immediately-POSTs never
+  // constructs a timestamp itself. POST re-validates the freshness window
+  // server-side regardless of what the client echoes back.
+  const issued = new Date().toISOString();
+  return NextResponse.json(
+    { message: payeeMessage(wallet, name, url, issued), issued },
+    { headers: rlHeaders },
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -94,12 +112,15 @@ export async function POST(request: NextRequest) {
       { status: 400, headers: rlHeaders },
     );
   }
-  const { wallet, name, url, signature } = parsed.data;
+  const { wallet, name, url, issued, signature } = parsed.data;
   if (!isValidAddress(wallet)) {
     return NextResponse.json({ error: "invalid_wallet_address" }, { status: 400, headers: rlHeaders });
   }
   if (url && !isSafeBoundUrl(url)) {
     return NextResponse.json({ error: "url_must_be_https" }, { status: 400, headers: rlHeaders });
+  }
+  if (Math.abs(Date.now() - Date.parse(issued)) > ISSUED_WINDOW_MS) {
+    return NextResponse.json({ error: "signature_expired" }, { status: 400, headers: rlHeaders });
   }
 
   // Per-wallet write throttle (item 1): a valid signature proves control, but
@@ -119,33 +140,47 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const expectedMessage = payeeMessage(wallet, name, url, issued);
   let valid = false;
   try {
     valid = await verifyMessage({
       address: wallet as `0x${string}`,
-      message: payeeMessage(wallet, name, url),
+      message: expectedMessage,
       signature: signature as `0x${string}`,
     });
   } catch {
     valid = false;
   }
   if (!valid) {
-    return NextResponse.json(
-      { error: "signature_mismatch", expectedMessage: payeeMessage(wallet, name, url) },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "signature_mismatch", expectedMessage }, { status: 400 });
   }
 
   const db = getDb();
   if (!db) return NextResponse.json({ error: "store_unavailable" }, { status: 503 });
   try {
-    await db
+    // 2026-08-18 (audit residual): monotonic write in a single statement — the
+    // update branch only fires when the stored issued_at is NULL (pre-migration
+    // row) or strictly older than this signature's `issued`. Replaying an older
+    // still-valid signature (e.g. one scraped from the public profile/badge)
+    // can therefore never roll back a newer (name, url) correction or refresh
+    // verifiedAt on a stale claim. Check-then-write in two statements would
+    // reopen the TOCTOU class this repo has already been burned by.
+    const issuedDate = new Date(issued);
+    const rows = await db
       .insert(verifiedPayees)
-      .values({ wallet: wallet.toLowerCase(), name, url: url ?? null, signature })
+      .values({ wallet: wallet.toLowerCase(), name, url: url ?? null, signature, issuedAt: issuedDate })
       .onConflictDoUpdate({
         target: verifiedPayees.wallet,
-        set: { name, url: url ?? null, signature, verifiedAt: new Date() },
-      });
+        set: { name, url: url ?? null, signature, verifiedAt: new Date(), issuedAt: issuedDate },
+        // Bind the ISO string with an explicit cast: a bare JS Date binds
+        // through postgres-js as a locale string ("Tue Aug 18 2026 …") that
+        // is not a valid timestamp literal in the comparison.
+        setWhere: sql`${verifiedPayees.issuedAt} is null or ${verifiedPayees.issuedAt} < ${issued}::timestamptz`,
+      })
+      .returning();
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "stale_signature" }, { status: 409 });
+    }
     return NextResponse.json({
       ok: true,
       profile: `/payee/${wallet.toLowerCase()}`,

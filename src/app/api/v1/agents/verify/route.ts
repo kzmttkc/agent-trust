@@ -15,7 +15,8 @@ import { readCanonicalAgentWallet } from "@/lib/chain/agent-wallet";
 // live in lib now (@/lib/validation, @/lib/verify-message) so no route exports a
 // shared helper (Next 16 route-type contract).
 import { isCanonicalName } from "@/lib/validation/canonical-name";
-import { agentPassportMessage, isSafeBoundUrl } from "@/lib/verify-message";
+import { agentPassportMessage, isSafeBoundUrl, isValidIssuedAt } from "@/lib/verify-message";
+import { sql } from "drizzle-orm";
 import { logServerError } from "@/lib/util/log";
 
 // A-10 — agent passport self-verification, the symmetric twin of N-16
@@ -31,6 +32,9 @@ const schema = z.object({
   agentId: z.union([z.string(), z.number()]),
   name: z.string().refine(isCanonicalName, { message: "invalid_name" }),
   url: z.string().url().max(200).optional(),
+  // 2026-08-18 (audit residual): the exact `issued` the caller signed — see
+  // payees/verify for the full rationale. Required on writes.
+  issued: z.string().refine(isValidIssuedAt, { message: "invalid_issued_at" }),
   signature: z.string().max(4000),
 });
 
@@ -41,6 +45,7 @@ const GET_LIMIT = 30;
 const POST_IP_LIMIT = 8;
 const POST_AGENT_LIMIT = 4;
 const RL_WINDOW_MS = 60_000;
+const ISSUED_WINDOW_MS = 10 * 60_000;
 
 /**
  * Preview the exact canonical message to sign for (agentId, name). Resolves
@@ -86,11 +91,13 @@ export async function GET(request: NextRequest) {
     url = urlParam;
   }
 
+  const issued = new Date().toISOString();
   return NextResponse.json(
     {
       agentId: agentId.toString(),
       wallet: wallet.toLowerCase(),
-      message: agentPassportMessage(agentId, wallet, name, url),
+      message: agentPassportMessage(agentId, wallet, name, url, issued),
+      issued,
     },
     { headers: rlHeaders },
   );
@@ -117,13 +124,16 @@ export async function POST(request: NextRequest) {
       { status: 400, headers: rlHeaders },
     );
   }
-  const { name, url, signature } = parsed.data;
+  const { name, url, issued, signature } = parsed.data;
   const agentId = parseAgentId(String(parsed.data.agentId));
   if (agentId === null) {
     return NextResponse.json({ error: "invalid_agent_id" }, { status: 400, headers: rlHeaders });
   }
   if (url && !isSafeBoundUrl(url)) {
     return NextResponse.json({ error: "url_must_be_https" }, { status: 400, headers: rlHeaders });
+  }
+  if (Math.abs(Date.now() - Date.parse(issued)) > ISSUED_WINDOW_MS) {
+    return NextResponse.json({ error: "signature_expired" }, { status: 400, headers: rlHeaders });
   }
 
   // Per-agent write throttle: a valid signature proves control, but cap how
@@ -154,11 +164,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "agent_wallet_unbound" }, { status: 400, headers: rlHeaders });
   }
 
+  const expectedMessage = agentPassportMessage(agentId, wallet, name, url, issued);
   let valid = false;
   try {
     valid = await verifyMessage({
       address: wallet as `0x${string}`,
-      message: agentPassportMessage(agentId, wallet, name, url),
+      message: expectedMessage,
       signature: signature as `0x${string}`,
     });
   } catch {
@@ -166,7 +177,7 @@ export async function POST(request: NextRequest) {
   }
   if (!valid) {
     return NextResponse.json(
-      { error: "signature_mismatch", expectedMessage: agentPassportMessage(agentId, wallet, name, url) },
+      { error: "signature_mismatch", expectedMessage },
       { status: 400, headers: rlHeaders },
     );
   }
@@ -174,13 +185,23 @@ export async function POST(request: NextRequest) {
   const db = getDb();
   if (!db) return NextResponse.json({ error: "store_unavailable" }, { status: 503, headers: rlHeaders });
   try {
-    await db
+    // 2026-08-18 (audit residual): monotonic write in one statement — see
+    // payees/verify. The passport route is the one that publicly exposes
+    // {message, signature} key-less, which is exactly what makes this guard
+    // load-bearing here.
+    const issuedDate = new Date(issued);
+    const rows = await db
       .insert(agentPassports)
-      .values({ agentId, wallet: wallet.toLowerCase(), name, url: url ?? null, signature })
+      .values({ agentId, wallet: wallet.toLowerCase(), name, url: url ?? null, signature, issuedAt: issuedDate })
       .onConflictDoUpdate({
         target: agentPassports.agentId,
-        set: { wallet: wallet.toLowerCase(), name, url: url ?? null, signature, verifiedAt: new Date() },
-      });
+        set: { wallet: wallet.toLowerCase(), name, url: url ?? null, signature, verifiedAt: new Date(), issuedAt: issuedDate },
+        setWhere: sql`${agentPassports.issuedAt} is null or ${agentPassports.issuedAt} < ${issued}::timestamptz`,
+      })
+      .returning();
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "stale_signature" }, { status: 409, headers: rlHeaders });
+    }
     return NextResponse.json(
       {
         ok: true,

@@ -28,28 +28,48 @@ export const dynamic = "force-dynamic";
 const PASSPORT_LIMIT = 20;
 const PASSPORT_WINDOW_MS = 60_000;
 
+/**
+ * Reconstruct the exact message this row's signature was signed over, so a
+ * third party can re-run verifyMessage without trusting us. Rows accreted
+ * across three message shapes (pre-url, url-bound, and — 2026-08-18 — with an
+ * `issued` line), and the DB does not record which shape was signed. Prefer
+ * the most complete shape supported by the stored fields, then fall back
+ * through the older shapes, returning whichever the signature actually
+ * verifies against. A row's own `issued_at`/`url` gate which candidates are
+ * even attempted, so an empty field never invents a line.
+ */
 async function matchingPassportMessage(params: {
   agentId: bigint;
   wallet: string;
   name: string;
   url: string | null;
   signature: string;
+  issuedAt: Date | null;
 }): Promise<string> {
-  const legacy = agentPassportMessage(params.agentId, params.wallet, params.name);
-  if (!params.url) return legacy;
-  const bound = agentPassportMessage(params.agentId, params.wallet, params.name, params.url);
-  try {
-    const ok = await verifyMessage({
-      address: params.wallet as `0x${string}`,
-      message: bound,
-      signature: params.signature as `0x${string}`,
-    });
-    if (ok) return bound;
-  } catch {
-    // Fall through to the pre-url message so rows signed before url binding
-    // still verify for a third party.
+  const { agentId, wallet, name, url, signature, issuedAt } = params;
+  const candidates: string[] = [];
+  const issued = issuedAt?.toISOString();
+  if (issued && url) candidates.push(agentPassportMessage(agentId, wallet, name, url, issued));
+  if (issued) candidates.push(agentPassportMessage(agentId, wallet, name, undefined, issued));
+  if (url) candidates.push(agentPassportMessage(agentId, wallet, name, url));
+  candidates.push(agentPassportMessage(agentId, wallet, name));
+
+  for (const candidate of candidates) {
+    try {
+      const ok = await verifyMessage({
+        address: wallet as `0x${string}`,
+        message: candidate,
+        signature: signature as `0x${string}`,
+      });
+      if (ok) return candidate;
+    } catch {
+      // Try the next-simpler shape.
+    }
   }
-  return legacy;
+  // None verified (shouldn't happen for a row we wrote) — return the most
+  // complete shape so a reader sees the fields, and their own verify fails
+  // honestly rather than us hiding the mismatch.
+  return candidates[0];
 }
 
 export async function GET(
@@ -71,7 +91,14 @@ export async function GET(
 
   // 1+2. Identity claim + verification material (DB-only, always attempted).
   let identity:
-    | { name: string; url: string | null; wallet: string; signature: string; verifiedAt: Date | null }
+    | {
+        name: string;
+        url: string | null;
+        wallet: string;
+        signature: string;
+        verifiedAt: Date | null;
+        issuedAt: Date | null;
+      }
     | null = null;
   const db = getDb();
   if (db) {
@@ -88,6 +115,7 @@ export async function GET(
           wallet: rows[0].wallet,
           signature: rows[0].signature,
           verifiedAt: rows[0].verifiedAt,
+          issuedAt: rows[0].issuedAt,
         };
       }
     } catch {
@@ -149,6 +177,7 @@ export async function GET(
                 name: identity.name,
                 url: identity.url,
                 signature: identity.signature,
+                issuedAt: identity.issuedAt,
               }),
               signature: identity.signature,
               scheme: "eip191-personal-sign",

@@ -130,13 +130,21 @@ fixed:
   routes after the fact. Both fixes closed the same hole via different
   mechanisms; the version that landed first is what's live, and this
   document does not re-litigate which approach was "better" — it works.
-  **Deferred, not fixed:** signatures remain replayable indefinitely (no
-  nonce/timestamp/expiry) — an old still-valid signature can "refresh"
+  **Resolved 2026-08-18:** signatures used to be replayable indefinitely (no
+  nonce/timestamp/expiry) — an old still-valid signature could "refresh"
   `verifiedAt` on a stale claim, or roll back a corrected `name`/`url` to an
-  earlier value it was actually signed for (bounded now: replay can only
-  restore a value that was genuinely signed, not inject a new one). Left as a
-  residual below rather than forced in under time pressure on a second pass
-  of the same files.
+  earlier signed value. Fixed by binding an `issued` line into the signed
+  message (verify-message.ts), a ±10-minute freshness window checked in the
+  POST routes, and a single-statement monotonic DB write
+  (`onConflictDoUpdate ... setWhere issued_at IS NULL OR issued_at < $new`) on
+  both `verified_payees` and `agent_passports` — replaying an older signature
+  now returns `409 stale_signature`, never a rollback. Pre-migration rows
+  (`issued_at NULL`) stay third-party-verifiable: the passport read-path
+  reconstructs candidate message shapes newest-first and returns whichever the
+  stored signature verifies against. Migration
+  `scripts/sql/2026-08-18-signature-freshness.sql` (adds `issued_at` to both
+  tables; **apply to the `vouch` production database before/at deploy**).
+  Covered by `tests/verify-issued-monotonic.test.ts`.
 - **Quota consumed even when the request itself failed (High).**
   `applyRateLimit()`/`authorizeApiRequest()` reserves a unit before
   `scoreAgentById`/`scoreWallet`/`scorePayeeWallet` runs; an upstream failure
@@ -196,13 +204,12 @@ fixed:
 
 ### New residuals (Takeshi手番 / follow-up)
 
-- **Signature replay / freshness** (see above) — add a signed `issued`
-  timestamp plus a monotonic write guard (`WHERE issued_at IS NULL OR
-  issued_at < new`) so an old signature can never roll back a newer
-  correction. No schema migration is required if `verifiedAt` itself is
-  reused as the comparison value instead of adding a new column — worth
-  doing the next time `verify-message.ts` is touched, not as a standalone
-  change.
+- ~~**Signature replay / freshness**~~ **Resolved 2026-08-18** — signed
+  `issued` line + freshness window + single-statement monotonic write on both
+  passport tables. See the 2026-08-18 entry above. (Implemented with a
+  dedicated `issued_at` column rather than reusing `verifiedAt`, because
+  `verifiedAt` is set to `now()` on every write and so cannot double as the
+  monotonic comparison key.)
 - **`stripe_events` de-duplication table** — the `retrieve()` fix above closes
   the ordering bug; a dedicated idempotency table would additionally stop
   redundant reprocessing of retried deliveries. Not urgent (reprocessing is

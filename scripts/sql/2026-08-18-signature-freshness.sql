@@ -1,0 +1,16 @@
+-- Signature freshness / monotonic-write guard (audit residual, 2026-08-18).
+-- Safe to re-run:
+--   psql "$DATABASE_URL" -f scripts/sql/2026-08-18-signature-freshness.sql
+--
+-- The signed payee/agent-passport message gains an `issued` line. `issued_at`
+-- backs the monotonic-write guard in the verify POST routes: a write only
+-- applies when issued_at IS NULL (pre-migration row) or the new value is
+-- strictly newer, so replaying an older still-valid signature can never roll
+-- back a more recent correction. Existing rows keep issued_at NULL, which
+-- always loses to any new (issued-bearing) write.
+--
+-- Reminder (state/ALERTS.md 2026-08-14): production is the `vouch` database on
+-- the shared Neon host, NOT `/neondb`. Confirm with `select current_database()`
+-- before applying.
+ALTER TABLE verified_payees ADD COLUMN IF NOT EXISTS issued_at timestamptz;
+ALTER TABLE agent_passports ADD COLUMN IF NOT EXISTS issued_at timestamptz;

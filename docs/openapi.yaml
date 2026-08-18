@@ -187,11 +187,14 @@ paths:
       summary: Preview the canonical message to sign for payee verification
       description: |
         Returns the exact message a payee wallet must sign to register via
-        `POST /api/v1/payees/verify`. No API key; throttled to 30 requests per
-        minute per IP like the other key-less paths. The message is four lines
-        (wallet + name) or five when `url` is supplied — the URL is bound into
-        the signature so a published proof cannot overwrite the profile link.
-        Pass the same `url` query you will POST, or omit it for a name-only claim.
+        `POST /api/v1/payees/verify`, plus the `issued` timestamp embedded in
+        it (echo the same value back in the POST — the signature only verifies
+        against the exact message it signed). No API key; throttled to 30
+        requests per minute per IP like the other key-less paths. The message
+        binds wallet + name, optionally a `url` line (so a published proof
+        cannot overwrite the profile link), and an `issued` line (so an old
+        signature cannot be replayed to roll back a newer edit). `issued` must
+        be within 10 minutes of the server clock at POST time.
       security: []
       parameters:
         - name: wallet
@@ -216,6 +219,9 @@ paths:
                 type: object
                 properties:
                   message: { type: string }
+                  issued:
+                    type: string
+                    description: Echo this exact value back in the POST body.
         "400":
           $ref: "#/components/responses/BadRequest"
     post:
@@ -225,12 +231,15 @@ paths:
       description: |
         Free, no API key. Sign the message from `GET /api/v1/payees/verify` (or
         build it yourself per that endpoint's description) with the payee
-        wallet — a valid EIP-191 signature (EIP-6492 for smart accounts) is
-        the proof of control and is the main anti-abuse gate, backed by an
-        8-per-minute-per-IP write throttle. Publishes a
-        public profile at `/payee/{wallet}` and an embeddable SVG badge at
-        `/api/badge/{wallet}.svg`. Verification proves wallet control only;
-        trust scores stay computed independently.
+        wallet — a valid EIP-191 signature is the proof of control and the
+        main anti-abuse gate, backed by an 8-per-minute-per-IP write throttle
+        (EOA wallets only). Publishes a public profile at `/payee/{wallet}`
+        and an embeddable SVG badge at `/api/badge/{wallet}.svg`. Verification
+        proves wallet control only; trust scores stay computed independently.
+
+        `url` and `issued` are part of the signed bytes. Writes are monotonic
+        on `issued`: replaying an older still-valid signature returns `409
+        stale_signature` instead of rolling back a newer (name, url) edit.
       security: []
       requestBody:
         required: true
@@ -238,11 +247,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [wallet, name, signature]
+              required: [wallet, name, issued, signature]
               properties:
                 wallet: { type: string }
                 name: { type: string, maxLength: 80 }
                 url: { type: string, format: uri, description: "Must be https://" }
+                issued:
+                  type: string
+                  description: The exact `issued` value from GET (or self-generated, within 10 minutes of now).
                 signature: { type: string, maxLength: 4000 }
       responses:
         "200":
@@ -258,8 +270,10 @@ paths:
         "400":
           description: |
             Bad request — includes `invalid_wallet_address`, `url_must_be_https`,
-            and `signature_mismatch` (whose response body also carries
-            `expectedMessage`, so a rejected signature is self-diagnosing).
+            `invalid_issued_at`, `signature_expired` (issued outside the
+            10-minute window), and `signature_mismatch` (whose response body
+            also carries `expectedMessage`, so a rejected signature is
+            self-diagnosing).
           content:
             application/json:
               schema:
@@ -269,6 +283,10 @@ paths:
                   expectedMessage:
                     type: string
                     description: Present only on signature_mismatch.
+        "409":
+          description: |
+            `stale_signature` — the signed `issued` is not newer than the
+            currently stored one, so the write was rejected (replay guard).
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -863,9 +881,11 @@ paths:
       description: |
         Returns the exact message the agent's on-chain wallet must sign to
         register a passport, with that wallet resolved from the ERC-8004
-        registry. Five lines, or six when `url` is supplied — the URL is bound
-        into the signature. Pass the same `url` query you will POST, or omit
-        it for a name-only claim. Key-less; 30 requests per minute per IP.
+        registry, plus the `issued` timestamp embedded in it (echo it back in
+        the POST). The message binds agentId + wallet + name, optionally a
+        `url` line, and an `issued` line (replay guard). `issued` must be
+        within 10 minutes of the server clock at POST time. Key-less; 30
+        requests per minute per IP.
       security: []
       parameters:
         - name: agentId
@@ -888,11 +908,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [agentId, wallet, message]
+                required: [agentId, wallet, message, issued]
                 properties:
                   agentId: { type: string }
                   wallet: { type: string }
                   message: { type: string }
+                  issued:
+                    type: string
+                    description: Echo this exact value back in the POST body.
         "400":
           description: |
             `invalid_agent_id`, `invalid_name`, or `agent_wallet_unbound` — the
@@ -914,7 +937,9 @@ paths:
         signature means "this agent", not merely "some wallet". Two throttles
         apply: 8 requests per minute per IP, and 4 per minute per agentId (a
         valid signature proves control, but one agent may not re-register
-        without limit).
+        without limit). `url` and `issued` are part of the signed bytes;
+        writes are monotonic on `issued` (an older signature returns `409
+        stale_signature` rather than rolling back a newer edit).
       security: []
       requestBody:
         required: true
@@ -922,11 +947,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [agentId, name, signature]
+              required: [agentId, name, issued, signature]
               properties:
                 agentId: { type: string }
                 name: { type: string, maxLength: 80 }
                 url: { type: string, format: uri, description: "Must be https://" }
+                issued:
+                  type: string
+                  description: The exact `issued` value from GET (or self-generated, within 10 minutes of now).
                 signature: { type: string, maxLength: 4000 }
       responses:
         "200":

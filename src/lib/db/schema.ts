@@ -415,6 +415,12 @@ export const verifiedPayees = pgTable(
     url: text("url"),
     signature: text("signature").notNull(),
     verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow(),
+    // 2026-08-18 (audit residual): the `issued` value embedded in the signed
+    // message. Enforced monotonic on write (verify POST) so replaying an
+    // older still-valid signature can never roll back a newer correction or
+    // refresh verifiedAt on a stale claim. Nullable: pre-migration rows have
+    // no issued_at and always lose to any newer write.
+    issuedAt: timestamp("issued_at", { withTimezone: true }),
   },
 );
 
@@ -442,6 +448,9 @@ export const agentPassports = pgTable(
     url: text("url"),
     signature: text("signature").notNull(),
     verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow(),
+    // 2026-08-18 (audit residual): see verifiedPayees.issuedAt — same
+    // monotonic-write guard, symmetric twin.
+    issuedAt: timestamp("issued_at", { withTimezone: true }),
   },
   (t) => [index("agent_passports_wallet_idx").on(t.wallet)],
 );
