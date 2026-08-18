@@ -72,7 +72,7 @@ test("Organization sameAs includes the other public identities", () => {
   const home = read("src/app/page.tsx");
   const seo = read("src/lib/seo.ts");
   const blob = home + seo;
-  assert.ok(blob.includes("https://github.com/kzmttkc/agent-trust"));
+  assert.ok(blob.includes("https://github.com/kzmttkc/vet402"));
   assert.ok(blob.includes("https://www.npmjs.com/package/@vouchscore/sdk"));
   assert.ok(blob.includes("https://x.com/vet_402"));
 });
