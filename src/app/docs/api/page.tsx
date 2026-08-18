@@ -378,13 +378,36 @@ export default async function ApiDocsPage() {
       <section id="quickstart" className="scroll-mt-32 space-y-3">
         <h2 className="sec-head">Quickstart</h2>
         <p className="text-sm text-brand">
-          Two of these need no account, no key and no signature &mdash; paste them into a terminal
-          as they are.
+          The first three need no account, no key and no signature &mdash; paste them into a
+          terminal as they are. The first one returns real on-chain receipts.
         </p>
 
         <div>
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
-            1 &mdash; The public accuracy ledger (no key)
+            1 &mdash; What happened when we actually paid an endpoint (no key)
+          </p>
+          <CodeBlock
+            label="curl: read an endpoint's real purchase receipts"
+            code={`curl "${SITE_URL}/api/v1/observatory/endpoints/521e929e-5f89-4603-a964-d1812caf118f/purchases"`}
+          />
+          <TryItPanel
+            path="/api/v1/observatory/endpoints/521e929e-5f89-4603-a964-d1812caf118f/purchases"
+            label="GET /api/v1/observatory/endpoints/{id}/purchases"
+          />
+          <p className="mt-1 text-sm text-brand-lift">
+            n paid attempts, m settled, each settled row carrying its on-chain{" "}
+            <code className="text-brand-deep">txHash</code>. This is the record vet402 exists to
+            keep. Swap the id for any endpoint on{" "}
+            <Link href="/observatory" className="doc-link">
+              the observatory
+            </Link>
+            .
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
+            2 &mdash; The public accuracy ledger (no key)
           </p>
           <CodeBlock
             label="curl: read the public accuracy ledger"
@@ -402,7 +425,7 @@ export default async function ApiDocsPage() {
 
         <div>
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
-            2 &mdash; The exact message a payee has to sign (no key)
+            3 &mdash; The exact message a payee has to sign (no key)
           </p>
           <CodeBlock
             label="curl: preview the canonical payee-verify message"
@@ -422,7 +445,7 @@ export default async function ApiDocsPage() {
 
         <div>
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-brand-lift">
-            3 &mdash; Score a payee before paying it (key required)
+            4 &mdash; Score a payee before paying it (key required)
           </p>
           <CodeBlock
             label="curl: score a payee wallet"
