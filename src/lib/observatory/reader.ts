@@ -302,6 +302,85 @@ export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
   }
 }
 
+export type EndpointPurchases = {
+  endpointId: string;
+  resourceKey: string;
+  resourceUrl: string;
+  network: string | null;
+  status: string;
+  /** Full L1 series, newest first — every row including settle_failed (facts, not wins). */
+  purchases: NonNullable<EndpointDetail>["purchases"];
+  attemptCount: number;
+  settledCount: number;
+  /** settled/attempts to one decimal; null when there are no attempts (0/0 is not a rate). */
+  settleRatePct: number | null;
+} | null;
+
+/**
+ * The receipt series for one endpoint, as data (要件定義v2 2026-08-14 §2.1-1).
+ * Same facts the /observatory/e/[id] page renders — aggregation lives HERE so
+ * the page and the public API can never disagree. Returns null for an unknown
+ * id and for a malformed id (never touches the DB on the latter).
+ */
+export async function getEndpointPurchases(id: string): Promise<EndpointPurchases> {
+  if (!uuidRe.test(id)) return null;
+  const db = getDb();
+  if (!db) return null;
+
+  try {
+    const [e] = await db
+      .select({
+        id: x402Endpoints.id,
+        resourceKey: x402Endpoints.resourceKey,
+        resourceUrl: x402Endpoints.resourceUrl,
+        network: x402Endpoints.network,
+        status: x402Endpoints.status,
+      })
+      .from(x402Endpoints)
+      .where(eq(x402Endpoints.id, id))
+      .limit(1);
+    if (!e) return null;
+
+    let purchases: NonNullable<EndpointDetail>["purchases"] = [];
+    try {
+      purchases = await db
+        .select({
+          attemptedAt: x402L1Purchases.attemptedAt,
+          status: x402L1Purchases.status,
+          amountUnits: x402L1Purchases.amountUnits,
+          txHash: x402L1Purchases.txHash,
+          httpStatusPaid: x402L1Purchases.httpStatusPaid,
+          latencyMs: x402L1Purchases.latencyMs,
+          l2Schema: x402L1Purchases.l2Schema,
+        })
+        .from(x402L1Purchases)
+        .where(eq(x402L1Purchases.endpointId, id))
+        .orderBy(desc(x402L1Purchases.attemptedAt))
+        .limit(100);
+    } catch (error) {
+      if (!isMissingSchemaError(error)) throw error;
+    }
+
+    const attemptCount = purchases.length;
+    const settledCount = purchases.filter((p) => p.status === "settled").length;
+    return {
+      endpointId: e.id,
+      resourceKey: e.resourceKey,
+      resourceUrl: e.resourceUrl,
+      network: e.network,
+      status: e.status,
+      purchases,
+      attemptCount,
+      settledCount,
+      settleRatePct:
+        attemptCount === 0 ? null : Math.round((settledCount / attemptCount) * 1000) / 10,
+    };
+  } catch (error) {
+    if (isMissingSchemaError(error)) return null;
+    throw error;
+  }
+}
+
 export type ObservatoryStats = {
   totalEndpoints: number;
   activeEndpoints: number;

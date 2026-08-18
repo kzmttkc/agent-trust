@@ -59,6 +59,7 @@ type Candidate = {
   priceAmount: string | null;
   payTo: string | null;
   declaredSchema: unknown;
+  isPriority: boolean;
 };
 
 const USDC_PER_USD = 1_000_000;
@@ -70,6 +71,37 @@ const DAILY_BUDGET_UNITS = BigInt(DAILY_BUDGET_USD) * BigInt(USDC_PER_USD);
 
 /** Endpoints purchased within this window are not re-purchased (1判定1購買). */
 export const SWEEP_WINDOW_DAYS = 6;
+
+/**
+ * Sellers with independently verified organic demand (要件定義v2 2026-08-14
+ * §0.5): the rikocr8orh8 Bazaar survey (data 2026-07-28, methodology
+ * reproducible, verified against the primary source) names these four as
+ * carrying 73% of ALL organic Bazaar calls. The moat is the receipt
+ * TIME-SERIES — a settle-through record with 3+ points on an endpoint buyers
+ * actually depend on is worth more than 3 one-shot rows on the long tail —
+ * so these hosts are pinned to the head of candidate selection and swept on
+ * the shorter window below.
+ */
+export const PRIORITY_SELLER_HOSTS = [
+  "x402.twit.sh",
+  "x402.tavily.com",
+  "stableenrich.dev",
+  "api.exa.ai",
+];
+
+/** Priority sellers may be re-purchased daily — repeats build the series. */
+export const PRIORITY_SWEEP_WINDOW_DAYS = 1;
+
+/** resource_key is host+path; a priority host matches itself and any path under it. */
+const PRIORITY_PATTERNS = PRIORITY_SELLER_HOSTS.map((h) => `${h}%`);
+
+/**
+ * `ILIKE ANY(ARRAY[$1, $2, …]::text[])` with each pattern as its own bound
+ * parameter — a bare JS array binds as a single scalar on postgres-js and
+ * fails with 42809 (wrong object type).
+ */
+const prioritySqlArray = () =>
+  sql`ARRAY[${sql.join(PRIORITY_PATTERNS.map((p) => sql`${p}`), sql`, `)}]::text[]`;
 
 function unitsToUsd(units: bigint): number {
   return Number(units) / USDC_PER_USD;
@@ -107,8 +139,10 @@ async function reserveSpend(input: {
   asset: string;
   payTo: string;
   amountUnits: string;
+  /** Per-candidate: PRIORITY_SWEEP_WINDOW_DAYS for pinned sellers, SWEEP_WINDOW_DAYS otherwise. */
+  windowDays: number;
 }): Promise<Reservation> {
-  const { db, endpointId, payer, network, asset, payTo, amountUnits } = input;
+  const { db, endpointId, payer, network, asset, payTo, amountUnits, windowDays } = input;
   const raw = await db.execute(sql`
     WITH day AS (
       SELECT coalesce(sum(spent_units::numeric), 0) AS spent
@@ -118,7 +152,7 @@ async function reserveSpend(input: {
       SELECT EXISTS (
         SELECT 1 FROM x402_l1_purchases pu
         WHERE pu.endpoint_id = ${endpointId}::uuid
-          AND pu.attempted_at > now() - make_interval(days => ${SWEEP_WINDOW_DAYS})
+          AND pu.attempted_at > now() - make_interval(days => ${windowDays})
       ) AS taken
     ), ins AS (
       INSERT INTO x402_l1_purchases
@@ -202,11 +236,15 @@ export async function runL1Batch(
     return summary; // table missing → cold start, nothing to do safely
   }
 
-  // 3. Targets: L0-passing active endpoints with real demand, oldest-unpurchased
-  //    first excluded within the sweep window. Highest observed demand first —
-  //    the endpoints buyers actually depend on get verified soonest.
+  // 3. Targets: L0-passing active endpoints. Priority sellers (verified
+  //    organic demand, PRIORITY_SELLER_HOSTS) are pinned to the head and
+  //    re-enter daily so their receipt series accumulates; the long tail
+  //    follows by observed demand and is swept once per SWEEP_WINDOW_DAYS.
+  //    (要件定義v2 2026-08-14 §2.1-2: concentrate the daily budget on repeat
+  //    purchases of the endpoints buyers depend on, not one-shot coverage.)
   const rawTargets = await db.execute(sql`
-    SELECT e.id, e.resource_url, e.method, e.price_amount, e.pay_to, e.declared_schema
+    SELECT e.id, e.resource_url, e.method, e.price_amount, e.pay_to, e.declared_schema,
+           (e.resource_key ILIKE ANY(${prioritySqlArray()})) AS is_priority
     FROM x402_endpoints e
     JOIN LATERAL (
       SELECT verdict FROM x402_l0_probes p
@@ -217,9 +255,13 @@ export async function runL1Batch(
       AND NOT EXISTS (
         SELECT 1 FROM x402_l1_purchases pu
         WHERE pu.endpoint_id = e.id
-          AND pu.attempted_at > now() - make_interval(days => ${SWEEP_WINDOW_DAYS})
+          AND pu.attempted_at > now() - make_interval(days => (CASE
+            WHEN e.resource_key ILIKE ANY(${prioritySqlArray()}) THEN ${PRIORITY_SWEEP_WINDOW_DAYS}::int
+            ELSE ${SWEEP_WINDOW_DAYS}::int
+          END))
       )
-    ORDER BY e.quality_payers_30d DESC NULLS LAST, e.quality_calls_30d DESC NULLS LAST
+    ORDER BY (e.resource_key ILIKE ANY(${prioritySqlArray()})) DESC,
+             e.quality_payers_30d DESC NULLS LAST, e.quality_calls_30d DESC NULLS LAST
     LIMIT ${limit}
   `);
   const targetList = (Array.isArray(rawTargets)
@@ -232,6 +274,7 @@ export async function runL1Batch(
     priceAmount: (r.price_amount as string | null) ?? null,
     payTo: (r.pay_to as string | null) ?? null,
     declaredSchema: r.declared_schema ?? null,
+    isPriority: r.is_priority === true,
   }));
 
   for (const candidate of candidates) {
@@ -363,6 +406,7 @@ async function purchaseOne(input: {
     asset: accept.asset,
     payTo: accept.payTo.toLowerCase(),
     amountUnits: String(amount),
+    windowDays: candidate.isPriority ? PRIORITY_SWEEP_WINDOW_DAYS : SWEEP_WINDOW_DAYS,
   });
   if (!reservation.ok) {
     if (reservation.reason === "already_purchased") {

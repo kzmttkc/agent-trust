@@ -751,6 +751,72 @@ paths:
         "503":
           description: Store unavailable
 
+  /api/v1/observatory/endpoints/{id}/purchases:
+    get:
+      operationId: getObservatoryEndpointPurchases
+      tags: [Observatory]
+      summary: The L1 receipt series for one endpoint, as data
+      description: |
+        Key-less on purpose: the endpoint-level settle-through record — n paid
+        attempts, m settled, each settled row carrying its on-chain tx hash —
+        is the observatory's evidence layer, and evidence shown only to paying
+        callers is marketing, not measurement. Same facts the human page at
+        `/observatory/e/{id}` renders, aggregated by the same reader so the
+        two can never disagree. Every row is returned including
+        `settle_failed` — the record is the point, not the wins. Facts only:
+        no composite scores, no evaluative language. IP-throttled to 30
+        requests per minute; responses are CDN-cached for 10 minutes
+        (purchases land at most daily).
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: Endpoint id from `/observatory` (the `e/{id}` page id).
+      responses:
+        "200":
+          description: The endpoint's purchase record with honest totals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpointId: { type: string, format: uuid }
+                  resourceKey: { type: string }
+                  resourceUrl: { type: string }
+                  network: { type: string, nullable: true }
+                  status: { type: string }
+                  attemptCount: { type: integer }
+                  settledCount: { type: integer }
+                  settleRatePct:
+                    type: number
+                    nullable: true
+                    description: settled/attempts to one decimal; null when there are no attempts (0/0 is not a rate).
+                  purchases:
+                    type: array
+                    description: Newest first, up to 100 rows, every outcome included.
+                    items:
+                      type: object
+                      properties:
+                        attemptedAt: { type: string, format: date-time, nullable: true }
+                        status: { type: string, description: "settled | settle_failed | delivered_no_receipt | …" }
+                        amountUnits: { type: string, nullable: true }
+                        txHash: { type: string, nullable: true, description: Present on settled rows — the on-chain receipt. }
+                        httpStatusPaid: { type: integer, nullable: true }
+                        latencyMs: { type: integer, nullable: true }
+                        l2Schema: { type: string, nullable: true }
+                  disclaimer: { type: string }
+                  methodology: { type: string }
+        "400":
+          description: "`invalid_endpoint_id` — not a UUID."
+        "404":
+          description: "`endpoint_not_found`."
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Observatory store unavailable.
+
   /api/v1/accuracy:
     get:
       operationId: getAccuracyReport
