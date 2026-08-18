@@ -58,23 +58,43 @@ export async function setIndexerCheckpoint(
   lastBlock: bigint,
   chainTipAtRun?: bigint,
 ): Promise<void> {
+  await setIndexerCheckpoints([{ scope, lastBlock, chainTipAtRun }]);
+}
+
+/**
+ * Advance several indexer checkpoints in ONE statement.
+ *
+ * 2026-08-18 (audit residual): the feedback indexer prunes old rows and then
+ * advances its scan cursor AND its retention floor. Written as two separate
+ * upserts, a crash between the prune and the floor write leaves the floor
+ * pointing before the pruned boundary — a reader then answers a confident
+ * undercount over a window whose rows were just deleted. Writing both rows in
+ * a single multi-row INSERT ... ON CONFLICT means no crash can land between
+ * them. The GREATEST guard is preserved per-row, so a stale/out-of-order run
+ * still cannot rewind any scope.
+ */
+export async function setIndexerCheckpoints(
+  entries: { scope: string; lastBlock: bigint; chainTipAtRun?: bigint }[],
+): Promise<void> {
   const db = getDb();
-  if (!db) return;
+  if (!db || entries.length === 0) return;
 
   await db
     .insert(indexerCheckpoints)
-    .values({
-      scope,
-      lastBlock,
-      chainTipAtRun: chainTipAtRun ?? null,
-    })
+    .values(
+      entries.map((e) => ({
+        scope: e.scope,
+        lastBlock: e.lastBlock,
+        chainTipAtRun: e.chainTipAtRun ?? null,
+      })),
+    )
     .onConflictDoUpdate({
       target: indexerCheckpoints.scope,
       set: {
         // Guard against regressions: a stale/out-of-order indexer run must
-        // never move the checkpoint backwards.
+        // never move any checkpoint backwards.
         lastBlock: sql`GREATEST(${indexerCheckpoints.lastBlock}, excluded.last_block)`,
-        chainTipAtRun: chainTipAtRun ?? null,
+        chainTipAtRun: sql`excluded.chain_tip_at_run`,
         updatedAt: new Date(),
       },
     });

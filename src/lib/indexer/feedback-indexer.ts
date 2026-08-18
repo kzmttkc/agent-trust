@@ -14,7 +14,7 @@ import {
   recordFeedbackEvents,
   type FeedbackEventRow,
 } from "@/lib/db/feedback-index-writer";
-import { getIndexerCheckpoint, setIndexerCheckpoint } from "@/lib/db/owner-index";
+import { getIndexerCheckpoint, setIndexerCheckpoints } from "@/lib/db/owner-index";
 
 /**
  * NewFeedback indexer (2026-08-12).
@@ -82,8 +82,10 @@ export async function indexFeedbackEvents(options?: {
   const toBlock = fromBlock + maxBlocks > chainTip ? chainTip : fromBlock + maxBlocks;
 
   if (fromBlock > toBlock) {
-    await setIndexerCheckpoint(FEEDBACK_INDEX_CHECKPOINT, chainTip, chainTip);
-    await setIndexerCheckpoint(FEEDBACK_COVERAGE_CHECKPOINT, coverageStart, chainTip);
+    await setIndexerCheckpoints([
+      { scope: FEEDBACK_INDEX_CHECKPOINT, lastBlock: chainTip, chainTipAtRun: chainTip },
+      { scope: FEEDBACK_COVERAGE_CHECKPOINT, lastBlock: coverageStart, chainTipAtRun: chainTip },
+    ]);
     return {
       fromBlock: fromBlock.toString(),
       toBlock: toBlock.toString(),
@@ -141,18 +143,23 @@ export async function indexFeedbackEvents(options?: {
   const pruneBefore = chainTip > retentionBlocks(blocksPerDay)
     ? chainTip - retentionBlocks(blocksPerDay)
     : 0n;
-  const pruned = pruneBefore > 0n ? await pruneFeedbackEvents(chainId, pruneBefore) : 0;
   const nextCoverageStart = pruneBefore > coverageStart ? pruneBefore : coverageStart;
-
   const nextBlock = toBlock + 1n;
   const caughtUp = nextBlock > chainTip;
 
-  await setIndexerCheckpoint(
-    FEEDBACK_INDEX_CHECKPOINT,
-    caughtUp ? chainTip : nextBlock,
-    chainTip,
-  );
-  await setIndexerCheckpoint(FEEDBACK_COVERAGE_CHECKPOINT, nextCoverageStart, chainTip);
+  // 2026-08-18 (audit residual): advance the retention floor BEFORE pruning,
+  // and write both checkpoints in one statement. Two failure modes closed:
+  //  - Coverage-before-prune: if we crash after moving the floor but before
+  //    the prune, the floor points at a boundary where rows STILL exist —
+  //    conservative (a reader sees complete data), never an undercount.
+  //  - Atomic dual write: the scan cursor and the floor move together, so a
+  //    crash can never leave the floor lagging the deleted boundary while the
+  //    cursor has advanced past it.
+  await setIndexerCheckpoints([
+    { scope: FEEDBACK_INDEX_CHECKPOINT, lastBlock: caughtUp ? chainTip : nextBlock, chainTipAtRun: chainTip },
+    { scope: FEEDBACK_COVERAGE_CHECKPOINT, lastBlock: nextCoverageStart, chainTipAtRun: chainTip },
+  ]);
+  const pruned = pruneBefore > 0n ? await pruneFeedbackEvents(chainId, pruneBefore) : 0;
 
   return {
     fromBlock: fromBlock.toString(),
