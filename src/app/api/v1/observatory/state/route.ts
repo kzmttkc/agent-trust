@@ -1,0 +1,68 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getClientIp } from "@/lib/api/client-ip";
+import {
+  consumeIpRateLimit,
+  ipRateLimitHeaders,
+  sharedCacheRateLimitHeaders,
+} from "@/lib/api/ip-rate-limit";
+import { getObservatoryStats, getObservatoryStatsByChain } from "@/lib/observatory/reader";
+import { logServerError } from "@/lib/util/log";
+
+/**
+ * GET /api/v1/observatory/state — "State of x402", as data.
+ *
+ * Key-less machine-readable twin of the /observatory/state page: the same
+ * aggregate L0/L1 measurements a human reads there, computed by the same
+ * readers so the two can never disagree. Facts only — counts with their
+ * denominators, no composite score, no evaluative language.
+ *
+ * Exists so any consumer (a dashboard, an LLM answering "how healthy is
+ * x402", the weekly distribution post generator) reads the numbers from one
+ * canonical source instead of scraping the HTML table. IP-rate-limited and
+ * CDN-cached like the other key-less public paths.
+ */
+
+const RL_LIMIT = 30;
+const RL_WINDOW_MS = 60_000;
+
+export async function GET(request: NextRequest) {
+  const ip = getClientIp(request) ?? "unknown";
+  const limited = await consumeIpRateLimit(`observatory-state:${ip}`, RL_LIMIT, RL_WINDOW_MS);
+  const perCaller = ipRateLimitHeaders(limited);
+  const shared = sharedCacheRateLimitHeaders(limited);
+  if (!limited.allowed) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: perCaller });
+  }
+
+  try {
+    const [stats, byChain] = await Promise.all([
+      getObservatoryStats(),
+      getObservatoryStatsByChain(),
+    ]);
+
+    return NextResponse.json(
+      {
+        ...stats,
+        byChain,
+        disclaimer:
+          "Aggregate L0/L1 measurements over the public x402 discovery catalog. Facts with denominators, not an assessment of any operator. 'unverified' means not machine-checkable, not dead.",
+        humanReadable: "https://vet402.com/observatory/state",
+        methodology: "https://vet402.com/observatory/methodology",
+      },
+      {
+        headers: {
+          ...shared,
+          // Recomputed at most daily (the catalog/probe crons) — 15 min shared
+          // cache keeps the CDN in front of scans.
+          "Cache-Control": "public, s-maxage=900, stale-while-revalidate=1800",
+        },
+      },
+    );
+  } catch (error) {
+    logServerError("observatory_state", error);
+    return NextResponse.json(
+      { error: "observatory_unavailable" },
+      { status: 503, headers: perCaller },
+    );
+  }
+}

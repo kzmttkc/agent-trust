@@ -661,6 +661,71 @@ paths:
         "503":
           description: Watchlist store unavailable
 
+  /api/v1/observatory/state:
+    get:
+      operationId: getObservatoryState
+      tags: [Observatory]
+      summary: State of x402 (aggregate L0/L1 measurements), as data
+      description: |
+        Key-less machine-readable twin of the `/observatory/state` page: the
+        same aggregate figures — endpoints on record, currently listed,
+        delisted, published pass/fail/unverified, per-chain breakdown, and L1
+        real-purchase totals — computed by the same readers so the page and
+        this API can never disagree. Facts with denominators, no composite
+        score, no evaluative language. IP-throttled to 30/min; CDN-cached for
+        15 minutes (recomputed at most daily by the catalog/probe crons).
+      security: []
+      responses:
+        "200":
+          description: Aggregate state with per-chain breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalEndpoints: { type: integer }
+                  activeEndpoints: { type: integer }
+                  delistedEndpoints: { type: integer }
+                  publishedPass: { type: integer }
+                  publishedFail: { type: integer }
+                  publishedUnverified: { type: integer }
+                  methodUndeclared: { type: integer }
+                  eventCounts:
+                    type: object
+                    properties:
+                      delisted: { type: integer }
+                      relisted: { type: integer }
+                      settleDrop: { type: integer }
+                  l1:
+                    type: object
+                    properties:
+                      attempts: { type: integer }
+                      settled: { type: integer }
+                      endpointsAttempted: { type: integer }
+                  byChain:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        chain: { type: string }
+                        totalEndpoints: { type: integer }
+                        activeEndpoints: { type: integer }
+                        publishedPass: { type: integer }
+                        publishedFail: { type: integer }
+                        publishedUnverified: { type: integer }
+                  latestSnapshot:
+                    type: object
+                    nullable: true
+                    properties:
+                      snapshotDate: { type: string }
+                      totalCount: { type: integer }
+                      fetchedCount: { type: integer }
+                  disclaimer: { type: string }
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Observatory store unavailable.
+
   /api/v1/observatory/watch:
     get:
       operationId: previewObservatoryWatch
