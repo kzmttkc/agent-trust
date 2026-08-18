@@ -1,0 +1,89 @@
+name: uptime
+
+# 2026-08-18. Independent 24h liveness monitor for https://vet402.com.
+#
+# WHY a second monitor. The in-app /status page records health by piggy-backing
+# on real pageviews (it never runs a fixed-interval poll, on purpose — a Vercel
+# Hobby cron more frequent than daily fails deploys silently). That is honest
+# about not fabricating an "ok" for an unobserved hour, but it means a
+# night-time outage with no visitors is invisible until morning. This workflow
+# is the fixed-interval poller that /status deliberately isn't: GitHub-hosted,
+# free, independent of Vercel, and it opens a GitHub issue on failure — which
+# emails the repo owner through normal notifications, no new account or paid
+# service required.
+#
+# /api/health probes the real seller-side and buyer-side scoring paths and
+# returns {"status":"ok"|"degraded"|"down"} with HTTP 200 or 503. Anything that
+# is not 200 + "ok" is an alert.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # every ~10 min (GitHub best-effort; may lag under load)
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe /api/health
+        id: probe
+        run: |
+          set +e
+          BODY=$(curl -sS -m 20 -w "\n%{http_code}" https://vet402.com/api/health)
+          CURL_RC=$?
+          HTTP_CODE=$(printf '%s' "$BODY" | tail -n1)
+          JSON=$(printf '%s' "$BODY" | sed '$d')
+          echo "curl_rc=$CURL_RC http_code=$HTTP_CODE"
+          echo "body=$JSON"
+          STATUS=$(printf '%s' "$JSON" | sed -n 's/.*"status":"\([a-z]*\)".*/\1/p')
+          if [ "$CURL_RC" -ne 0 ]; then
+            echo "reason=request failed (curl exit $CURL_RC)" >> "$GITHUB_OUTPUT"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif [ "$HTTP_CODE" != "200" ] || [ "$STATUS" != "ok" ]; then
+            echo "reason=HTTP $HTTP_CODE, status=\"$STATUS\"" >> "$GITHUB_OUTPUT"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update an alert issue on failure
+        if: steps.probe.outputs.ok == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REASON: ${{ steps.probe.outputs.reason }}
+        run: |
+          set -e
+          TITLE="vet402.com health check failing"
+          # Dedup: one open issue at a time. Comment on it if it exists, else create.
+          EXISTING=$(gh issue list --state open --label uptime --search "$TITLE" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "Still failing at ${NOW} UTC — ${REASON}."
+          else
+            gh label create uptime --color b60205 --description "Automated uptime monitor" 2>/dev/null || true
+            gh issue create \
+              --title "$TITLE" \
+              --label uptime \
+              --body "Automated monitor (.github/workflows/uptime.yml) saw /api/health fail at ${NOW} UTC.
+
+          Reason: ${REASON}
+
+          This is a fixed-interval poll independent of the in-app /status page. Close this issue once /api/health returns 200 with \`{\"status\":\"ok\"}\` again; the monitor will reopen a new one if it fails later."
+          fi
+
+      - name: Auto-close the alert issue on recovery
+        if: steps.probe.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TITLE="vet402.com health check failing"
+          EXISTING=$(gh issue list --state open --label uptime --search "$TITLE" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            gh issue comment "$EXISTING" --body "Recovered at ${NOW} UTC — /api/health is 200/ok again. Closing."
+            gh issue close "$EXISTING"
+          fi
