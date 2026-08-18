@@ -246,5 +246,34 @@ if (!TEST_DB) {
       });
       assert.equal(res.status, 400);
     });
+
+    await t.test(
+      "before the migration (issued_at column absent) a fresh POST still succeeds (graceful fallback)",
+      async () => {
+        // Simulate a code deploy that landed before the Neon migration.
+        await db.execute(sql`TRUNCATE verified_payees`);
+        await db.execute(sql`ALTER TABLE verified_payees DROP COLUMN IF EXISTS issued_at`);
+        try {
+          const issued = new Date().toISOString();
+          const res = await post({
+            wallet,
+            name: "Pre Migration",
+            issued,
+            signature: await sign("Pre Migration", undefined, issued),
+          });
+          // The write degrades to the legacy path — a 200, not a 503 that would
+          // break a live feature while the column is missing.
+          assert.equal(res.status, 200);
+          const [row] = await db
+            .select({ name: schema.verifiedPayees.name })
+            .from(schema.verifiedPayees)
+            .where(eq(schema.verifiedPayees.wallet, wallet));
+          assert.equal(row.name, "Pre Migration");
+        } finally {
+          // Restore the column for any later run against this shared DB.
+          await db.execute(sql`ALTER TABLE verified_payees ADD COLUMN IF NOT EXISTS issued_at timestamptz`);
+        }
+      },
+    );
   });
 }

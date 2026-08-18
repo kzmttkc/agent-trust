@@ -5,7 +5,7 @@ import { getClientIp } from "@/lib/api/client-ip";
 import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
-import { agentPassports } from "@/lib/db/schema";
+import { writeAgentPassportVerification } from "@/lib/db/verify-writers";
 import { parseAgentId } from "@/lib/chain/client";
 import { readCanonicalAgentWallet } from "@/lib/chain/agent-wallet";
 // Reuse the payee route's name canonicalization verbatim: the passport message
@@ -16,7 +16,6 @@ import { readCanonicalAgentWallet } from "@/lib/chain/agent-wallet";
 // shared helper (Next 16 route-type contract).
 import { isCanonicalName } from "@/lib/validation/canonical-name";
 import { agentPassportMessage, isSafeBoundUrl, isValidIssuedAt } from "@/lib/verify-message";
-import { sql } from "drizzle-orm";
 import { logServerError } from "@/lib/util/log";
 
 // A-10 — agent passport self-verification, the symmetric twin of N-16
@@ -185,22 +184,23 @@ export async function POST(request: NextRequest) {
   const db = getDb();
   if (!db) return NextResponse.json({ error: "store_unavailable" }, { status: 503, headers: rlHeaders });
   try {
-    // 2026-08-18 (audit residual): monotonic write in one statement — see
-    // payees/verify. The passport route is the one that publicly exposes
-    // {message, signature} key-less, which is exactly what makes this guard
-    // load-bearing here.
-    const issuedDate = new Date(issued);
-    const rows = await db
-      .insert(agentPassports)
-      .values({ agentId, wallet: wallet.toLowerCase(), name, url: url ?? null, signature, issuedAt: issuedDate })
-      .onConflictDoUpdate({
-        target: agentPassports.agentId,
-        set: { wallet: wallet.toLowerCase(), name, url: url ?? null, signature, verifiedAt: new Date(), issuedAt: issuedDate },
-        setWhere: sql`${agentPassports.issuedAt} is null or ${agentPassports.issuedAt} < ${issued}::timestamptz`,
-      })
-      .returning();
-    if (rows.length === 0) {
+    // 2026-08-18 (audit residual): monotonic write with graceful pre-migration
+    // fallback. The passport route is the one that publicly exposes
+    // {message, signature} key-less, which is what makes this guard
+    // load-bearing here. See @/lib/db/verify-writers.
+    const result = await writeAgentPassportVerification(db, {
+      agentId,
+      wallet,
+      name,
+      url: url ?? null,
+      signature,
+      issued,
+    });
+    if (result === "stale_signature") {
       return NextResponse.json({ error: "stale_signature" }, { status: 409, headers: rlHeaders });
+    }
+    if (result === "store_unavailable") {
+      return NextResponse.json({ error: "store_unavailable" }, { status: 503, headers: rlHeaders });
     }
     return NextResponse.json(
       {

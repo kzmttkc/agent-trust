@@ -9,6 +9,12 @@
 -- back a more recent correction. Existing rows keep issued_at NULL, which
 -- always loses to any new (issued-bearing) write.
 --
+-- The code deploys BEFORE this migration safely: the verify routes fall back
+-- to a legacy raw-SQL write (no monotonic guard, == pre-2026-08-18 behaviour)
+-- when issued_at is absent, and auto-upgrade to the full replay guard the
+-- moment this runs. So applying it is not deploy-blocking — but the replay
+-- protection is inactive until it does, so apply promptly.
+--
 -- Reminder (state/ALERTS.md 2026-08-14): production is the `vouch` database on
 -- the shared Neon host, NOT `/neondb`. Confirm with `select current_database()`
 -- before applying.

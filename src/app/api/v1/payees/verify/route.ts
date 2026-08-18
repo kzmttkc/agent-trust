@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyMessage } from "viem";
-import { sql } from "drizzle-orm";
 import { getClientIp } from "@/lib/api/client-ip";
 import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
-import { verifiedPayees } from "@/lib/db/schema";
+import { writePayeeVerification } from "@/lib/db/verify-writers";
 import { isValidAddress } from "@/lib/chain/client";
 import { logServerError } from "@/lib/util/log";
 // 2026-08-14: isCanonicalName/NAME_MAX_LENGTH moved to @/lib/validation and
@@ -158,28 +157,16 @@ export async function POST(request: NextRequest) {
   const db = getDb();
   if (!db) return NextResponse.json({ error: "store_unavailable" }, { status: 503 });
   try {
-    // 2026-08-18 (audit residual): monotonic write in a single statement — the
-    // update branch only fires when the stored issued_at is NULL (pre-migration
-    // row) or strictly older than this signature's `issued`. Replaying an older
-    // still-valid signature (e.g. one scraped from the public profile/badge)
-    // can therefore never roll back a newer (name, url) correction or refresh
-    // verifiedAt on a stale claim. Check-then-write in two statements would
-    // reopen the TOCTOU class this repo has already been burned by.
-    const issuedDate = new Date(issued);
-    const rows = await db
-      .insert(verifiedPayees)
-      .values({ wallet: wallet.toLowerCase(), name, url: url ?? null, signature, issuedAt: issuedDate })
-      .onConflictDoUpdate({
-        target: verifiedPayees.wallet,
-        set: { name, url: url ?? null, signature, verifiedAt: new Date(), issuedAt: issuedDate },
-        // Bind the ISO string with an explicit cast: a bare JS Date binds
-        // through postgres-js as a locale string ("Tue Aug 18 2026 …") that
-        // is not a valid timestamp literal in the comparison.
-        setWhere: sql`${verifiedPayees.issuedAt} is null or ${verifiedPayees.issuedAt} < ${issued}::timestamptz`,
-      })
-      .returning();
-    if (rows.length === 0) {
+    // 2026-08-18 (audit residual): monotonic write in a single statement (the
+    // update fires only when the stored issued_at is NULL or strictly older),
+    // with a graceful legacy fallback while the issued_at migration is not yet
+    // applied to production. See @/lib/db/verify-writers.
+    const result = await writePayeeVerification(db, { wallet, name, url: url ?? null, signature, issued });
+    if (result === "stale_signature") {
       return NextResponse.json({ error: "stale_signature" }, { status: 409 });
+    }
+    if (result === "store_unavailable") {
+      return NextResponse.json({ error: "store_unavailable" }, { status: 503 });
     }
     return NextResponse.json({
       ok: true,
