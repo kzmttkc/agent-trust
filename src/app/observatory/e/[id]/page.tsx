@@ -5,6 +5,8 @@ import { headers } from "next/headers";
 import { pageMetadata, breadcrumbJsonLd } from "@/lib/seo";
 import { safeJsonLd } from "@/lib/util/json-ld";
 import { TableScroll } from "@/components/site/TableScroll";
+import CodeBlock from "@/components/docs/CodeBlock";
+import { SITE_URL } from "@/lib/site-url";
 import { getEndpointDetail } from "@/lib/observatory/reader";
 
 /**
@@ -246,6 +248,29 @@ export default async function ObservatoryEndpointPage({ params }: Props) {
                 </tbody>
               </table>
             </TableScroll>
+            {l1.settled > 0 && (
+              <div className="mt-6">
+                <p className="doc-caption">Embed this record</p>
+                <p className="doc-p mt-2 text-brand-lift">
+                  Run this endpoint? Show the settle-through record vet402 measured — the badge
+                  reads <span className="whitespace-nowrap">{`${l1.settled}/${l1.attempts} settled`}</span>{" "}
+                  and updates as the record grows. It states a measurement, not a rating.
+                </p>
+                <p className="mt-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/badge/endpoint/${id}.svg`}
+                    alt={`vet402: ${l1.settled} of ${l1.attempts} paid attempts settled`}
+                    width={188}
+                    height={24}
+                  />
+                </p>
+                <CodeBlock
+                  label="Receipt badge embed (Markdown)"
+                  code={`[![vet402 receipt](${SITE_URL}/api/badge/endpoint/${id}.svg)](${SITE_URL}/observatory/e/${id})`}
+                />
+              </div>
+            )}
           </>
         )}
 
