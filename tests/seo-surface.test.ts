@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import sitemap from "@/app/sitemap";
+import { pageMetadata } from "@/lib/seo";
 import { SUPPORT_EMAIL } from "@/lib/support";
 import { SITE_URL } from "@/lib/site-url";
 
@@ -75,6 +76,23 @@ test("Organization sameAs includes the other public identities", () => {
   assert.ok(blob.includes("https://github.com/kzmttkc/vet402"));
   assert.ok(blob.includes("https://www.npmjs.com/package/@vouchscore/sdk"));
   assert.ok(blob.includes("https://x.com/vet_402"));
+});
+
+test("pageMetadata noindex sets robots index:false, and defaults to indexable", () => {
+  const indexed = pageMetadata({ title: "T", description: "D", path: "/x" });
+  assert.equal(indexed.robots, undefined, "default pages carry no robots override (indexable)");
+  const hidden = pageMetadata({ title: "T", description: "D", path: "/x", noindex: true });
+  assert.deepEqual(hidden.robots, { index: false, follow: true });
+});
+
+test("agent passport noindexes unregistered ids (no infinite indexable soft-404 space)", () => {
+  const src = read("src/app/agent/[agentId]/page.tsx");
+  // The passport page must gate indexability on a registered identity, not on
+  // integer format — otherwise /agent/{any-integer} is an indexable thin page.
+  assert.ok(
+    src.includes("noindex: !(await agentHasRegisteredIdentity"),
+    "generateMetadata must set noindex when the agent has no registered identity",
+  );
 });
 
 test("answer-engine crawlers are named in robots.ts", () => {

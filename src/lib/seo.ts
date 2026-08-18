@@ -60,6 +60,12 @@ type PageMetaInput = {
   ogType?: "website" | "article";
   publishedTime?: string;
   modifiedTime?: string;
+  /**
+   * true でこのページを検索インデックスから外す（robots noindex,follow）。
+   * 形式は妥当だが実体が無い動的ページ（未登録エージェント等）に付け、
+   * 無限のソフト404がクロールバジェットを食うのを防ぐ。既定 false。
+   */
+  noindex?: boolean;
 };
 
 // BreadcrumbList の JSON-LD を組む（2026-08-14 AEO）。回答エンジン・検索が
@@ -85,11 +91,13 @@ export function pageMetadata({
   ogType = "website",
   publishedTime,
   modifiedTime,
+  noindex = false,
 }: PageMetaInput): Metadata {
   const url = path === "/" ? SITE_URL : `${SITE_URL}${path}`;
   return {
     title,
     description,
+    ...(noindex ? { robots: { index: false, follow: true } } : {}),
     alternates: {
       canonical: url,
       types: {
