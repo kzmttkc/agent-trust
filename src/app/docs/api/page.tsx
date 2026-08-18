@@ -359,7 +359,7 @@ export default async function ApiDocsPage() {
           </TrackedLink>{" "}
           (also on{" "}
           <TrackedLink
-            href="https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml"
+            href="https://github.com/kzmttkc/vet402/blob/main/docs/openapi.yaml"
             event="openapi_click_github"
             className="underline"
           >
@@ -497,7 +497,7 @@ export default async function ApiDocsPage() {
         <p className="text-sm text-brand">
           Three published packages, all from{" "}
           <a
-            href="https://github.com/kzmttkc/agent-trust"
+            href="https://github.com/kzmttkc/vet402"
             target="_blank"
             rel="noopener noreferrer"
             className="doc-link"

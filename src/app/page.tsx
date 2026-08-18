@@ -668,7 +668,7 @@ export default async function Home() {
             </TrackedLink>
             <span aria-hidden="true" className="mx-2 text-brand-lift">·</span>
             <TrackedLink
-              href="https://github.com/kzmttkc/agent-trust"
+              href="https://github.com/kzmttkc/vet402"
               event="follow_click"
               props={{ channel: "github" }}
               className="doc-link"
