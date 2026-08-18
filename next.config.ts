@@ -102,6 +102,16 @@ const nextConfig: NextConfig = {
         destination: "https://vet402.com/:path*",
         permanent: true,
       },
+      // 2026-08-19: www.vet402.com served a full byte-identical copy at HTTP 200
+      // (canonical correctly pointed at the apex, so index consolidation held,
+      // but a verification product should not answer on two hosts). Same
+      // host-match 308 as above: fold www onto the apex, preserving the path.
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.vet402.com" }],
+        destination: "https://vet402.com/:path*",
+        permanent: true,
+      },
     ];
   },
 };

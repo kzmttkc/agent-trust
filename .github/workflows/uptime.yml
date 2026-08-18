@@ -53,6 +53,11 @@ jobs:
         if: steps.probe.outputs.ok == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gh resolves the target repo from a git remote or GH_REPO. This job
+          # never checks out the repo, so without GH_REPO every `gh issue …`
+          # call fails ("not a git repository") and NO alert issue is created —
+          # the very failure this monitor exists to report would be silent.
+          GH_REPO: ${{ github.repository }}
           REASON: ${{ steps.probe.outputs.reason }}
         run: |
           set -e
@@ -78,6 +83,7 @@ jobs:
         if: steps.probe.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -e
           TITLE="vet402.com health check failing"

@@ -11,7 +11,7 @@
 //     The published verdict applies publishedVerdict() so a single fail
 //     renders as `unverified` (legal multiple-measurement condition).
 // ============================================================
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import {
@@ -211,6 +211,49 @@ export type EndpointDetail = {
   }[];
 } | null;
 
+/**
+ * A "paid attempt" is one where money actually moved (or was committed): the
+ * seller answered 402, we signed, and the on-chain settlement either succeeded
+ * (`settled`), failed after the paid retry (`settle_failed`), or delivered
+ * goods with no receipt header (`delivered_no_receipt`). Every other status —
+ * `budget_denied` (our own daily-cap throttle), `request_error`, `no_402`,
+ * `no_eligible_accept`, `price_mismatch`, `over_cap`, `in_flight` — is NOT a
+ * paid attempt: no payment happened, so it must never enter a seller's
+ * settle-rate denominator. This is the SAME set the /observatory/state
+ * aggregate uses (getObservatoryStats), so the per-endpoint receipt page, the
+ * purchases API, and the network-wide State of x402 can never disagree on what
+ * "attempts" means.
+ */
+export const PAID_ATTEMPT_STATUSES = [
+  "settled",
+  "settle_failed",
+  "delivered_no_receipt",
+] as const;
+
+/**
+ * Authoritative attempt/settled counts for one endpoint, over the full history
+ * (not the truncated display window). Counts in SQL so a seller with >100
+ * receipts still reports a true total.
+ */
+async function countPaidAttempts(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  id: string,
+): Promise<{ attempts: number; settled: number }> {
+  const [row] = await db
+    .select({
+      attempts: sql<number>`count(*)::int`,
+      settled: sql<number>`count(*) filter (where ${x402L1Purchases.status} = 'settled')::int`,
+    })
+    .from(x402L1Purchases)
+    .where(
+      and(
+        eq(x402L1Purchases.endpointId, id),
+        inArray(x402L1Purchases.status, [...PAID_ATTEMPT_STATUSES]),
+      ),
+    );
+  return { attempts: Number(row?.attempts ?? 0), settled: Number(row?.settled ?? 0) };
+}
+
 export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
   if (!uuidRe.test(id)) return null;
   const db = getDb();
@@ -249,6 +292,7 @@ export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
 
     // L1 history is additive and may predate its migration — tolerate absence.
     let purchases: NonNullable<EndpointDetail>["purchases"] = [];
+    let l1Totals = { attempts: 0, settled: 0 };
     try {
       purchases = await db
         .select({
@@ -261,18 +305,21 @@ export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
           l2Schema: x402L1Purchases.l2Schema,
         })
         .from(x402L1Purchases)
-        .where(eq(x402L1Purchases.endpointId, id))
+        .where(
+          and(
+            eq(x402L1Purchases.endpointId, id),
+            inArray(x402L1Purchases.status, [...PAID_ATTEMPT_STATUSES]),
+          ),
+        )
         .orderBy(desc(x402L1Purchases.attemptedAt))
         .limit(20);
+      l1Totals = await countPaidAttempts(db, id);
     } catch (error) {
       if (!isMissingSchemaError(error)) throw error;
     }
 
     return {
-      l1: {
-        attempts: purchases.length,
-        settled: purchases.filter((p) => p.status === "settled").length,
-      },
+      l1: l1Totals,
       purchases,
       endpoint: {
         id: e.id,
@@ -308,7 +355,7 @@ export type EndpointPurchases = {
   resourceUrl: string;
   network: string | null;
   status: string;
-  /** Full L1 series, newest first — every row including settle_failed (facts, not wins). */
+  /** Paid-attempt series (PAID_ATTEMPT_STATUSES), newest first — includes settle_failed (facts, not wins), excludes our own budget_denied / request_error. */
   purchases: NonNullable<EndpointDetail>["purchases"];
   attemptCount: number;
   settledCount: number;
@@ -342,6 +389,7 @@ export async function getEndpointPurchases(id: string): Promise<EndpointPurchase
     if (!e) return null;
 
     let purchases: NonNullable<EndpointDetail>["purchases"] = [];
+    let totals = { attempts: 0, settled: 0 };
     try {
       purchases = await db
         .select({
@@ -354,15 +402,20 @@ export async function getEndpointPurchases(id: string): Promise<EndpointPurchase
           l2Schema: x402L1Purchases.l2Schema,
         })
         .from(x402L1Purchases)
-        .where(eq(x402L1Purchases.endpointId, id))
+        .where(
+          and(
+            eq(x402L1Purchases.endpointId, id),
+            inArray(x402L1Purchases.status, [...PAID_ATTEMPT_STATUSES]),
+          ),
+        )
         .orderBy(desc(x402L1Purchases.attemptedAt))
         .limit(100);
+      totals = await countPaidAttempts(db, id);
     } catch (error) {
       if (!isMissingSchemaError(error)) throw error;
     }
 
-    const attemptCount = purchases.length;
-    const settledCount = purchases.filter((p) => p.status === "settled").length;
+    const { attempts: attemptCount, settled: settledCount } = totals;
     return {
       endpointId: e.id,
       resourceKey: e.resourceKey,

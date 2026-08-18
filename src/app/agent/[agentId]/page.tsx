@@ -39,11 +39,39 @@ export async function generateMetadata({
   const { agentId } = await params;
   // 2026-08-13 [m2]: 二重サフィックス解消（template が " | vet402" を付ける）。
   // 2026-08-14: openGraph/twitter/canonical を pageMetadata で個別化。
+  // 2026-08-19: 未登録エージェント（agent_passports 行なし）は noindex。/agent/{整数}
+  // は形式が整数でありさえすれば 200 を返すため、登録の有無を検証しないと
+  // /agent/0..∞ の全整数が indexable なソフト404になる（sibling の /observatory/e・
+  // /payee は不在時 noindex 済み）。ページ自体は直接照会のため引き続き閲覧可能。
   return pageMetadata({
     title: `Agent ${agentId} — trust passport`,
     description: "Verified AI agent: signature-proven identity claim plus a live trust score and x402 payment record.",
     path: `/agent/${agentId}`,
+    noindex: !(await agentHasRegisteredIdentity(agentId)),
   });
+}
+
+/**
+ * True iff `agentId` resolves to a registered ERC-8004 identity we hold a
+ * passport row for. Unregistered ids still render (a score anyone can look up),
+ * but must not be indexed. Fails safe to `false` (noindex) when the id is
+ * malformed or the DB is unreachable — never invent an indexable page.
+ */
+async function agentHasRegisteredIdentity(agentIdParam: string): Promise<boolean> {
+  const agentId = parseAgentId(agentIdParam);
+  if (agentId === null) return false;
+  const db = getDb();
+  if (!db) return false;
+  try {
+    const rows = await db
+      .select({ agentId: agentPassports.agentId })
+      .from(agentPassports)
+      .where(eq(agentPassports.agentId, agentId))
+      .limit(1);
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export default async function AgentPage({

@@ -123,18 +123,41 @@ if (!TEST_DB) {
         payloadNonEmpty: true,
         l2Schema: "no_declaration",
       },
+      // Non-paid rows: our own budget throttle and a network error. Money never
+      // moved on these, so they must NOT enter the seller's denominator — same
+      // definition of "paid attempt" the /observatory/state API uses. Counting
+      // them would publish a lower settle rate than the seller actually earned.
+      {
+        endpointId: endpoint.id,
+        status: "budget_denied",
+        amountUnits: "3000",
+        // spentUnits defaults to "0" — no money moved.
+      },
+      {
+        endpointId: endpoint.id,
+        status: "request_error",
+      },
     ]);
 
     await t.test("reader aggregates settled/attempts and keeps failed rows", async () => {
       const result = await getEndpointPurchases(endpoint.id);
       assert.ok(result);
+      // 3 paid attempts (settled, settle_failed, settled) — budget_denied and
+      // request_error are excluded from the denominator (no payment happened).
       assert.equal(result!.attemptCount, 3);
       assert.equal(result!.settledCount, 2);
-      // 2/3 = 66.7 — one decimal, computed not stored.
+      // 2/3 = 66.7 — one decimal, computed not stored. NOT 2/5 = 40.
       assert.equal(result!.settleRatePct, 66.7);
       assert.equal(result!.purchases.length, 3);
       // settle_failed rows are part of the record (facts, not wins).
       assert.ok(result!.purchases.some((p) => p.status === "settle_failed"));
+      // Non-paid statuses never appear in the receipt series.
+      assert.ok(
+        !result!.purchases.some(
+          (p) => p.status === "budget_denied" || p.status === "request_error",
+        ),
+        "budget_denied / request_error must not appear in the receipt series",
+      );
       // Receipts travel with the rows.
       const hashes = result!.purchases.map((p) => p.txHash).filter(Boolean);
       assert.deepEqual(new Set(hashes), new Set(["0xreceipt1", "0xreceipt2"]));

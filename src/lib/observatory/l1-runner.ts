@@ -92,8 +92,30 @@ export const PRIORITY_SELLER_HOSTS = [
 /** Priority sellers may be re-purchased daily — repeats build the series. */
 export const PRIORITY_SWEEP_WINDOW_DAYS = 1;
 
-/** resource_key is host+path; a priority host matches itself and any path under it. */
-const PRIORITY_PATTERNS = PRIORITY_SELLER_HOSTS.map((h) => `${h}%`);
+/**
+ * resource_key is host+path; a priority host matches itself and any path under
+ * it — but NOTHING else. The old `${h}%` matched any prefix, so a look-alike
+ * host an attacker can register (`api.exa.aique.com/paid` under `api.exa.ai%`,
+ * `x402.twit.shady.io/x` under `x402.twit.sh%`) would be pinned to the head of
+ * candidate selection and re-purchased daily, siphoning the $25/day budget off
+ * the real priority sellers. Anchoring each host on an exact match OR a `/`
+ * path boundary closes that. SQL patterns and the JS predicate below are both
+ * derived from the same host list so they cannot drift.
+ */
+const PRIORITY_PATTERNS = PRIORITY_SELLER_HOSTS.flatMap((h) => [h, `${h}/%`]);
+
+/**
+ * True iff a catalog resource_key belongs to a priority host: exactly the host,
+ * or the host followed by a `/` path. Case-insensitive to mirror SQL ILIKE.
+ * Exported for direct testing without a database.
+ */
+export function isPriorityResourceKey(resourceKey: string): boolean {
+  const key = resourceKey.toLowerCase();
+  return PRIORITY_SELLER_HOSTS.some((h) => {
+    const host = h.toLowerCase();
+    return key === host || key.startsWith(`${host}/`);
+  });
+}
 
 /**
  * `ILIKE ANY(ARRAY[$1, $2, …]::text[])` with each pattern as its own bound
