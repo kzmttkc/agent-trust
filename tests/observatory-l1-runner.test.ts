@@ -212,6 +212,60 @@ if (!TEST_DB) {
       assert.equal(summary.budgetDenied >= 1, true, "remaining $0.001 cannot cover a $0.003 purchase");
     });
 
+    await t.test("a purchase landing exactly on the daily cap is allowed (<= boundary)", async () => {
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      // 25.000000 cap, a 0.003 purchase → seed 24.997000 so the buy lands on
+      // the line exactly. reserveSpend gates on `day.spent + amount <= cap`;
+      // an off-by-one to `<` would deny this and the test would catch it.
+      const [ep] = await db.select({ id: schema.x402Endpoints.id }).from(schema.x402Endpoints).limit(1);
+      await db.insert(schema.x402L1Purchases).values({
+        endpointId: ep.id,
+        status: "settled",
+        spentUnits: "24997000",
+        amountUnits: "24997000",
+      });
+      const fetchImpl = async (url: string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        if (headers.has("PAYMENT-SIGNATURE") || headers.has("X-PAYMENT")) {
+          return new Response(JSON.stringify({ data: "the goods" }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "PAYMENT-RESPONSE": Buffer.from(
+                JSON.stringify({ success: true, transaction: "0xline", network: "eip155:8453" }),
+              ).toString("base64"),
+            },
+          });
+        }
+        return new Response(challengeFor(url), { status: 402, headers: { "content-type": "application/json" } });
+      };
+      const summary = await runL1Batch({ fetchImpl, limit: 1 });
+      assert.equal(summary.settled, 1, "a spend that reaches the cap exactly must go through");
+      assert.equal(summary.budgetDenied, 0);
+    });
+
+    await t.test("an orphan in_flight reservation still occupies the daily budget", async () => {
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      // A kill after reserveSpend but before the outcome leaves an in_flight
+      // row — money that MAY have moved. The daily-spend sum is status-blind by
+      // design so that row keeps occupying the budget; dropping it from the sum
+      // would silently re-open a fresh $25. Fill the cap with one in_flight row
+      // and assert the batch is denied, not allowed to spend again.
+      const [ep] = await db.select({ id: schema.x402Endpoints.id }).from(schema.x402Endpoints).limit(1);
+      await db.insert(schema.x402L1Purchases).values({
+        endpointId: ep.id,
+        status: "in_flight",
+        spentUnits: "25000000",
+        amountUnits: "25000000",
+      });
+      const summary = await runL1Batch({
+        fetchImpl: async (url: string) => new Response(challengeFor(url), { status: 402, headers: { "content-type": "application/json" } }),
+        limit: 2,
+      });
+      assert.equal(summary.settled, 0);
+      assert.equal(summary.budgetDenied >= 1, true, "an in_flight row must count against the budget");
+    });
+
     // Security (2026-08-15 audit): the moment the EIP-3009 authorization is
     // signed, the money is live until validBefore — the seller can settle it
     // whatever happens on our side. If the ledger row is only written AFTER

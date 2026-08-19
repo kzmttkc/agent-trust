@@ -138,6 +138,17 @@ test("selectAccept enforces the hard per-purchase ceiling even when catalog agre
   assert.equal(chosen.reason, "over_cap");
 });
 
+test("selectAccept: price mismatch AND every accept over cap reports over_cap (the ceiling wins)", () => {
+  // The challenge contradicts the catalog price (would be price_mismatch) but
+  // every eligible accept is also above the hard ceiling. The more actionable
+  // fact is that nothing was payable at all — so the reason is over_cap, not
+  // price_mismatch. This is the allOverCap sub-branch.
+  const big = String(MAX_PER_PURCHASE_UNITS + 5n);
+  const chosen = selectAccept([{ ...V2_ACCEPT, amount: big }], { declaredAmount: "3000" });
+  assert.equal(chosen.accept, null);
+  assert.equal(chosen.reason, "over_cap");
+});
+
 test("selectAccept without a declared catalog price still enforces the ceiling", () => {
   const ok = selectAccept([V2_ACCEPT], { declaredAmount: null });
   assert.ok(ok.accept, "no declaration → ceiling is the only price gate");
