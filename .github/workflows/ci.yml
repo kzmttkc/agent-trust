@@ -56,3 +56,44 @@ jobs:
           # app is written to degrade rather than throw when they are absent,
           # and this job asserts that stays true.
           SKIP_CHAIN_READS: "1"
+
+  # 2026-08-19. The `test` job runs the pure modules with no DB, so 14 suites
+  # that need Postgres SKIP there — including the two that guard the highest
+  # money-risk in the product: L1 fund-path atomic reservation (the spend is on
+  # the ledger BEFORE the signed request goes out) and "two overlapping batches
+  # cannot spend past the daily cap" (the $49-against-$25 regression that was
+  # found live, not by a test). This job spins an ephemeral Postgres so those
+  # run on every push. Serial (--test-concurrency=1) because the suites TRUNCATE
+  # shared tables; --test-force-exit so an open pg pool can't hang the runner.
+  db-tests:
+    name: db-backed integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vet402test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Push schema to the ephemeral test database
+        run: npm run db:push -- --force
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/vet402test
+      - name: DB-backed integration tests (incl. L1 fund-path concurrency)
+        run: npm run test:db
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/vet402test
