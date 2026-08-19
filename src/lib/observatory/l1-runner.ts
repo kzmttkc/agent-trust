@@ -32,6 +32,7 @@ import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { x402L1Purchases } from "@/lib/db/schema";
 import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
 import { checkL1Budget, isL1Enabled, DAILY_BUDGET_USD } from "./budget";
+import { operatorPayToDenylist } from "./operator";
 import {
   buildAuthorization,
   encodePaymentHeader,
@@ -117,23 +118,10 @@ export function isPriorityResourceKey(resourceKey: string): boolean {
   });
 }
 
-/**
- * Operator-controlled payTo addresses that L1 must NEVER buy from — vet402's
- * own receiving wallets, first of all. The observatory measures a public
- * catalog vet402 will itself be listed in once the self-listing endpoint ships
- * (WO(c)); if the buyer bought from the operator's own payTo, an on-chain
- * self-transfer would surface as a "settle-through verified" receipt and the
- * neutrality that is the whole moat would be a lie. Exclusion is the clean cut:
- * we simply never spend against our own address. Set VET402_OPERATOR_PAYTO to a
- * comma-separated address list; empty (today's default) is a safe no-op.
- * Addresses are lowercased so the check is case-insensitive.
- */
-export function operatorPayToDenylist(): string[] {
-  return (process.env.VET402_OPERATOR_PAYTO ?? "")
-    .split(",")
-    .map((a) => a.trim().toLowerCase())
-    .filter((a) => a.length > 0);
-}
+// Operator (self) payTo denylist — the addresses L1 must never buy from — lives
+// in the dependency-light ./operator module so the public read path can share
+// it. Re-exported here for existing callers.
+export { operatorPayToDenylist };
 
 /**
  * `ILIKE ANY(ARRAY[$1, $2, …]::text[])` with each pattern as its own bound
