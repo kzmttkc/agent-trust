@@ -200,4 +200,121 @@ if (!TEST_DB) {
       },
     );
   });
+
+  test("L1 self-exclusion: the operator's own payTo is never purchased", async (t) => {
+    const { runL1Batch } = await import("@/lib/observatory/l1-runner");
+    const { syncCatalog } = await import("@/lib/observatory/catalog-sync");
+    const { runL0ProbeBatch } = await import("@/lib/observatory/probe-runner");
+    const { parseCatalogItem } = await import("@/lib/observatory/catalog-source");
+    const { BASE_USDC } = await import("@/lib/observatory/x402-payer");
+    const { getDb } = await import("@/lib/db/client");
+    const { sql } = await import("drizzle-orm");
+
+    const db = getDb()!;
+    await db.execute(
+      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_payee_watchers, x402_l1_purchases`,
+    );
+
+    // vet402's own receiving address; a third-party seller for contrast.
+    const SELF = `0x${"e".repeat(40)}`;
+    const THIRD = payToFor(7);
+
+    const savedEnabled = process.env.OBSERVATORY_L1_ENABLED;
+    const savedKey = process.env.OBSERVATORY_WALLET_PRIVATE_KEY;
+    const savedSelf = process.env.VET402_OPERATOR_PAYTO;
+    t.after(() => {
+      if (savedEnabled === undefined) delete process.env.OBSERVATORY_L1_ENABLED;
+      else process.env.OBSERVATORY_L1_ENABLED = savedEnabled;
+      if (savedKey === undefined) delete process.env.OBSERVATORY_WALLET_PRIVATE_KEY;
+      else process.env.OBSERVATORY_WALLET_PRIVATE_KEY = savedKey;
+      if (savedSelf === undefined) delete process.env.VET402_OPERATOR_PAYTO;
+      else process.env.VET402_OPERATOR_PAYTO = savedSelf;
+    });
+    process.env.OBSERVATORY_L1_ENABLED = "true";
+    process.env.OBSERVATORY_WALLET_PRIVATE_KEY = TEST_PK;
+    process.env.VET402_OPERATOR_PAYTO = SELF;
+
+    const items = [
+      parseCatalogItem({
+        resource: "https://self.vet402.example/score",
+        accepts: [{ amount: "3000", asset: BASE_USDC, network: "eip155:8453", payTo: SELF }],
+        extensions: { bazaar: { info: { input: { method: "GET" } } } },
+        quality: { l30DaysTotalCalls: 1000, l30DaysUniquePayers: 100 },
+      }),
+      parseCatalogItem({
+        resource: "https://third-party.example/api",
+        accepts: [{ amount: "3000", asset: BASE_USDC, network: "eip155:8453", payTo: THIRD }],
+        extensions: { bazaar: { info: { input: { method: "GET" } } } },
+        quality: { l30DaysTotalCalls: 10, l30DaysUniquePayers: 2 },
+      }),
+    ];
+    await syncCatalog({
+      fetchResult: { items, totalCount: 2, fetchedCount: 2, complete: true },
+      today: "2026-08-19",
+    });
+
+    const challengeFor = (url: string) => {
+      const payTo = url.includes("self.vet402") ? SELF : THIRD;
+      return JSON.stringify({
+        x402Version: 2,
+        accepts: [
+          {
+            scheme: "exact",
+            network: "eip155:8453",
+            amount: "3000",
+            asset: BASE_USDC,
+            payTo,
+            maxTimeoutSeconds: 300,
+            extra: { name: "USD Coin", version: "2" },
+          },
+        ],
+      });
+    };
+    await runL0ProbeBatch({
+      limit: 10,
+      concurrency: 2,
+      fetchImpl: async (url: string) =>
+        new Response(challengeFor(url), {
+          status: 402,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+
+    const seen: string[] = [];
+    await runL1Batch({
+      fetchImpl: async (url: string, init?: RequestInit) => {
+        seen.push(url);
+        const headers = new Headers(init?.headers);
+        if (headers.has("PAYMENT-SIGNATURE") || headers.has("X-PAYMENT")) {
+          return new Response(JSON.stringify({ data: "the goods" }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "PAYMENT-RESPONSE": Buffer.from(
+                JSON.stringify({ success: true, transaction: "0xok", network: "eip155:8453" }),
+              ).toString("base64"),
+            },
+          });
+        }
+        return new Response(challengeFor(url), {
+          status: 402,
+          headers: { "content-type": "application/json" },
+        });
+      },
+      limit: 10,
+    });
+
+    await t.test("the operator's own endpoint is never bought from", () => {
+      assert.ok(
+        !seen.some((u) => u.includes("self.vet402.example")),
+        `must never spend against the operator payTo, got: ${seen.join(", ")}`,
+      );
+    });
+    await t.test("a third-party endpoint is still purchased (exclusion is surgical)", () => {
+      assert.ok(
+        seen.some((u) => u.includes("third-party.example")),
+        "non-operator endpoints are unaffected by the self-exclusion",
+      );
+    });
+  });
 }

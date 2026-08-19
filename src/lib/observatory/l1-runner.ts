@@ -118,6 +118,24 @@ export function isPriorityResourceKey(resourceKey: string): boolean {
 }
 
 /**
+ * Operator-controlled payTo addresses that L1 must NEVER buy from — vet402's
+ * own receiving wallets, first of all. The observatory measures a public
+ * catalog vet402 will itself be listed in once the self-listing endpoint ships
+ * (WO(c)); if the buyer bought from the operator's own payTo, an on-chain
+ * self-transfer would surface as a "settle-through verified" receipt and the
+ * neutrality that is the whole moat would be a lie. Exclusion is the clean cut:
+ * we simply never spend against our own address. Set VET402_OPERATOR_PAYTO to a
+ * comma-separated address list; empty (today's default) is a safe no-op.
+ * Addresses are lowercased so the check is case-insensitive.
+ */
+export function operatorPayToDenylist(): string[] {
+  return (process.env.VET402_OPERATOR_PAYTO ?? "")
+    .split(",")
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => a.length > 0);
+}
+
+/**
  * `ILIKE ANY(ARRAY[$1, $2, …]::text[])` with each pattern as its own bound
  * parameter — a bare JS array binds as a single scalar on postgres-js and
  * fails with 42809 (wrong object type).
@@ -264,6 +282,13 @@ export async function runL1Batch(
   //    follows by observed demand and is swept once per SWEEP_WINDOW_DAYS.
   //    (要件定義v2 2026-08-14 §2.1-2: concentrate the daily budget on repeat
   //    purchases of the endpoints buyers depend on, not one-shot coverage.)
+  const denylist = operatorPayToDenylist();
+  const selfExclusion = denylist.length
+    ? sql`AND (e.pay_to IS NULL OR lower(e.pay_to) <> ALL(ARRAY[${sql.join(
+        denylist.map((a) => sql`${a}`),
+        sql`, `,
+      )}]::text[]))`
+    : sql``;
   const rawTargets = await db.execute(sql`
     SELECT e.id, e.resource_url, e.method, e.price_amount, e.pay_to, e.declared_schema,
            (e.resource_key ILIKE ANY(${prioritySqlArray()})) AS is_priority
@@ -274,6 +299,7 @@ export async function runL1Batch(
       ORDER BY probed_at DESC LIMIT 1
     ) lp ON lp.verdict = 'pass'
     WHERE e.status = 'active'
+      ${selfExclusion}
       AND NOT EXISTS (
         SELECT 1 FROM x402_l1_purchases pu
         WHERE pu.endpoint_id = e.id
