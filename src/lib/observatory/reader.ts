@@ -22,6 +22,7 @@ import {
   x402L1Purchases,
 } from "@/lib/db/schema";
 import { publishedVerdict, MIN_CONSECUTIVE_FAILS_TO_PUBLISH } from "./l0-probe";
+import { isOperatorPayTo, operatorPayToDenylist } from "./operator";
 import { chainLabel, isTestnet } from "./chains";
 import type { ObservatoryQuery, ObservatoryVerdict } from "./query";
 
@@ -181,6 +182,10 @@ export type EndpointDetail = {
     delistedAt: Date | null;
     qualityCalls30d: number | null;
     qualityPayers30d: number | null;
+    /** True when this is vet402's OWN endpoint (operator payTo). Shown for
+     * transparency, excluded from the aggregate rates — vet402 is never a
+     * neutral third party in its own measurements. */
+    isOperatorEndpoint: boolean;
   };
   publishedVerdict: "pass" | "fail" | "unverified";
   probes: {
@@ -338,6 +343,7 @@ export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
         delistedAt: e.delistedAt,
         qualityCalls30d: e.qualityCalls30d,
         qualityPayers30d: e.qualityPayers30d,
+        isOperatorEndpoint: isOperatorPayTo(e.payTo),
       },
       publishedVerdict: publishedVerdict(probes.map((p) => p.verdict)),
       probes,
@@ -466,6 +472,16 @@ export async function getObservatoryStats(): Promise<ObservatoryStats> {
   const db = getDb();
   if (!db) return empty;
 
+  // vet402's own endpoint(s) never pad the aggregate — a measurer is not a
+  // neutral third party in its own numbers. Empty denylist → no-op.
+  const opDenylist = operatorPayToDenylist();
+  const operatorExclusion = opDenylist.length
+    ? sql`WHERE e.pay_to IS NULL OR lower(e.pay_to) <> ALL(ARRAY[${sql.join(
+        opDenylist.map((a) => sql`${a}`),
+        sql`, `,
+      )}]::text[])`
+    : sql``;
+
   try {
     // Publication-gated verdict per endpoint, computed in SQL with the same
     // rule as publishedVerdict(): latest pass → pass; latest fail counts its
@@ -484,6 +500,7 @@ export async function getObservatoryStats(): Promise<ObservatoryStats> {
             LIMIT ${MIN_CONSECUTIVE_FAILS_TO_PUBLISH}
           ) v
         ) lp ON true
+        ${operatorExclusion}
       )
       SELECT
         count(*)::int AS total,

@@ -147,4 +147,41 @@ if (!TEST_DB) {
       assert.equal(overview.latestSnapshot!.fetchedCount, 3);
     });
   });
+
+  test("observatory marks and excludes vet402's own endpoint (self-neutrality)", async (t) => {
+    const { getEndpointDetail, getObservatoryStats } = await import("@/lib/observatory/reader");
+    const { getDb } = await import("@/lib/db/client");
+    const schema = await import("@/lib/db/schema");
+    const { sql } = await import("drizzle-orm");
+
+    const db = getDb()!;
+    await db.execute(sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_l1_purchases`);
+
+    const SELF = `0x${"e".repeat(40)}`;
+    const savedSelf = process.env.VET402_OPERATOR_PAYTO;
+    t.after(() => {
+      if (savedSelf === undefined) delete process.env.VET402_OPERATOR_PAYTO;
+      else process.env.VET402_OPERATOR_PAYTO = savedSelf;
+    });
+    process.env.VET402_OPERATOR_PAYTO = SELF;
+
+    const [own] = await db
+      .insert(schema.x402Endpoints)
+      .values({ resourceKey: "self.vet402.example/score", resourceUrl: "https://self.vet402.example/score", payTo: SELF, status: "active" })
+      .returning();
+    await db
+      .insert(schema.x402Endpoints)
+      .values({ resourceKey: "third.example/api", resourceUrl: "https://third.example/api", payTo: `0x${"7".repeat(40)}`, status: "active" });
+
+    await t.test("the operator's own endpoint is flagged on its detail page", async () => {
+      const detail = await getEndpointDetail(own.id);
+      assert.ok(detail);
+      assert.equal(detail!.endpoint.isOperatorEndpoint, true);
+    });
+
+    await t.test("the aggregate excludes the operator endpoint (2 seeded → 1 counted)", async () => {
+      const stats = await getObservatoryStats();
+      assert.equal(stats.totalEndpoints, 1, "only the third-party endpoint counts toward the network total");
+    });
+  });
 }

@@ -89,6 +89,14 @@ export default async function ObservatoryEndpointPage({ params }: Props) {
         </div>
 
         <h1 className="doc-title mt-10 break-all">{endpoint.resourceKey}</h1>
+        {endpoint.isOperatorEndpoint && (
+          <p className="mt-4 border border-brand-line bg-brand-wash px-4 py-3 text-[0.8125rem] text-brand-lift">
+            This is vet402&rsquo;s own endpoint. It is shown here for
+            transparency but is <strong>excluded from the network measurements</strong> — a
+            measurer is not a neutral third party in its own numbers, and the L1 buyer never
+            purchases from it.
+          </p>
+        )}
         <div className="rule-double mx-auto mt-6 w-full max-w-[34ch]" />
 
         <h2 className="sec-head">

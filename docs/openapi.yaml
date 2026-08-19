@@ -1202,6 +1202,41 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /api/transparency/operator-overrides:
+    get:
+      operationId: getOperatorOverrides
+      tags: [Transparency]
+      summary: Public log of global operator blacklist actions
+      description: |
+        The machine-readable twin of the /operator-log page. Every GLOBAL
+        operator blacklist act is published here — the address, the action, the
+        stated reason, and when — so a scored party (or anyone) can audit
+        whether vet402 has censored an address and on what grounds, and dispute
+        it through the same keyless correction routes as any score. No key, no
+        account, no charge. Customer-scoped lists are never exposed here: those
+        are a customer's private management right, not a network-wide operator
+        act.
+      security: []
+      responses:
+        "200":
+          description: The append-only global-override log (may be empty)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  overrides:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        wallet: { type: string }
+                        action: { type: string, description: "blacklist_added | blacklist_removed" }
+                        reason: { type: string }
+                        created_at: { type: string, format: date-time }
+                  count: { type: integer }
+                  note: { type: string }
+
   /api/health:
     get:
       operationId: getHealth
