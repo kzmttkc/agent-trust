@@ -49,6 +49,8 @@ These are open paths, rate-limited per IP. Nothing below needs an account. Every
 - `GET /api/v1/agents/{agentId}/passport` — machine-readable agent passport
 - `GET /api/badge/{address}.svg` — SVG badge for a payee wallet (states only whether a signed claim exists; carries no score, because a cached score on a third-party page would outlive its freshness window)
 - `GET /api/badge/agent/{agentId}.svg` — the same badge for an agent
+- `GET /api/badge/endpoint/{id}.svg` — receipt badge for one x402 endpoint, stating its measured settlement (paid attempts settled / paid attempts), facts only
+- `GET /api/transparency/operator-overrides` — the machine-readable twin of /operator-log: every global operator blacklist act with address, action, reason, and date; customer-private lists never appear
 - `GET /api/demo/score` — one fixed, publicly registered agent, scored live. Returns `live: false` rather than a stale or invented number when it cannot compute one, and `degraded: true` when the verdict was computed with an input it could not read. Freshness is explicit as `scoredAt` + `cacheExpiresAt`, the same pair the passport publishes — a cached value is up to five minutes old and says so
 - `GET /api/health` — service status
 

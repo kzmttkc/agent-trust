@@ -44,8 +44,13 @@ export async function GET(request: NextRequest) {
       {
         ...stats,
         byChain,
+        // The top-level totals count every listing including testnets (Base
+        // Sepolia); `byChain` is mainnet-only, matching the HTML page's
+        // "Mainnets only" table. State this so a consumer summing byChain and
+        // finding it below `totalEndpoints` sees why, rather than a silent gap.
+        byChainScope: "mainnet_only",
         disclaimer:
-          "Aggregate L0/L1 measurements over the public x402 discovery catalog. Facts with denominators, not an assessment of any operator. 'unverified' means not machine-checkable, not dead.",
+          "Aggregate L0/L1 measurements over the public x402 discovery catalog. Facts with denominators, not an assessment of any operator. 'unverified' means not machine-checkable, not dead. Top-level totals include testnets; byChain is mainnet-only (byChainScope), so sum(byChain) can be below totalEndpoints.",
         humanReadable: "https://vet402.com/observatory/state",
         methodology: "https://vet402.com/observatory/methodology",
       },
