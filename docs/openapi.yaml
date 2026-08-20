@@ -730,6 +730,51 @@ paths:
         "503":
           description: Demo temporarily unavailable
 
+  /api/v1/observatory/history:
+    get:
+      operationId: getObservatoryHistory
+      tags: [Observatory]
+      summary: Daily L0/L1 aggregates per chain (history), as data
+      description: |
+        Daily rollup of the same raw measurements the Observatory publishes,
+        keyed by UTC day and CAIP-2 chain. Read by the /observatory/state
+        history chart from the same reader, so page and API cannot disagree.
+        Chain "unknown" means the catalog row declares no network. Key-less;
+        IP-throttled to 30/min; CDN-cached for 1 hour (rolled up daily).
+      security: []
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 366, default: 30 }
+      responses:
+        "200":
+          description: Daily per-chain aggregates, oldest day first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        day: { type: string, example: "2026-08-20" }
+                        chain: { type: string, example: "eip155:8453" }
+                        l0Probes: { type: integer }
+                        l0Pass: { type: integer }
+                        l1Attempts: { type: integer }
+                        l1Settled: { type: integer }
+                        spentUnits: { type: string, description: USDC base units }
+                  disclaimer: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          description: Rate limited
+        "503":
+          description: Observatory store unavailable
+
   /api/v1/observatory/state:
     get:
       operationId: getObservatoryState
