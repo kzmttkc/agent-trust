@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -753,4 +754,34 @@ export const healthSnapshots = pgTable(
     status: text("status").notNull(),
   },
   (t) => [index("health_snapshots_checked_at_idx").on(t.checkedAt)],
+);
+
+/**
+ * x402_daily_metrics — 公開メトリクスの日次ロールアップ（Phase 1.1 仕様§4）。
+ *
+ * /observatory/state と /api/v1/observatory/history が読む唯一の履歴ソース。
+ * raw（x402_l0_probes / x402_l1_purchases）から rollupDailyMetrics() が
+ * UTC日×チェーン単位で冪等にupsertする。rawから毎回集計しないのは、公開
+ * ページのリクエスト毎に17k件×日数のスキャンを繰り返さないため。行は常に
+ * rawから再導出可能（このテーブルは事実のキャッシュであって正本ではない）。
+ */
+export const x402DailyMetrics = pgTable(
+  "x402_daily_metrics",
+  {
+    /** UTC day, YYYY-MM-DD. */
+    day: text("day").notNull(),
+    /** CAIP-2 network of the endpoint probed/purchased ("unknown" when the catalog row declares none). */
+    chain: text("chain").notNull(),
+    l0Probes: integer("l0_probes").notNull().default(0),
+    l0Pass: integer("l0_pass").notNull().default(0),
+    l1Attempts: integer("l1_attempts").notNull().default(0),
+    l1Settled: integer("l1_settled").notNull().default(0),
+    /** USDC base units spent that day on that chain (signed attempts). */
+    spentUnits: text("spent_units").notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.day, t.chain] }),
+    index("x402_daily_metrics_day_idx").on(t.day),
+  ],
 );
