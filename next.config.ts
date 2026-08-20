@@ -28,6 +28,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Docker セルフホスト（Dockerfile）のときだけ standalone 出力。Vercel 本番の
+  // ビルド挙動を一切変えないため、無条件では設定しない（Phase 0.2）。
+  ...(process.env.DOCKER_BUILD ? { output: "standalone" as const } : {}),
   // 2026-08-05 R&D audit: the three products' headers were compared and Vouch
   // was the only one still advertising its framework. Zero functional value,
   // and a product that sells itself as a trust layer should not volunteer

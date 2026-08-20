@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.env*
+!.env.example
+packages/*/node_modules
+examples/*/node_modules
+docs/superpowers
+coverage
+*.log
