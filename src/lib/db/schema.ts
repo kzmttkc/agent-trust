@@ -785,3 +785,34 @@ export const x402DailyMetrics = pgTable(
     index("x402_daily_metrics_day_idx").on(t.day),
   ],
 );
+
+/**
+ * registry_writes — オンチェーン検証レジストリ書込の冪等台帳（Phase 1.3）。
+ *
+ * ERC-8004 Validation Registry への (endpoint, level, result) 公開の記録。
+ * request_hash（正規化JSONのkeccak256）が一意キーで、同じ測定を二度
+ * オンチェーンへ書かない。書込はフラグOFFが既定（REGISTRY_WRITES_ENABLED・
+ * ガス代が動くため承認後にON）。status: pending | submitted | confirmed |
+ * failed。オンチェーンが落ちても検証フロー本体は止めない（graceful）。
+ */
+export const registryWrites = pgTable(
+  "registry_writes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestHash: text("request_hash").notNull(),
+    endpointId: uuid("endpoint_id").notNull(),
+    /** ERC-8004 agent id the payee resolves to (the registry speaks agentId). */
+    agentId: text("agent_id").notNull(),
+    level: text("level").notNull(),
+    /** 0..100 per ERC-8004 (0 = failed, 100 = passed). */
+    response: integer("response").notNull(),
+    evidenceUri: text("evidence_uri"),
+    status: text("status").notNull().default("pending"),
+    txHash: text("tx_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("registry_writes_request_hash_unique").on(t.requestHash),
+    index("registry_writes_endpoint_idx").on(t.endpointId),
+  ],
+);
