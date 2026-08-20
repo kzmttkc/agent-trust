@@ -834,3 +834,18 @@ export async function scorePayeeWallet(address: string): Promise<PayeeScoreResul
 
   return result;
 }
+
+/**
+ * verify-at-settle 高速面（C6）用の覗き窓。**計算しない**——インメモリ
+ * キャッシュに信頼できる判定があればそれを、無ければ null を返すだけ。
+ * fail-closed の意味論はここでは作らない（呼び手の SpendGuard が
+ * 非ALLOWを支払わないと解釈する）。degraded/partial な判定はそもそも
+ * キャッシュに入らない（上の cache.set の条件）ので、ここから出る判定は
+ * 常にエンジンが自信を持って固定したものだけ。
+ */
+export function peekPayeeScoreCache(address: string): PayeeScoreResult | null {
+  const hit = cache.get(address.toLowerCase());
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) return null;
+  return hit.result;
+}

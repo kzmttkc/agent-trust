@@ -668,3 +668,49 @@ export async function getObservatoryStatsByChain(
     throw error;
   }
 }
+
+export type CoverageShare = {
+  activeEndpoints: number;
+  measuredLast7d: number;
+  /** measured/active を小数1桁%。active=0 は null（0/0は率ではない）。 */
+  pct: number | null;
+};
+
+/**
+ * カバレッジ支配率（GTM §4.4）: 「アクティブ掲載中のエンドポイントのうち、
+ * 直近7日以内に vet402 の L0 測定が存在する割合」。分母はカタログの active、
+ * 分子は7日窓の実測定——"under regular verification" の機械的定義。
+ * 主張はこの分母付きの形でのみ公開する（"largest share" の裏付けは
+ * この数字と、他に同種の公開系列が無いという観測で語る）。
+ */
+export async function getCoverageShare(): Promise<CoverageShare> {
+  const db = getDb();
+  if (!db) return { activeEndpoints: 0, measuredLast7d: 0, pct: null };
+  try {
+    const raw = await db.execute(sql`
+      SELECT
+        count(*) FILTER (WHERE e.status = 'active')::int AS active,
+        count(*) FILTER (
+          WHERE e.status = 'active' AND EXISTS (
+            SELECT 1 FROM x402_l0_probes p
+            WHERE p.endpoint_id = e.id AND p.probed_at > now() - interval '7 days'
+          )
+        )::int AS measured
+      FROM x402_endpoints e
+    `);
+    const rows = (Array.isArray(raw) ? raw : (raw as { rows?: unknown[] }).rows ?? []) as {
+      active: number;
+      measured: number;
+    }[];
+    const active = Number(rows[0]?.active ?? 0);
+    const measured = Number(rows[0]?.measured ?? 0);
+    return {
+      activeEndpoints: active,
+      measuredLast7d: measured,
+      pct: active === 0 ? null : Math.round((measured / active) * 1000) / 10,
+    };
+  } catch (error) {
+    if (isMissingSchemaError(error)) return { activeEndpoints: 0, measuredLast7d: 0, pct: null };
+    throw error;
+  }
+}
