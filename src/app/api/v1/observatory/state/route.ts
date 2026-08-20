@@ -5,7 +5,7 @@ import {
   ipRateLimitHeaders,
   sharedCacheRateLimitHeaders,
 } from "@/lib/api/ip-rate-limit";
-import { getObservatoryStats, getObservatoryStatsByChain } from "@/lib/observatory/reader";
+import { getCoverageShare, getObservatoryStats, getObservatoryStatsByChain } from "@/lib/observatory/reader";
 import { logServerError } from "@/lib/util/log";
 
 /**
@@ -35,15 +35,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [stats, byChain] = await Promise.all([
+    const [stats, byChain, coverage] = await Promise.all([
       getObservatoryStats(),
       getObservatoryStatsByChain(),
+      getCoverageShare(),
     ]);
 
     return NextResponse.json(
       {
         ...stats,
         byChain,
+        /** Share of active listed endpoints with an L0 measurement in the last 7 days. */
+        coverage7d: coverage,
         // The top-level totals count every listing including testnets (Base
         // Sepolia); `byChain` is mainnet-only, matching the HTML page's
         // "Mainnets only" table. State this so a consumer summing byChain and

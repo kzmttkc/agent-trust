@@ -7,6 +7,8 @@ import { SITE_URL } from "@/lib/site-url";
 import { TableScroll } from "@/components/site/TableScroll";
 import { getObservatoryStats, getObservatoryStatsByChain } from "@/lib/observatory/reader";
 import { getDailyMetricsHistory, type DailyMetricsRow } from "@/lib/observatory/metrics-rollup";
+import { getCoverageShare } from "@/lib/observatory/reader";
+import { getAnchors } from "@/lib/observatory/anchors";
 
 /**
  * /observatory/state — the State of x402 headline numbers (design §7).
@@ -96,6 +98,8 @@ export default async function ObservatoryStatePage() {
   const stats = await getObservatoryStats();
   const chainStats = await getObservatoryStatsByChain();
   const history = await getDailyMetricsHistory(60);
+  const coverage = await getCoverageShare();
+  const [latestAnchor] = await getAnchors(1);
   const denom = stats.totalEndpoints;
   const snap = stats.latestSnapshot;
   const fetchComplete = snap ? snap.fetchedCount >= snap.totalCount : false;
@@ -383,6 +387,37 @@ export default async function ObservatoryStatePage() {
 
         <h2 className="sec-head">
           <span className="sec-no">5.</span>
+          <span>Coverage and ledger integrity</span>
+        </h2>
+        <p className="doc-p">
+          <strong>Coverage (7-day window):</strong>{" "}
+          {coverage.pct === null
+            ? "no active endpoints on record"
+            : `${coverage.measuredLast7d.toLocaleString()} of ${coverage.activeEndpoints.toLocaleString()} active listed endpoints (${coverage.pct}%) carry an L0 measurement from the last 7 days`}
+          . This is the machine definition behind &quot;endpoints under regular
+          verification&quot; — numerator and denominator as stated, nothing else.
+        </p>
+        <p className="doc-p">
+          <strong>Ledger integrity:</strong>{" "}
+          {latestAnchor ? (
+            <>
+              daily hash chain over the full purchase ledger, latest root ({latestAnchor.day}):{" "}
+              <code>{latestAnchor.rootHash.slice(0, 16)}…</code> covering{" "}
+              {latestAnchor.entryCount.toLocaleString()} entries. Rewriting any past row breaks
+              every later root. Recompute it yourself:{" "}
+              <code>/api/v1/observatory/anchors</code> + <code>/api/v1/observatory/export.csv</code>{" "}
+              (projection is open source).
+            </>
+          ) : (
+            <>
+              daily hash chain starts with the first anchored day —{" "}
+              <code>/api/v1/observatory/anchors</code>.
+            </>
+          )}
+        </p>
+
+        <h2 className="sec-head">
+          <span className="sec-no">6.</span>
           <span>Daily history</span>
         </h2>
         {history.length === 0 ? (
@@ -403,7 +438,7 @@ export default async function ObservatoryStatePage() {
         )}
 
         <h2 className="sec-head">
-          <span className="sec-no">6.</span>
+          <span className="sec-no">7.</span>
           <span>Caveats</span>
         </h2>
         <p className="doc-p">
