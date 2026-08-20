@@ -100,3 +100,10 @@ TEST_DATABASE_URL=postgres://localhost/vet402_scratch_test npm run test:db
 
 Do not open a public issue for vulnerabilities in the purchase or scoring
 path. See `docs/PENTEST_SCOPE.md` and contact the operator through the site.
+
+## Contributor License Agreement
+
+External contributions require agreeing to the individual CLA in
+[CLA.md](./CLA.md) — a short Apache-ICLA-derived license grant (you keep
+ownership of your work). Accept it by stating
+`I have read and agree to CLA.md` in your first pull request.
