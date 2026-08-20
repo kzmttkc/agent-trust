@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       {
         anchors,
         recompute:
-          "root = sha256((prevRoot ?? 'genesis') + '\\n' + canonical day JSON of all L1 rows, pk-ascending). Canonical projection: src/lib/observatory/anchors.ts (open source).",
+          "root = sha256((prevRoot ?? 'genesis') + '\\n' + canonical day JSON of all L1 rows, pk-ascending); projection: src/lib/observatory/anchors.ts (open source). Third parties can verify chain LINKING from this API alone (cli/verify-anchors.ts); recomputing a root needs the raw rows — self-host the open-source stack or use per-endpoint receipts.",
         humanReadable: "https://vet402.com/observatory/state",
       },
       { headers: { ...shared, "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200" } },
