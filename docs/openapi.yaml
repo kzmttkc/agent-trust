@@ -1019,6 +1019,46 @@ paths:
         "429": { description: Rate limited }
         "503": { description: Store unavailable }
 
+  /api/v1/observatory/decisions:
+    get:
+      operationId: getDecisionFeed
+      tags: [Observatory]
+      summary: Pay-or-refuse decisions the daily verifier actually made
+      description: |
+        The daily L1 runner's real-money decisions, mapped 1:1 from the ledger:
+        refusals before signing (overcharging or unpayable walls) and outcomes
+        after paying (settled / no-settlement), same weight. Excludes vet402-side
+        non-decisions (budget_denied / request_error / in_flight). Includes the
+        SpendGuard backtest as cumulative. Key-less; 30/min; cached 15 min.
+      security: []
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 366, default: 30 }
+      responses:
+        "200": { description: Decision rows newest-first, totals, cumulative backtest, definition }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
+  /api/v1/observatory/concentration:
+    get:
+      operationId: getConcentration
+      tags: [Observatory]
+      summary: Receiving-structure aggregates (no entities named)
+      description: |
+        Structural facts over the active catalog with denominators, naming no
+        entity: hosts receiving to multiple payTos, payTos on multiple hosts,
+        and payTos with repeat settle failure and no success (same predicate as
+        the keyed history-flags surface). Interpretation is left to the reader.
+        Key-less; 12/min; cached 1h.
+      security: []
+      responses:
+        "200": { description: Concentration aggregates with embedded definition }
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
   /api/v1/observatory/history:
     get:
       operationId: getObservatoryHistory
