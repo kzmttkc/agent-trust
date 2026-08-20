@@ -256,3 +256,17 @@ test("fetchFullCatalog dedupes items whose normalized key collides (keeps first)
   assert.equal(result.items.length, 1);
   assert.equal(result.fetchedCount, 2, "fetchedCount counts raw items, dedup is separate");
 });
+
+test("parseCatalogItem preserves base58 case for non-EVM payTo (Solana) — lowercasing destroys the address", () => {
+  const sol = parseCatalogItem({
+    ...SAMPLE_ITEM,
+    accepts: [
+      {
+        ...SAMPLE_ITEM.accepts[0],
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        payTo: "GqSs5L9aPWGJwyRQe35YKQaWMDPh3R1dMqfSEPhSgkM",
+      },
+    ],
+  });
+  assert.equal(sol.payTo, "GqSs5L9aPWGJwyRQe35YKQaWMDPh3R1dMqfSEPhSgkM");
+});
