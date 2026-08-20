@@ -201,6 +201,113 @@ if (!TEST_DB) {
       assert.equal(summary.attempted, 1);
     });
 
+    await t.test("Solana: flag off → the solana candidate is never approached; flag+key on → full settle path with base58 payer", async () => {
+      const { Keypair } = await import("@solana/web3.js");
+      const SOL_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+      const SOL_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+      const SOL_PAY_TO = "GqSs5L9aPWGJwyRQe35YKQaWMDPh3R1dMqfSEPhSgkM";
+      const FEE_PAYER = "EwWqGE4ZFKLofuestmU4LDdK7XM1N4ALgdZccwYugwGd";
+      const solKeypair = Keypair.fromSeed(new Uint8Array(32).fill(9));
+      const BLOCKHASH = "EETubP5AKHgjPAhzPAFcb8BAY1hMH639CWCFTqi3hq1k";
+
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      await syncCatalog({
+        fetchResult: {
+          items: [
+            mk(1, 900),
+            mk(2, 100),
+            parseCatalogItem({
+              resource: "https://solseller.example/api",
+              accepts: [{ amount: "4000", asset: SOL_USDC, network: SOL_CAIP2, payTo: SOL_PAY_TO }],
+              extensions: { bazaar: { info: { input: { method: "GET" } } } },
+              quality: { l30DaysTotalCalls: 5000, l30DaysUniquePayers: 500 },
+            }),
+          ],
+          totalCount: 3,
+          fetchedCount: 3,
+          complete: true,
+        },
+        today: "2026-08-15",
+      });
+      const solChallenge = JSON.stringify({
+        x402Version: 2,
+        accepts: [
+          {
+            scheme: "exact",
+            network: SOL_CAIP2,
+            amount: "4000",
+            asset: SOL_USDC,
+            payTo: SOL_PAY_TO,
+            maxTimeoutSeconds: 60,
+            extra: { feePayer: FEE_PAYER },
+          },
+        ],
+      });
+      const anyChallenge = (url: string) =>
+        url.includes("solseller") ? solChallenge : challengeFor(url);
+      await runL0ProbeBatch({
+        limit: 10,
+        concurrency: 2,
+        fetchImpl: async (url: string) =>
+          new Response(anyChallenge(url), { status: 402, headers: { "content-type": "application/json" } }),
+      });
+
+      // フラグOFF: solana候補はSQL段階で除外され、1リクエストも飛ばない。
+      delete process.env.OBSERVATORY_SOLANA_L1_ENABLED;
+      delete process.env.OBSERVATORY_SOLANA_SECRET_KEY;
+      const seenOff: string[] = [];
+      await runL1Batch({
+        fetchImpl: async (url: string) => {
+          seenOff.push(url);
+          return new Response(anyChallenge(url), { status: 402, headers: { "content-type": "application/json" } });
+        },
+        limit: 10,
+      });
+      assert.ok(seenOff.every((u) => !u.includes("solseller")), "solana candidate untouched while disabled");
+
+      // フラグ+鍵ON: 全経路。壁は支払い付きリトライにbase58署名のレシートを返す。
+      process.env.OBSERVATORY_SOLANA_L1_ENABLED = "true";
+      process.env.OBSERVATORY_SOLANA_SECRET_KEY = Buffer.from(solKeypair.secretKey).toString("base64");
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const summary = await runL1Batch({
+        limit: 10,
+        getSolanaBlockhash: async () => BLOCKHASH,
+        fetchImpl: async (url: string, init?: RequestInit) => {
+          const headers = new Headers(init?.headers);
+          if (!url.includes("solseller")) {
+            return new Response(anyChallenge(url), { status: 402, headers: { "content-type": "application/json" } });
+          }
+          const paid = headers.get("PAYMENT-SIGNATURE");
+          if (!paid) {
+            return new Response(solChallenge, { status: 402, headers: { "content-type": "application/json" } });
+          }
+          const envelope = JSON.parse(Buffer.from(paid, "base64").toString("utf8"));
+          assert.equal(envelope.x402Version, 2);
+          assert.equal(envelope.accepted.network, SOL_CAIP2);
+          assert.ok(typeof envelope.payload.transaction === "string" && envelope.payload.transaction.length > 100);
+          return new Response(JSON.stringify({ data: "sol goods" }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "PAYMENT-RESPONSE": Buffer.from(
+                JSON.stringify({ success: true, transaction: "5SolSigBase58xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", network: SOL_CAIP2, payer: FEE_PAYER }),
+              ).toString("base64"),
+            },
+          });
+        },
+      });
+      assert.ok(summary.settled >= 1, "solana purchase settled");
+      const rows = await db.select().from(schema.x402L1Purchases);
+      const solRow = rows.find((r) => r.network === SOL_CAIP2);
+      assert.ok(solRow, "solana ledger row exists");
+      assert.equal(solRow!.status, "settled");
+      assert.equal(solRow!.payer, solKeypair.publicKey.toBase58(), "payer is base58, not lowercased");
+      assert.equal(solRow!.payTo, SOL_PAY_TO, "payTo preserved base58 case");
+      assert.equal(solRow!.spentUnits, "4000");
+      delete process.env.OBSERVATORY_SOLANA_L1_ENABLED;
+      delete process.env.OBSERVATORY_SOLANA_SECRET_KEY;
+    });
+
     await t.test("a challenge over-charging vs catalog is recorded, never signed", async () => {
       await db.execute(sql`TRUNCATE x402_l1_purchases`);
       const evil = JSON.stringify({

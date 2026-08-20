@@ -258,7 +258,15 @@ export async function probeEndpoint(
   const metadataConsistent = declaredMeta
     ? accepts.some(
         (a) =>
-          (target.payTo === null || lower(a.payTo) === target.payTo || lower(a.recipient) === target.payTo) &&
+          // 両辺を lower して比較する。カタログ側は 2026-08-20 まで全小文字
+          // 保存（片側lowerで一致していた）、以降は base58 の原文保存なので、
+          // 片側だけ lower すると Solana 行が全て偽の metadata_mismatch になる
+          // （このズレは l1-runner の Solana 統合テストが実際に検出した）。
+          // 大文字小文字はここでは同一性の情報として使わない——payTo の
+          // 「どの口座か」は base58 の文字列全体が既に一意に定める。
+          (target.payTo === null ||
+            lower(a.payTo) === lower(target.payTo) ||
+            lower(a.recipient) === lower(target.payTo)) &&
           (target.network === null || a.network === target.network),
       )
     : null;

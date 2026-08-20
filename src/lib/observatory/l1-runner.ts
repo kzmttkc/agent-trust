@@ -42,6 +42,14 @@ import {
   signX402Payment,
 } from "./x402-payer";
 import { logServerError } from "@/lib/util/log";
+import { Keypair } from "@solana/web3.js";
+import {
+  SOLANA_MAINNET_CAIP2,
+  buildSolanaPaymentTransaction,
+  encodeSolanaPaymentHeader,
+  isSolanaL1Enabled,
+  selectSolanaAccept,
+} from "./sol402-payer";
 
 export type L1BatchSummary = {
   attempted: number;
@@ -59,11 +67,39 @@ type Candidate = {
   method: string | null;
   priceAmount: string | null;
   payTo: string | null;
+  network: string | null;
   declaredSchema: unknown;
   isPriority: boolean;
 };
 
+/**
+ * OBSERVATORY_SOLANA_SECRET_KEY: JSON配列（solana-keygenの出力）または
+ * base64。どちらも64バイトのsecret keyへ落ちる。壊れていれば null
+ * （fail-closed: 鍵が読めない状態でSolana候補は選ばれない）。
+ */
+export function loadSolanaKeypair(): Keypair | null {
+  const raw = process.env.OBSERVATORY_SOLANA_SECRET_KEY?.trim() ?? "";
+  if (!raw) return null;
+  try {
+    if (raw.startsWith("[")) {
+      return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]));
+    }
+    return Keypair.fromSecretKey(Uint8Array.from(Buffer.from(raw, "base64")));
+  } catch {
+    return null;
+  }
+}
+
 const USDC_PER_USD = 1_000_000;
+
+/** 本物の blockhash 取得（テストは options.getSolanaBlockhash で差し替える）。 */
+async function defaultSolanaBlockhash(): Promise<string> {
+  const { Connection } = await import("@solana/web3.js");
+  const rpc = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+  const conn = new Connection(rpc, "confirmed");
+  const { blockhash } = await conn.getLatestBlockhash("confirmed");
+  return blockhash;
+}
 
 const guardedFetch = createSafeFetchImpl();
 
@@ -215,6 +251,8 @@ export async function runL1Batch(
      * trigger can never spend past what the daily batch itself could.
      */
     onlyEndpointId?: string;
+    /** Test seam: Solana recent blockhash. Default hits SOLANA_RPC_URL. */
+    getSolanaBlockhash?: () => Promise<string>;
   } = {},
 ): Promise<L1BatchSummary> {
   // SSRF (2026-08-15 audit): resourceUrl is a seller-declared string from the
@@ -223,6 +261,7 @@ export async function runL1Batch(
   // at the platform's own internal surfaces (nor made to carry a signed
   // payment authorization there). See src/lib/net/safe-fetch.ts.
   const { limit = 100, fetchImpl = guardedFetch, timeoutMs = 20_000, onlyEndpointId } = options;
+  const getSolanaBlockhash = options.getSolanaBlockhash ?? defaultSolanaBlockhash;
   const summary: L1BatchSummary = {
     attempted: 0,
     settled: 0,
@@ -249,6 +288,10 @@ export async function runL1Batch(
   const db = getDb();
   if (!db) throw new Error("DATABASE_URL is not configured");
   const account = privateKeyToAccount(pk as `0x${string}`);
+  // Solana は独立フラグ + 独立鍵。どちらか欠ければ candidates から除外される
+  // （試行すらしない）。予算・台帳は Base と共有（USDC 基本単位が共通）。
+  const solanaKeypair = isSolanaL1Enabled() ? loadSolanaKeypair() : null;
+  const solanaReady = solanaKeypair !== null;
 
   // 2. Today's spend from the ledger (UTC day).
   let spentToday = 0n;
@@ -285,7 +328,7 @@ export async function runL1Batch(
       )}]::text[]))`
     : sql``;
   const rawTargets = await db.execute(sql`
-    SELECT e.id, e.resource_url, e.method, e.price_amount, e.pay_to, e.declared_schema,
+    SELECT e.id, e.resource_url, e.method, e.price_amount, e.pay_to, e.network, e.declared_schema,
            (e.resource_key ILIKE ANY(${prioritySqlArray()})) AS is_priority
     FROM x402_endpoints e
     JOIN LATERAL (
@@ -295,6 +338,11 @@ export async function runL1Batch(
     ) lp ON lp.verdict = 'pass'
     WHERE e.status = 'active'
       ${onlyEndpointId ? sql`AND e.id = ${onlyEndpointId}::uuid` : sql``}
+      ${
+        // Solana購入が無効（フラグ無し or 鍵が読めない）の間は候補から
+        // SQLの段階で外す——「試行してskip」の雑音でなく、最初から対象外。
+        solanaReady ? sql`` : sql`AND (e.network IS NULL OR e.network NOT LIKE 'solana:%')`
+      }
       ${selfExclusion}
       AND NOT EXISTS (
         SELECT 1 FROM x402_l1_purchases pu
@@ -317,13 +365,14 @@ export async function runL1Batch(
     method: (r.method as string | null) ?? null,
     priceAmount: (r.price_amount as string | null) ?? null,
     payTo: (r.pay_to as string | null) ?? null,
+    network: (r.network as string | null) ?? null,
     declaredSchema: r.declared_schema ?? null,
     isPriority: r.is_priority === true,
   }));
 
   for (const candidate of candidates) {
     try {
-      const outcome = await purchaseOne({ candidate, account, fetchImpl, timeoutMs, db, spentToday });
+      const outcome = await purchaseOne({ candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday });
       spentToday += outcome.spent;
       summary.spentUnitsTotal = String(BigInt(summary.spentUnitsTotal) + outcome.spent);
       if (outcome.kind === "attempted") {
@@ -349,23 +398,37 @@ export async function runL1Batch(
 async function purchaseOne(input: {
   candidate: Candidate;
   account: ReturnType<typeof privateKeyToAccount>;
+  solanaKeypair: Keypair | null;
+  getSolanaBlockhash: () => Promise<string>;
   fetchImpl: (url: string, init?: RequestInit) => Promise<Response>;
   timeoutMs: number;
   db: NonNullable<ReturnType<typeof getDb>>;
   spentToday: bigint;
 }): Promise<{ kind: "attempted" | "skipped" | "budget_denied"; settled: boolean; spent: bigint }> {
-  const { candidate, account, fetchImpl, timeoutMs, db, spentToday } = input;
+  const { candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday } = input;
   const method = (candidate.method ?? "GET").toUpperCase();
   const startedAt = Date.now();
+  const isSolana = candidate.network === SOLANA_MAINNET_CAIP2;
+  // 台帳上の payer 表記: EVM は小文字（既存の join 規約）・base58 は原文
+  // （小文字化は base58 を破壊する——catalog-source と同じ理由）。
+  const payerLabel = isSolana
+    ? (solanaKeypair?.publicKey.toBase58() ?? "solana_key_missing")
+    : account.address.toLowerCase();
 
   const record = async (row: Partial<typeof x402L1Purchases.$inferInsert>) => {
     await db.insert(x402L1Purchases).values({
       endpointId: candidate.id,
       status: "request_error",
-      payer: account.address.toLowerCase(),
+      payer: payerLabel,
       ...row,
     });
   };
+
+  // runL1Batch が solanaReady で候補を絞るので、ここに solana 候補が来て
+  // 鍵が無いのは onlyEndpointId 経路等の異常系だけ——黙って進まない。
+  if (isSolana && !solanaKeypair) {
+    return { kind: "skipped", settled: false, spent: 0n };
+  }
 
   // Unpaid request → expect the wall.
   let first: Response;
@@ -408,7 +471,12 @@ async function purchaseOne(input: {
     return { kind: "skipped", settled: false, spent: 0n };
   }
 
-  const selection = selectAccept(challenge.accepts, { declaredAmount: candidate.priceAmount });
+  const selection = isSolana
+    ? selectSolanaAccept(challenge.accepts, {
+        declaredAmount: candidate.priceAmount,
+        declaredPayTo: candidate.payTo,
+      })
+    : selectAccept(challenge.accepts, { declaredAmount: candidate.priceAmount });
   if (!selection.accept) {
     await record({
       status: selection.reason,
@@ -437,6 +505,21 @@ async function purchaseOne(input: {
     return { kind: "budget_denied", settled: false, spent: 0n };
   }
 
+  // Solana は署名の材料に blockhash（外部RPC）が要る。予約の後に外部I/Oで
+  // 失敗すると「signed → counted」の不変条件が破れるので、予約の前に取る。
+  let solanaBlockhash: string | null = null;
+  if (isSolana) {
+    try {
+      solanaBlockhash = await getSolanaBlockhash();
+    } catch (error) {
+      await record({
+        status: "request_error",
+        rawResponseMeta: { phase: "blockhash", error: String(error).slice(0, 300) },
+      });
+      return { kind: "skipped", settled: false, spent: 0n };
+    }
+  }
+
   // Reserve BEFORE signing. This is the authoritative gate: it re-reads the
   // day's total and the sweep window inside one statement and writes the row
   // that carries spent_units, so the money is on the ledger before it can
@@ -445,10 +528,10 @@ async function purchaseOne(input: {
   const reservation = await reserveSpend({
     db,
     endpointId: candidate.id,
-    payer: account.address.toLowerCase(),
+    payer: payerLabel,
     network: accept.network,
     asset: accept.asset,
-    payTo: accept.payTo.toLowerCase(),
+    payTo: accept.payTo.startsWith("0x") ? accept.payTo.toLowerCase() : accept.payTo,
     amountUnits: String(amount),
     windowDays: candidate.isPriority ? PRIORITY_SWEEP_WINDOW_DAYS : SWEEP_WINDOW_DAYS,
   });
@@ -467,20 +550,34 @@ async function purchaseOne(input: {
 
   // Sign — from here on the money is live, so the ledger row ALWAYS carries
   // spent_units, whatever the seller does next.
-  const authorization = buildAuthorization({
-    from: account.address,
-    to: accept.payTo,
-    value: accept.amount,
-    nowSec: Math.floor(Date.now() / 1000),
-    maxTimeoutSeconds: accept.maxTimeoutSeconds,
-  });
-  const { signature } = await signX402Payment({ account, accept, authorization });
-  const header = encodePaymentHeader({
-    x402Version: challenge.x402Version,
-    accept,
-    payload: { signature, authorization },
-    resourceUrl: candidate.resourceUrl,
-  });
+  let header: { headerName: string; headerValue: string };
+  if (isSolana) {
+    const built = await buildSolanaPaymentTransaction({
+      accept,
+      payer: solanaKeypair!,
+      recentBlockhash: solanaBlockhash!,
+    });
+    header = encodeSolanaPaymentHeader({
+      accept,
+      transactionB64: built.transactionB64,
+      resourceUrl: candidate.resourceUrl,
+    });
+  } else {
+    const authorization = buildAuthorization({
+      from: account.address,
+      to: accept.payTo,
+      value: accept.amount,
+      nowSec: Math.floor(Date.now() / 1000),
+      maxTimeoutSeconds: accept.maxTimeoutSeconds,
+    });
+    const { signature } = await signX402Payment({ account, accept, authorization });
+    header = encodePaymentHeader({
+      x402Version: challenge.x402Version,
+      accept,
+      payload: { signature, authorization },
+      resourceUrl: candidate.resourceUrl,
+    });
+  }
 
   let paid: Response | null = null;
   let paidBody = "";
