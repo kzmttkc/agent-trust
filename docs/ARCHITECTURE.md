@@ -113,7 +113,24 @@ flowchart LR
 - The Accuracy Ledger (`src/lib/scoring/accuracy.ts`) publishes vet402's own
   hit/miss record with evidence — the verifier grades itself in public.
 
-## 5. Runtime topology
+## 5. Chains — Base first, adapters per scheme
+
+- **Base (EVM)**: `x402-payer.ts` — the `exact` scheme via EIP-3009 signed
+  authorization. The home chain; all figures published to date are Base.
+- **Solana**: `sol402-payer.ts` — the `exact` scheme per
+  `scheme_exact_svm.md`: a partially-signed versioned transaction
+  (ComputeBudget → TransferChecked → Memo) with the facilitator as sponsored
+  fee payer. Off by default (`OBSERVATORY_SOLANA_L1_ENABLED` + its own key);
+  while off, Solana candidates are excluded in SQL, not "attempted and
+  skipped". Base58 payTo case is preserved end-to-end (lowercasing destroys
+  base58 — a real ingestion bug found and repaired 2026-08-20).
+- **On-chain publication** (`src/lib/chain/registry.ts`, off by default):
+  L0–L2 results can be written to the ERC-8004 Validation Registry on Base
+  (request → response, `0 | 100`), idempotent via a deterministic request
+  hash ledger (`registry_writes`), with a gas circuit breaker. Opinions (L3)
+  are never written on-chain.
+
+## 6. Runtime topology
 
 - **Next.js 16 App Router** on Vercel; PostgreSQL on Neon (`vouch` database —
   the name is asserted by `scripts/db-preflight.ts` before any schema push).
@@ -125,12 +142,12 @@ flowchart LR
 - **Public read surfaces are IP-rate-limited and CDN-cached**; the rate-limit
   store is DB-backed in production and fails closed when unreachable.
 
-## 6. Repository map
+## 7. Repository map
 
 | Path | Responsibility |
 |---|---|
 | `src/app/` | Pages (RFC-paper visual style) + API routes (`src/app/api/v1/`) |
-| `src/lib/observatory/` | Catalog sync, L0 probes, L1 purchases, budget, readers |
+| `src/lib/observatory/` | Catalog sync, L0 probes, L1 purchases (Base+Solana payers), budget, metrics rollup, contributions intake, readers |
 | `src/lib/scoring/` | Score engine, sybil, verdict (SpendGuard), accuracy ledger |
 | `src/lib/chain/` | viem client, ERC-8004, wallet metrics, indexer windows |
 | `src/lib/db/` | Drizzle schema + writers/readers |
@@ -140,7 +157,7 @@ flowchart LR
 | `tests/` | `tsx --test`; DB-backed tests gate on `TEST_DATABASE_URL` |
 | `docs/` | This file, OpenAPI spec, runbooks, grant materials (`docs/applications/`) |
 
-## 7. Cross-cutting principles
+## 8. Cross-cutting principles
 
 1. **Fail-closed by default** — malformed input is never a reason to spend
    money, publish a verdict, or skip a rate limit.

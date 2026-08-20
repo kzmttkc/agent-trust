@@ -730,6 +730,149 @@ paths:
         "503":
           description: Demo temporarily unavailable
 
+  /api/frame/endpoint/{id}:
+    get:
+      operationId: getEndpointFrame
+      tags: [Observatory]
+      summary: Farcaster Frame card for one endpoint's receipt record
+      description: |
+        vNext Frame HTML: an image card with the endpoint's real-purchase
+        record (attempts, settled, settle rate) and a link button to the full
+        receipt series. Same facts as the endpoint page — no scores, no
+        evaluative language. Key-less; IP-throttled to 60/min; CDN-cached.
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Frame HTML (fc:frame vNext meta tags)
+          content:
+            text/html: {}
+        "404":
+          description: Unknown endpoint
+        "429":
+          description: Rate limited
+
+  /api/v1/observatory/contributions:
+    post:
+      operationId: submitProbeContribution
+      tags: [Observatory]
+      summary: Submit an externally-observed L0 result (v0, collect-only)
+      description: |
+        Permissionless L0 contribution intake (Phase 3.3 v0), OFF by default
+        behind an operator flag. Submissions are EIP-191 signed over the
+        canonical message
+        `vet402:contribution:v0:{endpointId}:{verdict}:{httpStatus}:{latencyMs}`
+        and stored with the signed message verbatim for auditability.
+        v0 contributions are NEVER folded into published verdicts — the public
+        register remains computed from vet402's own probes until the weighted
+        v1 design ships. IP-throttled to 10/min.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpointId, verdict, address, signature]
+              properties:
+                endpointId: { type: string, format: uuid }
+                verdict: { type: string, enum: [pass, fail, unverified] }
+                httpStatus: { type: integer, nullable: true }
+                latencyMs: { type: integer, nullable: true }
+                address: { type: string, description: EVM address of the signer }
+                signature: { type: string, description: EIP-191 signature of the canonical message }
+      responses:
+        "201":
+          description: Stored (not folded into published verdicts)
+        "400":
+          description: Invalid input or signature
+        "403":
+          description: Contributions intake is disabled (default)
+        "429":
+          description: Rate limited
+        "503":
+          description: Store unavailable
+
+  /api/v1/observatory/export.csv:
+    get:
+      operationId: exportObservatoryLedgerCsv
+      tags: [Observatory]
+      summary: Purchase-ledger CSV export (audit-trail serialization)
+      description: |
+        The same paid-attempt series the endpoint pages publish, as CSV —
+        a portable audit trail (Phase 4.2 v0). No new claims are minted here:
+        rows are the ledger facts (attempted_at, resource_key, network,
+        status, amounts, tx_hash, delivery figures). Excludes vet402-side
+        non-events (budget_denied / request_error / in_flight). `days`
+        saturates to 1..366; output truncates at 50,000 rows and says so in
+        the `x-vet402-truncated` header. IP-throttled to 6/min.
+      security: []
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 366, default: 90 }
+      responses:
+        "200":
+          description: CSV, oldest attempt first
+          content:
+            text/csv: {}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          description: Rate limited
+        "503":
+          description: Observatory store unavailable
+
+  /api/v1/observatory/history:
+    get:
+      operationId: getObservatoryHistory
+      tags: [Observatory]
+      summary: Daily L0/L1 aggregates per chain (history), as data
+      description: |
+        Daily rollup of the same raw measurements the Observatory publishes,
+        keyed by UTC day and CAIP-2 chain. Read by the /observatory/state
+        history chart from the same reader, so page and API cannot disagree.
+        Chain "unknown" means the catalog row declares no network. Key-less;
+        IP-throttled to 30/min; CDN-cached for 1 hour (rolled up daily).
+      security: []
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 366, default: 30 }
+      responses:
+        "200":
+          description: Daily per-chain aggregates, oldest day first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        day: { type: string, example: "2026-08-20" }
+                        chain: { type: string, example: "eip155:8453" }
+                        l0Probes: { type: integer }
+                        l0Pass: { type: integer }
+                        l1Attempts: { type: integer }
+                        l1Settled: { type: integer }
+                        spentUnits: { type: string, description: USDC base units }
+                  disclaimer: { type: string }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          description: Rate limited
+        "503":
+          description: Observatory store unavailable
+
   /api/v1/observatory/state:
     get:
       operationId: getObservatoryState

@@ -131,7 +131,11 @@ export function parseCatalogItem(item: unknown): ParsedCatalogItem {
     resourceUrl,
     method,
     network: asString(first?.network),
-    payTo: payToRaw ? payToRaw.toLowerCase() : null,
+    // 0x（EVM）だけ小文字化する。EVMのアドレスは大文字小文字非依存で、
+    // verifiedPayees.wallet（小文字）へのclaim-joinを外さないための正規化。
+    // base58（Solana等）は大文字小文字が情報そのもの——小文字化は破壊
+    // （2026-08-20 実測: 本番218件のSolana行が復元不能な形で保存されていた）。
+    payTo: payToRaw ? (payToRaw.startsWith("0x") ? payToRaw.toLowerCase() : payToRaw) : null,
     priceAmount: asString(first?.amount),
     priceAsset: asString(first?.asset),
     description: asString(rec.description),

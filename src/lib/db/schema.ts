@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -753,4 +754,94 @@ export const healthSnapshots = pgTable(
     status: text("status").notNull(),
   },
   (t) => [index("health_snapshots_checked_at_idx").on(t.checkedAt)],
+);
+
+/**
+ * x402_daily_metrics — 公開メトリクスの日次ロールアップ（Phase 1.1 仕様§4）。
+ *
+ * /observatory/state と /api/v1/observatory/history が読む唯一の履歴ソース。
+ * raw（x402_l0_probes / x402_l1_purchases）から rollupDailyMetrics() が
+ * UTC日×チェーン単位で冪等にupsertする。rawから毎回集計しないのは、公開
+ * ページのリクエスト毎に17k件×日数のスキャンを繰り返さないため。行は常に
+ * rawから再導出可能（このテーブルは事実のキャッシュであって正本ではない）。
+ */
+export const x402DailyMetrics = pgTable(
+  "x402_daily_metrics",
+  {
+    /** UTC day, YYYY-MM-DD. */
+    day: text("day").notNull(),
+    /** CAIP-2 network of the endpoint probed/purchased ("unknown" when the catalog row declares none). */
+    chain: text("chain").notNull(),
+    l0Probes: integer("l0_probes").notNull().default(0),
+    l0Pass: integer("l0_pass").notNull().default(0),
+    l1Attempts: integer("l1_attempts").notNull().default(0),
+    l1Settled: integer("l1_settled").notNull().default(0),
+    /** USDC base units spent that day on that chain (signed attempts). */
+    spentUnits: text("spent_units").notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.day, t.chain] }),
+    index("x402_daily_metrics_day_idx").on(t.day),
+  ],
+);
+
+/**
+ * registry_writes — オンチェーン検証レジストリ書込の冪等台帳（Phase 1.3）。
+ *
+ * ERC-8004 Validation Registry への (endpoint, level, result) 公開の記録。
+ * request_hash（正規化JSONのkeccak256）が一意キーで、同じ測定を二度
+ * オンチェーンへ書かない。書込はフラグOFFが既定（REGISTRY_WRITES_ENABLED・
+ * ガス代が動くため承認後にON）。status: pending | submitted | confirmed |
+ * failed。オンチェーンが落ちても検証フロー本体は止めない（graceful）。
+ */
+export const registryWrites = pgTable(
+  "registry_writes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestHash: text("request_hash").notNull(),
+    endpointId: uuid("endpoint_id").notNull(),
+    /** ERC-8004 agent id the payee resolves to (the registry speaks agentId). */
+    agentId: text("agent_id").notNull(),
+    level: text("level").notNull(),
+    /** 0..100 per ERC-8004 (0 = failed, 100 = passed). */
+    response: integer("response").notNull(),
+    evidenceUri: text("evidence_uri"),
+    status: text("status").notNull().default("pending"),
+    txHash: text("tx_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("registry_writes_request_hash_unique").on(t.requestHash),
+    index("registry_writes_endpoint_idx").on(t.endpointId),
+  ],
+);
+
+/**
+ * probe_contributions — 外部コントリビュータのL0観測（Phase 3.3 v0・既定OFF）。
+ *
+ * v0 は「署名付きで受け取り、保存する」だけ。公開 verdict へは一切混ぜない
+ * ——公開判定は自前プローブの publishedVerdict のみが正典で、外部観測が
+ * 判定へ効き始めるのは重み付け・評判設計（v1）とその監査を経てから。
+ * 受理ゲート: CONTRIBUTIONS_ENABLED・EIP-191署名の実検証・IPレート制限。
+ */
+export const probeContributions = pgTable(
+  "probe_contributions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id").notNull(),
+    /** 署名者（EVMアドレス小文字）。v0の身元はこれだけ——ステーク/評判はv1。 */
+    submitter: text("submitter").notNull(),
+    verdict: text("verdict").notNull(),
+    httpStatus: integer("http_status"),
+    latencyMs: integer("latency_ms"),
+    /** 署名対象の正規化メッセージ原文（監査可能性——何に署名したかを残す）。 */
+    message: text("message").notNull(),
+    signature: text("signature").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("probe_contributions_endpoint_idx").on(t.endpointId, t.createdAt),
+    index("probe_contributions_submitter_idx").on(t.submitter),
+  ],
 );

@@ -6,6 +6,7 @@ import { safeJsonLd } from "@/lib/util/json-ld";
 import { SITE_URL } from "@/lib/site-url";
 import { TableScroll } from "@/components/site/TableScroll";
 import { getObservatoryStats, getObservatoryStatsByChain } from "@/lib/observatory/reader";
+import { getDailyMetricsHistory, type DailyMetricsRow } from "@/lib/observatory/metrics-rollup";
 
 /**
  * /observatory/state — the State of x402 headline numbers (design §7).
@@ -31,9 +32,70 @@ function pct(n: number, denom: number): string {
   return `${((n / denom) * 100).toFixed(1)}%`;
 }
 
+/**
+ * 履歴チャート（Phase 1.1）。サーバー側で組む素のSVG折れ線2本
+ * （日次L0 probes / うちpass・全チェーン合算）。外部チャート依存を
+ * 入れないのは紙面様式と自己完結（CSP・自己ホスト）のため。色は
+ * currentColor 継承で、既存のテキスト色クラスに追従する。
+ */
+function HistoryChart({ rows }: { rows: DailyMetricsRow[] }) {
+  const byDay = new Map<string, { probes: number; pass: number }>();
+  for (const r of rows) {
+    const d = byDay.get(r.day) ?? { probes: 0, pass: 0 };
+    d.probes += r.l0Probes;
+    d.pass += r.l0Pass;
+    byDay.set(r.day, d);
+  }
+  const days = [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
+  const W = 640;
+  const H = 180;
+  const PAD = { top: 10, right: 8, bottom: 24, left: 44 };
+  const max = Math.max(1, ...days.map(([, d]) => d.probes));
+  const x = (i: number) =>
+    PAD.left + (days.length === 1 ? 0 : (i * (W - PAD.left - PAD.right)) / (days.length - 1));
+  const y = (v: number) => PAD.top + (1 - v / max) * (H - PAD.top - PAD.bottom);
+  const path = (pick: (d: { probes: number; pass: number }) => number) =>
+    days.map(([, d], i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(pick(d)).toFixed(1)}`).join(" ");
+  const first = days[0]?.[0] ?? "";
+  const last = days[days.length - 1]?.[0] ?? "";
+  const latest = days[days.length - 1]?.[1] ?? { probes: 0, pass: 0 };
+
+  return (
+    <figure className="mt-4">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`Daily L0 probes and passes, ${first} to ${last}. Latest day: ${latest.probes} probes, ${latest.pass} pass.`}
+        className="w-full max-w-[640px] text-brand-deep"
+      >
+        <line x1={PAD.left} y1={y(0)} x2={W - PAD.right} y2={y(0)} stroke="currentColor" strokeWidth="1" opacity="0.5" />
+        <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={y(0)} stroke="currentColor" strokeWidth="1" opacity="0.5" />
+        <text x={PAD.left - 6} y={y(max) + 4} textAnchor="end" fontSize="11" fill="currentColor">
+          {max.toLocaleString()}
+        </text>
+        <text x={PAD.left - 6} y={y(0) + 4} textAnchor="end" fontSize="11" fill="currentColor">
+          0
+        </text>
+        <text x={PAD.left} y={H - 6} fontSize="11" fill="currentColor">
+          {first}
+        </text>
+        <text x={W - PAD.right} y={H - 6} textAnchor="end" fontSize="11" fill="currentColor">
+          {last}
+        </text>
+        <path d={path((d) => d.probes)} fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d={path((d) => d.pass)} fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.75" />
+      </svg>
+      <figcaption className="doc-caption mt-1">
+        solid: probes · dashed: pass — per UTC day, all chains
+      </figcaption>
+    </figure>
+  );
+}
+
 export default async function ObservatoryStatePage() {
   const stats = await getObservatoryStats();
   const chainStats = await getObservatoryStatsByChain();
+  const history = await getDailyMetricsHistory(60);
   const denom = stats.totalEndpoints;
   const snap = stats.latestSnapshot;
   const fetchComplete = snap ? snap.fetchedCount >= snap.totalCount : false;
@@ -321,6 +383,27 @@ export default async function ObservatoryStatePage() {
 
         <h2 className="sec-head">
           <span className="sec-no">5.</span>
+          <span>Daily history</span>
+        </h2>
+        {history.length === 0 ? (
+          <p className="doc-p">
+            No rolled-up days yet — the daily rollup starts filling this section from its first
+            run. The machine-readable series will appear at{" "}
+            <code>/api/v1/observatory/history</code>.
+          </p>
+        ) : (
+          <>
+            <p className="doc-p">
+              L0 probes per UTC day (upper line) and how many of them measured{" "}
+              <em>pass</em> (lower line), all chains combined, last {history.length} days.
+              Machine-readable, per-chain: <code>/api/v1/observatory/history</code>.
+            </p>
+            <HistoryChart rows={history} />
+          </>
+        )}
+
+        <h2 className="sec-head">
+          <span className="sec-no">6.</span>
           <span>Caveats</span>
         </h2>
         <p className="doc-p">
