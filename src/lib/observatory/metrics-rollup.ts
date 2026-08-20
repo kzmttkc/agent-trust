@@ -45,7 +45,11 @@ export async function rollupDailyMetrics(day: string): Promise<void> {
       GROUP BY 1
       UNION ALL
       SELECT
-        coalesce(e.network, 'unknown') AS chain,
+        -- L1のchainは「実際に支払ったレール」（pu.network＝acceptの網）。
+        -- カタログ申告網で数えると、Solana申告の壁にBaseレールで払った決済が
+        -- Solana実績に見える（2026-08-20 助成金提案書の検算で実際に25件検出）。
+        -- 旧行（pu.network無し）だけ申告網へフォールバック。
+        coalesce(pu.network, e.network, 'unknown') AS chain,
         0, 0,
         count(*) AS l1_attempts,
         count(*) FILTER (WHERE pu.status = 'settled') AS l1_settled,

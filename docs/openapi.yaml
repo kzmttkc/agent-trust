@@ -828,6 +828,197 @@ paths:
         "503":
           description: Observatory store unavailable
 
+  /api/v1/graph/payto/{address}:
+    get:
+      operationId: getPayToGraph
+      tags: [Scores]
+      summary: Adjacency graph around one payTo wallet (facts only)
+      description: |
+        Endpoints the wallet receives on (with vet402's own paid-attempt
+        tallies) and other payTo values receiving on the same hosts. Adjacency
+        facts only — no inference. API key required (1 unit).
+      responses:
+        "200": { description: Graph with embedded definition string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { description: Store unavailable }
+
+  /api/v1/observatory/anchors:
+    get:
+      operationId: getLedgerAnchors
+      tags: [Observatory]
+      summary: Daily hash chain over the purchase ledger
+      description: |
+        One root per UTC day: sha256((prevRoot ?? 'genesis') + newline +
+        canonical JSON of that day's L1 rows, pk-ascending). Rewriting any past
+        row breaks every later root; the projection is open source, so third
+        parties can recompute from export.csv. anchoredTx, when present, is the
+        on-chain anchor (staged rollout, off by default). Key-less; 30/min.
+      security: []
+      parameters:
+        - in: query
+          name: days
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 366, default: 30 }
+      responses:
+        "200": { description: Anchors newest-day first, with recompute recipe }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
+  /api/v1/observatory/backtest:
+    get:
+      operationId: getSpendGuardBacktest
+      tags: [Observatory]
+      summary: '"Had you followed the signals" — both sides, machine-defined'
+      description: |
+        Over vet402's OWN signed purchase attempts only: avoided (signalled
+        attempts that did not settle) and forgone (signalled attempts that
+        settled anyway) are always reported together, with the exact predicate
+        embedded as `definition`. Key-less; 12/min; cached 1h.
+      security: []
+      responses:
+        "200": { description: attemptsTotal, avoided, forgone, definition }
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
+  /api/v1/observatory/disputes:
+    post:
+      operationId: submitDispute
+      tags: [Observatory]
+      summary: Seller dispute, EIP-191-signed by the endpoint's payTo
+      description: |
+        Only the holder of the endpoint's payTo key can dispute its record
+        (message form `vet402:dispute:v0:{endpointId}:{subject}:{sha256(reason)}`).
+        Acceptance triggers one real L0 re-measurement recorded through the
+        normal publication gate. Records are never deleted on dispute. 5/min.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpointId, subject, reason, address, signature]
+              properties:
+                endpointId: { type: string, format: uuid }
+                subject: { type: string, enum: [l0, l1, listing] }
+                reason: { type: string, maxLength: 4000 }
+                address: { type: string }
+                signature: { type: string }
+      responses:
+        "201": { description: Accepted; includes remeasureVerdict when the re-probe ran }
+        "400": { description: Invalid input or signature }
+        "403": { description: Signer is not the endpoint's payTo }
+        "404": { description: Unknown endpoint }
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
+  /api/v1/observatory/live:
+    get:
+      operationId: getObservatoryLiveFeed
+      tags: [Observatory]
+      summary: SSE feed of ledger rows as they land
+      description: |
+        Server-sent events for new L0 probes and L1 purchases (5s polling).
+        The window closes every ~55s (serverless limit); EventSource
+        reconnects with Last-Event-ID and misses nothing. Nothing is simulated
+        — quiet periods are quiet. Key-less; 10 connections/min.
+      security: []
+      responses:
+        "200":
+          description: text/event-stream (events `probe`, `purchase`)
+          content:
+            text/event-stream: {}
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
+  /api/v1/observatory/requests:
+    post:
+      operationId: enqueueVerificationRequest
+      tags: [Observatory]
+      summary: Ask the Observatory to measure a listed endpoint next (free)
+      description: |
+        Queues one catalog endpoint for the next daily probe run (queued
+        endpoints are measured first; results publish through the normal
+        gate). Pending requests per endpoint collapse to one. 5/min.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpointId]
+              properties:
+                endpointId: { type: string, format: uuid }
+      responses:
+        "201": { description: Queued }
+        "200": { description: Already queued (deduped) }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: Unknown endpoint }
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
+  /api/v1/payees/{address}/history-flags:
+    get:
+      operationId: getPayeeHistoryFlags
+      tags: [Scores]
+      summary: Deterministic history predicates for a payTo wallet
+      description: |
+        Machine predicates over vet402's own ledger (repeat settle failure
+        with no success; L0 verdict flapping in 14d; recorded price
+        mismatches), with counts and the exact definition embedded. Facts
+        summarized — weighting is the caller's. API key required (1 unit).
+      responses:
+        "200": { description: Flags, counts, definition }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { description: Store unavailable }
+
+  /api/v1/payees/{address}/verdict-fast:
+    get:
+      operationId: getPayeeVerdictFast
+      tags: [Scores]
+      summary: verify-at-settle — cached verdict, never computes
+      description: |
+        Returns the engine's cached, confident verdict or an honest
+        `cache_cold` (treat as not-ALLOW; warm via the full /score endpoint).
+        In-handler p95 is pinned under 1ms by the test suite. API key
+        required (1 unit). See docs/verify-at-settle.md.
+      responses:
+        "200": { description: status hit (recommendation, score) or cache_cold }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { description: Verdict surface unavailable }
+
+  /api/v1/waitlist:
+    post:
+      operationId: joinWaitlist
+      tags: [Observatory]
+      summary: Record interest in paid surfaces / design partnership
+      description: |
+        Stores an email + interest. Sends nothing — no automated emails; a
+        human reads the list. Paid surfaces stay off until the economic-
+        capture gates (docs/economic-capture-design.md §5) are passed. 5/min.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, interest]
+              properties:
+                email: { type: string, format: email }
+                interest: { type: string, enum: [premium_data, design_partner, other] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        "201": { description: Recorded }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { description: Rate limited }
+        "503": { description: Store unavailable }
+
   /api/v1/observatory/history:
     get:
       operationId: getObservatoryHistory
