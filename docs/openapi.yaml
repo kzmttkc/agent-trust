@@ -661,6 +661,75 @@ paths:
         "503":
           description: Watchlist store unavailable
 
+  /api/v1/demo/verify:
+    post:
+      operationId: runDemoVerify
+      tags: [Observatory]
+      summary: Playground live verification (L0; L1 behind an operator flag)
+      description: |
+        Backs the public `/playground` page: runs one live L0 probe against a
+        catalog-listed endpoint and returns the measurement as-is. Demo probes
+        are NOT written into the public register, so the Observatory's daily
+        cadence stays clean. Key-less; IP-throttled to 5/min. `level: l1`
+        triggers one real purchase through the exact same budget-reserved
+        runner the daily batch uses, and is double-gated (DEMO_L1_ENABLED and
+        the Observatory L1 flag, both off by default) plus limited to one call
+        per caller per day.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpointId]
+              properties:
+                endpointId:
+                  type: string
+                  format: uuid
+                level:
+                  type: string
+                  enum: [l0, l1]
+                  default: l0
+      responses:
+        "200":
+          description: Live measurement (l0) or purchase summary with the receipt series (l1)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  endpoint:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      resourceKey: { type: string }
+                      payTo: { type: string, nullable: true }
+                      network: { type: string, nullable: true }
+                  probe:
+                    type: object
+                    description: Same shape as the Observatory's L0 probe record
+                    properties:
+                      verdict: { type: string, enum: [pass, fail, unverified] }
+                      httpStatus: { type: integer, nullable: true }
+                      has402Challenge: { type: boolean, nullable: true }
+                      acceptsValid: { type: boolean, nullable: true }
+                      priceConsistent: { type: boolean, nullable: true }
+                      metadataConsistent: { type: boolean, nullable: true }
+                      latencyMs: { type: integer, nullable: true }
+                      failReason: { type: string, nullable: true }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: level=l1 requested while the demo purchase flag is off
+        "404":
+          description: Unknown or delisted endpoint
+        "429":
+          description: Rate limited (5 probes/min; 1 live purchase/day)
+        "503":
+          description: Demo temporarily unavailable
+
   /api/v1/observatory/state:
     get:
       operationId: getObservatoryState

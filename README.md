@@ -8,7 +8,9 @@ vet402 buys what x402 endpoints actually sell, verifies fulfillment against the 
 
 > **Formerly Vouch.** The repository name (`agent-trust`), npm scope (`@vouchscore/*`) and API key prefix (`vouch_`) retain the old name for backward compatibility.
 
-**Site:** <https://vet402.com> · **API reference:** <https://vet402.com/docs/api> · **Accuracy ledger:** <https://vet402.com/accuracy>
+**Site:** <https://vet402.com> · **Live demo:** <https://vet402.com/playground> · **API reference:** <https://vet402.com/docs/api> · **Accuracy ledger:** <https://vet402.com/accuracy>
+
+> 日本語の概観は [docs/ja/README.md](./docs/ja/README.md)。
 
 This repository is the source of the vet402 service and of the three npm packages published from `packages/`.
 
@@ -51,7 +53,11 @@ Start here, in this order:
 
 - [PRODUCT.md](./PRODUCT.md) — two products, verb glossary, plans
 - [DESIGN.md](./DESIGN.md) — public RFC paper vs dashboard operate app
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — system map: data flow, money safety, module boundaries ([日本語](./docs/ja/ARCHITECTURE.md))
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — full-stack setup (Docker or local), PR checklist, first issues
 - [docs/README.md](./docs/README.md) — which remaining file to open (do not load the rest by default)
+
+Grant / hackathon reviewers: [docs/applications/](./docs/applications/) has the one-page impact summary and per-ecosystem materials.
 
 Customer-facing: [Quickstart](./docs/quickstart.md) · [OpenAPI](./docs/openapi.yaml) · [Deployment](./docs/deployment.md)
 

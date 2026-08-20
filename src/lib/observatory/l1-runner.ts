@@ -208,6 +208,13 @@ export async function runL1Batch(
     limit?: number;
     fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
     timeoutMs?: number;
+    /**
+     * Playground demo path: narrow candidate selection to this one endpoint.
+     * Everything else — L0-pass requirement, self-exclusion, sweep-window
+     * dedup, the atomic budget reservation — applies unchanged, so a demo
+     * trigger can never spend past what the daily batch itself could.
+     */
+    onlyEndpointId?: string;
   } = {},
 ): Promise<L1BatchSummary> {
   // SSRF (2026-08-15 audit): resourceUrl is a seller-declared string from the
@@ -215,7 +222,7 @@ export async function runL1Batch(
   // or redirects to — a non-public address, so this runner cannot be pointed
   // at the platform's own internal surfaces (nor made to carry a signed
   // payment authorization there). See src/lib/net/safe-fetch.ts.
-  const { limit = 100, fetchImpl = guardedFetch, timeoutMs = 20_000 } = options;
+  const { limit = 100, fetchImpl = guardedFetch, timeoutMs = 20_000, onlyEndpointId } = options;
   const summary: L1BatchSummary = {
     attempted: 0,
     settled: 0,
@@ -287,6 +294,7 @@ export async function runL1Batch(
       ORDER BY probed_at DESC LIMIT 1
     ) lp ON lp.verdict = 'pass'
     WHERE e.status = 'active'
+      ${onlyEndpointId ? sql`AND e.id = ${onlyEndpointId}::uuid` : sql``}
       ${selfExclusion}
       AND NOT EXISTS (
         SELECT 1 FROM x402_l1_purchases pu

@@ -8,8 +8,19 @@ type AppDatabase = NeonHttpDatabase<typeof schema> | PostgresJsDatabase<typeof s
 
 let db: AppDatabase | null = null;
 
-function isLocalDatabaseUrl(url: string): boolean {
-  return /localhost|127\.0\.0\.1/.test(url);
+/**
+ * The HTTP driver speaks Neon's proxy protocol — it works ONLY against
+ * *.neon.tech. Keying on "is this Neon" (not "is this localhost") makes every
+ * other Postgres — docker-compose の `postgres` サービス名、社内ホスト名 —
+ * take the TCP driver, instead of silently failing fetch against a host that
+ * has no HTTP proxy (docker compose self-host, 2026-08-20 実測).
+ */
+function isNeonDatabaseUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.endsWith(".neon.tech");
+  } catch {
+    return false;
+  }
 }
 
 export function isDatabaseConfigured(): boolean {
@@ -33,12 +44,12 @@ export function getDb(): AppDatabase | null {
 
   if (!db) {
     const url = process.env.DATABASE_URL;
-    if (isLocalDatabaseUrl(url)) {
-      const client = postgres(url, { max: 10 });
-      db = drizzlePostgres(client, { schema });
-    } else {
+    if (isNeonDatabaseUrl(url)) {
       const sql = neon(url);
       db = drizzleNeon(sql, { schema });
+    } else {
+      const client = postgres(url, { max: 10 });
+      db = drizzlePostgres(client, { schema });
     }
   }
 
