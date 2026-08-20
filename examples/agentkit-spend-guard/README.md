@@ -60,3 +60,22 @@ All fields are optional — set only the rules you want. The payee trust lookup 
 - Trust lookup failures **fail closed** (`payee_trust_unavailable`): an unreachable trust API denies the payment rather than waving it through.
 
 See the [SDK README](../../packages/sdk/README.md) for the full SpendGuard API.
+
+## Using alongside CDP facilitators / paymasters
+
+SpendGuard sits at the payment-decision layer, so it composes with CDP
+infrastructure rather than overlapping it:
+
+- **Paymasters are orthogonal.** A paymaster sponsors gas/fees; it does not
+  change who receives the payment or whether that recipient should be paid.
+  Run `guard.evaluate()` on the payee exactly as without one — a sponsored
+  transaction still needs an ALLOW verdict before it is submitted.
+- **Facilitator-settled x402 payments verify the same address.** When a
+  facilitator settles an x402 payment, the recipient is the `payTo` address
+  from the x402 payment requirements. That `payTo` address is what you pass
+  to `guard.evaluate({ payee, amountUsd })` — the check is identical whether
+  the payment settles directly or through a facilitator. Settlement is not
+  vetting: the facilitator moving the funds does not score the recipient.
+- **Non-custodial either way.** SpendGuard returns a decision only; keys,
+  signing, and submission stay with the wallet stack and its infrastructure
+  in both setups.
