@@ -816,3 +816,32 @@ export const registryWrites = pgTable(
     index("registry_writes_endpoint_idx").on(t.endpointId),
   ],
 );
+
+/**
+ * probe_contributions — 外部コントリビュータのL0観測（Phase 3.3 v0・既定OFF）。
+ *
+ * v0 は「署名付きで受け取り、保存する」だけ。公開 verdict へは一切混ぜない
+ * ——公開判定は自前プローブの publishedVerdict のみが正典で、外部観測が
+ * 判定へ効き始めるのは重み付け・評判設計（v1）とその監査を経てから。
+ * 受理ゲート: CONTRIBUTIONS_ENABLED・EIP-191署名の実検証・IPレート制限。
+ */
+export const probeContributions = pgTable(
+  "probe_contributions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id").notNull(),
+    /** 署名者（EVMアドレス小文字）。v0の身元はこれだけ——ステーク/評判はv1。 */
+    submitter: text("submitter").notNull(),
+    verdict: text("verdict").notNull(),
+    httpStatus: integer("http_status"),
+    latencyMs: integer("latency_ms"),
+    /** 署名対象の正規化メッセージ原文（監査可能性——何に署名したかを残す）。 */
+    message: text("message").notNull(),
+    signature: text("signature").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("probe_contributions_endpoint_idx").on(t.endpointId, t.createdAt),
+    index("probe_contributions_submitter_idx").on(t.submitter),
+  ],
+);
