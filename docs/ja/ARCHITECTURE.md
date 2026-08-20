@@ -85,7 +85,22 @@ flowchart TD
 - Accuracy Ledger（`src/lib/scoring/accuracy.ts`）は vet402 自身の的中/外れを
   証拠付きで公開する——検証者が自分を公衆の前で採点する。
 
-## 5. 実行環境
+## 5. チェーン——Baseが主・schemeごとのアダプタ
+
+- **Base (EVM)**: `x402-payer.ts`——EIP-3009 署名の `exact` scheme。ホーム
+  チェーンで、公開済みの数字は全て Base。
+- **Solana**: `sol402-payer.ts`——`scheme_exact_svm.md` 準拠の部分署名
+  versioned tx（ComputeBudget → TransferChecked → Memo・feePayer は
+  ファシリテータのスポンサー）。既定OFF（専用フラグ＋専用鍵）。OFFの間は
+  SQL段階で候補から除外する。base58 の payTo は端から端まで大文字小文字を
+  保存する（小文字化は base58 を破壊する——2026-08-20 に実在の取込バグを
+  発見・修復済み）。
+- **オンチェーン公開**（`src/lib/chain/registry.ts`・既定OFF）: L0–L2 の
+  結果を Base の ERC-8004 Validation Registry へ書ける（request→response・
+  0|100）。決定的 hash の台帳（registry_writes）で冪等・ガス上限ブレーカ
+  付き。意見（L3）はオンチェーンにも書かない。
+
+## 6. 実行環境
 
 - **Next.js 16 App Router**（Vercel）+ **PostgreSQL**（Neon・database名は
   `vouch`。`scripts/db-preflight.ts` がスキーマ適用前に名前をassertする）。
@@ -96,7 +111,7 @@ flowchart TD
 - **公開読み取り面はIPレート制限+CDNキャッシュ**。レート制限ストアは
   本番でDBバック・到達不能時はfail-closed。
 
-## 6. リポジトリ地図
+## 7. リポジトリ地図
 
 | パス | 責務 |
 |---|---|
@@ -111,7 +126,7 @@ flowchart TD
 | `tests/` | `tsx --test`。DB系は `TEST_DATABASE_URL` でゲート |
 | `docs/` | 本書・OpenAPI・ランブック・申請素材（`docs/applications/`） |
 
-## 7. 横断原則
+## 8. 横断原則
 
 1. **既定でfail-closed**——不正な入力は、金を使う・判定を公開する・レート
    制限を飛ばす理由には決してならない。

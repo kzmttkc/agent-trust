@@ -8,8 +8,9 @@ import { getEndpointPurchases } from "@/lib/observatory/reader";
  * 語彙は他の公開面と同じ: 数と分母のみ・評価語なし。
  * SVGバッジでなくPNGなのは、Farcasterクライアントのimage要件のため。
  */
-export const runtime = "edge";
-
+// Node runtime のまま: getEndpointPurchases は self-host では TCP の
+// postgres ドライバを使うため edge では動かない（ローカル実測 500）。
+// ImageResponse は Node runtime でも動作する。
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const data = await getEndpointPurchases(id);
