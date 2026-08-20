@@ -114,3 +114,30 @@ test("DB 未設定 → db_unavailable（fail-closed・500 の素材）", async (
   const result = await runDemoL0(ENDPOINT_ID, { fetchImpl: challenge402() });
   assert.deepEqual(result, { ok: false, reason: "db_unavailable" });
 });
+
+test("ROUTE: level=l1 は DEMO_L1_ENABLED が無い限り 403——1日1回のレート消費より先に拒否", async () => {
+  delete process.env.DEMO_L1_ENABLED;
+  const { NextRequest } = await import("next/server");
+  const { POST } = await import("@/app/api/v1/demo/verify/route");
+  const req = new NextRequest("http://localhost/api/v1/demo/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpointId: ENDPOINT_ID, level: "l1" }),
+  });
+  const res = await POST(req);
+  assert.equal(res.status, 403);
+  const body = (await res.json()) as { error: string };
+  assert.equal(body.error, "demo_l1_disabled");
+});
+
+test("ROUTE: 未知の level は 400", async () => {
+  const { NextRequest } = await import("next/server");
+  const { POST } = await import("@/app/api/v1/demo/verify/route");
+  const req = new NextRequest("http://localhost/api/v1/demo/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpointId: ENDPOINT_ID, level: "l9" }),
+  });
+  const res = await POST(req);
+  assert.equal(res.status, 400);
+});

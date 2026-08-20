@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getClientIp } from "@/lib/api/client-ip";
 import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit";
 import { runDemoL0 } from "@/lib/demo/verify";
+import { runL1Batch } from "@/lib/observatory/l1-runner";
+import { getEndpointPurchases } from "@/lib/observatory/reader";
 import { logServerError } from "@/lib/util/log";
 
 /**
@@ -28,14 +30,47 @@ export async function POST(request: NextRequest) {
   }
 
   let endpointId: unknown;
+  let level: unknown;
   try {
     const body = await request.json();
     endpointId = (body as { endpointId?: unknown })?.endpointId;
+    level = (body as { level?: unknown })?.level ?? "l0";
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400, headers: perCaller });
   }
   if (typeof endpointId !== "string" || endpointId.length === 0) {
     return NextResponse.json({ error: "endpoint_id_required" }, { status: 400, headers: perCaller });
+  }
+  if (level !== "l0" && level !== "l1") {
+    return NextResponse.json({ error: "invalid_level" }, { status: 400, headers: perCaller });
+  }
+
+  // L1 は実資金が動く。二重ゲート（デモ側フラグ＋観測所側フラグは runL1Batch
+  // 内の isL1Enabled が見る）で、既定はどちらも OFF。フラグ確認を1日1回の
+  // レート消費より先に置く——無効な機能で呼び手の1日分トークンを燃やさない。
+  if (level === "l1") {
+    if (process.env.DEMO_L1_ENABLED !== "true") {
+      return NextResponse.json({ error: "demo_l1_disabled" }, { status: 403, headers: perCaller });
+    }
+    const l1Limited = await consumeIpRateLimit(`demo-l1:${ip}`, 1, 86_400_000);
+    if (!l1Limited.allowed) {
+      return NextResponse.json(
+        { error: "rate_limited", detail: "one live purchase per caller per day" },
+        { status: 429, headers: ipRateLimitHeaders(l1Limited) },
+      );
+    }
+    try {
+      // 予算・重複・自己除外・L0-pass 要件はランナー内の既存ゲートがそのまま利く。
+      const summary = await runL1Batch({ onlyEndpointId: endpointId, limit: 1 });
+      const purchases = await getEndpointPurchases(endpointId);
+      return NextResponse.json(
+        { ok: true, level: "l1", summary, purchases },
+        { headers: { ...perCaller, "Cache-Control": "no-store" } },
+      );
+    } catch (error) {
+      logServerError("demo_verify_l1", error);
+      return NextResponse.json({ error: "demo_unavailable" }, { status: 503, headers: perCaller });
+    }
   }
 
   try {

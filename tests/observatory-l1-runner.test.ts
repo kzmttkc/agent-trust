@@ -174,6 +174,33 @@ if (!TEST_DB) {
       assert.equal(summary.attempted, 1);
     });
 
+    await t.test("onlyEndpointId narrows the batch to that endpoint (playground demo path)", async () => {
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const eps = await db
+        .select({ id: schema.x402Endpoints.id, url: schema.x402Endpoints.resourceUrl })
+        .from(schema.x402Endpoints);
+      const seller2 = eps.find((e) => e.url.includes("seller2"));
+      assert.ok(seller2, "fixture seller2 must exist");
+      const seen: string[] = [];
+      const summary = await runL1Batch({
+        fetchImpl: async (url: string) => {
+          seen.push(url);
+          return new Response(challengeFor(url), {
+            status: 402,
+            headers: { "content-type": "application/json" },
+          });
+        },
+        limit: 10,
+        onlyEndpointId: seller2.id,
+      });
+      assert.ok(seen.length > 0, "the requested endpoint is approached");
+      assert.ok(
+        seen.every((u) => u.includes("seller2")),
+        "no other endpoint is approached when onlyEndpointId is set",
+      );
+      assert.equal(summary.attempted, 1);
+    });
+
     await t.test("a challenge over-charging vs catalog is recorded, never signed", async () => {
       await db.execute(sql`TRUNCATE x402_l1_purchases`);
       const evil = JSON.stringify({
