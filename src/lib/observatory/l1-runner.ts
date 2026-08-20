@@ -42,6 +42,7 @@ import {
   signX402Payment,
 } from "./x402-payer";
 import { logServerError } from "@/lib/util/log";
+import { fireL1RegistryHook } from "@/lib/chain/registry-hook";
 import { Keypair } from "@solana/web3.js";
 import {
   SOLANA_MAINNET_CAIP2,
@@ -645,6 +646,10 @@ async function purchaseOne(input: {
       },
     })
     .where(eq(x402L1Purchases.id, reservation.rowId));
+
+  // ERC-8004 への公開（C4）。フラグOFF既定・graceful——購入の記帳には
+  // 何があっても影響しない（registry-hook.ts 冒頭）。
+  fireL1RegistryHook({ endpointId: candidate.id, payTo: accept.payTo, settled });
 
   return { kind: "attempted", settled, spent: amount };
 }
