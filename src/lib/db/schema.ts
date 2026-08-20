@@ -845,3 +845,97 @@ export const probeContributions = pgTable(
     index("probe_contributions_submitter_idx").on(t.submitter),
   ],
 );
+
+/**
+ * ledger_anchors — 日次台帳のハッシュチェーン（TEE設計 Stage 0 / DD用資産固定）。
+ *
+ * その日の全 paid-attempt 行と L0 日次集計を正規化JSONに直列化した sha256 を
+ * root_hash とし、prev_root と連鎖させる。「この記録がこの時点で存在した」を
+ * 第三者が末尾から検算できる——過去行の書換えは以後の全rootを壊す。
+ * anchored_tx はオンチェーンへ刻んだ時のtx（ANCHOR_WRITES_ENABLED・既定OFF・
+ * 資金承認後）。rootの再計算手順は /observatory/methodology に公開する。
+ */
+export const ledgerAnchors = pgTable(
+  "ledger_anchors",
+  {
+    /** UTC day, YYYY-MM-DD. PK＝1日1root。 */
+    day: text("day").primaryKey(),
+    rootHash: text("root_hash").notNull(),
+    prevRoot: text("prev_root"),
+    entryCount: integer("entry_count").notNull(),
+    anchoredTx: text("anchored_tx"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+);
+
+/**
+ * verification_requests — 公開検証リクエストキュー v0（無償枠）。
+ * 誰でも「このエンドポイントを測って」を積める。日次cronが未消化分を
+ * L0 の優先対象に注入する。支払い優先枠（x402課金＝自社ドッグフード）は
+ * self-listing 計画と統合して後日——このテーブルは今からそれを保持できる
+ * よう paid/payment_ref を持つが、v0 では常に free。
+ */
+export const verificationRequests = pgTable(
+  "verification_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id").notNull(),
+    requesterIp: text("requester_ip"),
+    tier: text("tier").notNull().default("free"),
+    paymentRef: text("payment_ref"),
+    /** pending | probed | invalid */
+    status: text("status").notNull().default("pending"),
+    probedAt: timestamp("probed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("verification_requests_status_idx").on(t.status, t.createdAt),
+    index("verification_requests_endpoint_idx").on(t.endpointId),
+  ],
+);
+
+/**
+ * disputes — 売り手の署名付き異議（中立性の制度化）。
+ * endpoint の payTo を握る者だけが「この測定は違う」を申し立てられる
+ * （EIP-191。Solana payTo の Ed25519 対応は後続）。受理と同時に自動で
+ * L0 を再測定し、結果は通常の公開ゲートを通る——**申し立てで記録が消える
+ * ことはない**。訂正も、訂正しない判断も、同じ重みで公開される。
+ */
+export const disputes = pgTable(
+  "disputes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    endpointId: uuid("endpoint_id").notNull(),
+    /** 申し立ての対象（l0 | l1 | listing）。 */
+    subject: text("subject").notNull(),
+    reason: text("reason").notNull(),
+    /** 署名者（= endpoint payTo と一致することを検証済み）。 */
+    signer: text("signer").notNull(),
+    message: text("message").notNull(),
+    signature: text("signature").notNull(),
+    /** open | remeasured | closed */
+    status: text("status").notNull().default("open"),
+    /** 再測定した probe の verdict（公開ゲート適用前の生値）。 */
+    remeasureVerdict: text("remeasure_verdict"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("disputes_endpoint_idx").on(t.endpointId, t.createdAt)],
+);
+
+/**
+ * waitlist_entries — 有償面（premium data / design partner）の意思表明の受け皿。
+ * 課金は経済化設計書の関門（§5）を通るまで開始しない——ここは需要の実在を
+ * 数えるためだけの保存で、メール送信もしない（外部送信は承認事項）。
+ */
+export const waitlistEntries = pgTable(
+  "waitlist_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: text("email").notNull(),
+    /** premium_data | design_partner | other */
+    interest: text("interest").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("waitlist_email_interest_unique").on(t.email, t.interest)],
+);
