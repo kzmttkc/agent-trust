@@ -8,22 +8,45 @@
 // ゲートも普段どおり適用される。申し立てで記録が消えることはない。
 //
 // メッセージ正規形（署名対象）:
-//   vet402:dispute:v0:{endpointId}:{subject}:{sha256(reason)}
+//   vet402:dispute:v1:{endpointId}:{subject}:{sha256(reason)}:{issued}
 // reason 本文は台帳に原文保存（監査可能性）。
+//
+// 2026-08-22（監査残件）: v0 のメッセージには nonce も timestamp も無く、
+// 公開された署名を拾った第三者が同じ申し立てを無限に再送できた（受理1件
+// につき本物の L0 再測定＝外向きHTTPが1回走る）。payees/verify と
+// agents/verify で 2026-08-18 に塞いだのと同じ方式——署名対象に `issued`
+// を畳み込み、サーバ側で鮮度窓を検証する（src/lib/verify-message.ts の
+// isValidIssuedAt が形を保証し、改行の混入で行を偽造できない）。
+// 併せて同一メッセージの二重受理を拒否するので、窓の内側でも1回きり。
+// 接頭辞を v1 へ上げたのは、台帳に残る過去の v0 原文と新形式を後から
+// 取り違えないため。
 // ============================================================
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { verifyMessage } from "viem";
 import { getDb } from "@/lib/db/client";
 import { disputes, x402Endpoints, x402L0Probes } from "@/lib/db/schema";
+import { isValidIssuedAt } from "@/lib/verify-message";
 import { probeEndpoint, type ProbeOptions } from "./l0-probe";
+
+/**
+ * 署名の `issued` がサーバ時刻からどれだけずれてよいか。payees/verify の
+ * ISSUED_WINDOW_MS と同じ 10 分（両方向に効かせる——古すぎるのは再送、
+ * 未来すぎるのは窓を先取りして貯め込む使い方）。
+ */
+const ISSUED_WINDOW_MS = 10 * 60_000;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SUBJECTS = new Set(["l0", "l1", "listing"]);
 
-export function disputeMessage(input: { endpointId: string; subject: string; reason: string }): string {
+export function disputeMessage(input: {
+  endpointId: string;
+  subject: string;
+  reason: string;
+  issued: string;
+}): string {
   const reasonHash = createHash("sha256").update(input.reason, "utf8").digest("hex");
-  return `vet402:dispute:v0:${input.endpointId}:${input.subject}:${reasonHash}`;
+  return `vet402:dispute:v1:${input.endpointId}:${input.subject}:${reasonHash}:${input.issued}`;
 }
 
 export type DisputeResult =
@@ -35,6 +58,8 @@ export type DisputeResult =
         | "endpoint_not_found"
         | "not_payto_signer"
         | "invalid_signature"
+        | "signature_expired"
+        | "replayed"
         | "unsupported_payto"
         | "db_unavailable";
     };
@@ -44,6 +69,8 @@ export async function submitDispute(
     endpointId: string;
     subject: string;
     reason: string;
+    /** 署名者が畳み込んだ発行時刻（Date#toISOString() の厳密な形）。 */
+    issued: string;
     address: string;
     signature: string;
   },
@@ -55,6 +82,11 @@ export async function submitDispute(
     return { ok: false, reason: "invalid_input" };
   }
   if (!/^0x[0-9a-fA-F]{40}$/.test(input.address)) return { ok: false, reason: "invalid_input" };
+  // 形の検査が先、鮮度の判定は後（形が壊れていれば Date.parse は NaN）。
+  if (!isValidIssuedAt(input.issued)) return { ok: false, reason: "invalid_input" };
+  if (Math.abs(Date.now() - Date.parse(input.issued)) > ISSUED_WINDOW_MS) {
+    return { ok: false, reason: "signature_expired" };
+  }
 
   const db = getDb();
   if (!db) return { ok: false, reason: "db_unavailable" };
@@ -83,6 +115,16 @@ export async function submitDispute(
     valid = false;
   }
   if (!valid) return { ok: false, reason: "invalid_signature" };
+
+  // 鮮度窓の内側での再送も1回きりにする。message は issued を含むので
+  // 「同一メッセージ = 同一署名の再提出」であり、正当な申し立ての重複には
+  // ならない（内容か時刻が違えば別のメッセージになる）。
+  const [replayed] = await db
+    .select({ id: disputes.id })
+    .from(disputes)
+    .where(eq(disputes.message, message))
+    .limit(1);
+  if (replayed) return { ok: false, reason: "replayed" };
 
   const [row] = await db
     .insert(disputes)
