@@ -20,6 +20,7 @@ import {
   getObservedDeliveryStats,
   type ObservedDeliveryStats,
 } from "@/lib/db/observed-purchases";
+import { withDeadline } from "@/lib/util/deadline";
 import { LruCache } from "@/lib/util/lru-cache";
 import { logServerError } from "@/lib/util/log";
 import { normalizeWalletScore, scoreL1Receiving } from "./helpers";
@@ -227,13 +228,23 @@ export function invalidatePayeeScoreCache(payee?: string): void {
   cache.delete(payee.toLowerCase());
 }
 
+/**
+ * 2026-08-22 audit: this used to be a hand-rolled Promise.race whose timer was
+ * never cleared. On the fast path — the promise settling well inside its
+ * budget — the pending setTimeout kept the event loop alive for the REST of
+ * the budget, and LEG_BUDGET_MS is 20,000ms, so a serverless invocation could
+ * be held open up to 20s after its work was done (and a test run likewise).
+ *
+ * @/lib/util/deadline does the same job with the same semantics — resolve if
+ * it settles in time, reject with DeadlineExceededError if not, pass an
+ * underlying rejection through untouched — and always clears the timer. One
+ * definition of "too slow" across the scoring engines is worth more than a
+ * local error string; every caller here already treats ANY rejection as an
+ * unavailable leg, so the change of error identity is not observable in a
+ * verdict.
+ */
 async function withTimeout<T>(promise: Promise<T>, budgetMs = FETCH_TIMEOUT_MS): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error("payee_engine_timeout")), budgetMs);
-    }),
-  ]);
+  return withDeadline(promise, budgetMs, "payee_engine");
 }
 
 /** Machine-readable names for the asset legs, reported in signalsUnavailable. */
