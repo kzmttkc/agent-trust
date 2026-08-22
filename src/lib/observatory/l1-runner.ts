@@ -30,9 +30,12 @@ import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { x402L1Purchases } from "@/lib/db/schema";
+import { recordObservedPurchase } from "@/lib/db/observed-purchases";
+import { readBodyCapped } from "@/lib/net/read-capped";
 import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
+import { createDeadline } from "@/lib/util/deadline";
 import { checkL1Budget, isL1Enabled, DAILY_BUDGET_USD } from "./budget";
-import { operatorPayToDenylist } from "./operator";
+import { isOperatorPayTo, operatorPayToDenylist } from "./operator";
 import {
   buildAuthorization,
   encodePaymentHeader,
@@ -55,10 +58,23 @@ import {
 export type L1BatchSummary = {
   attempted: number;
   settled: number;
+  /**
+   * 署名して支払ったが決済レシートが返らなかった件数。2026-08-22 まで
+   * `delivered_no_receipt`（品は来たがレシート無し）を吸収していて、DBの
+   * status は区別しているのに cron 応答からは判別できなかった。
+   */
   settleFailed: number;
+  /** 品は返ってきたが PAYMENT-RESPONSE が無かった件数（DBの status と1:1）。 */
+  deliveredNoReceipt: number;
   skipped: number;
   budgetDenied: number;
   spentUnitsTotal: string;
+  /** True when the batch stopped early to stay inside maxDuration (see L1_BATCH_BUDGET_MS). */
+  stoppedForDeadline: boolean;
+  /** Candidates left untouched by that stop — zero on a normal full walk. */
+  notAttempted: number;
+  /** Stale `in_flight` rows resolved at the top of this batch (see sweepOrphanedInFlight). */
+  orphansResolved: number;
   disabledReason: "l1_disabled" | "wallet_key_missing" | null;
 };
 
@@ -106,6 +122,38 @@ const guardedFetch = createSafeFetchImpl();
 
 /** The daily cap in USDC base units — the same $25 checkL1Budget judges in USD. */
 const DAILY_BUDGET_UNITS = BigInt(DAILY_BUDGET_USD) * BigInt(USDC_PER_USD);
+
+/**
+ * バッチ全体の壁時計予算（2026-08-22 監査・Critical の後半）。
+ *
+ * /api/cron/l1-purchase は maxDuration=300s。runL1Batch は limit=100 件を
+ * 逐次処理するのに全体のデッドラインを持っておらず、300s を越えた瞬間に
+ * **署名済み・予約済みの購入が記帳される前に殺される**——in_flight の行だけ
+ * が残り「金が動いたかもしれないのにレシートが無い」最悪の落ち方をする。
+ *
+ * 対策は「走っている購入を殺す」ではなく「**新しい購入を始めない**」。
+ * 1件の最悪ケースは HTTP 2本（各 timeoutMs・本文読み取り込み）＋ 署名・
+ * 予約・記帳・Solana の blockhash RPC で、後者を L1_PURCHASE_SLACK_MS で
+ * 見積もる。既定では 210s + (20s*2 + 20s) = 270s < 300s なので、
+ * デッドライン直前に始めた1件が最悪でも maxDuration の内側で終わる。
+ */
+export const L1_BATCH_BUDGET_MS = 210_000;
+
+/** 1購入あたり、2本の HTTP 以外（署名・DB・blockhash RPC）に見込む余裕。 */
+export const L1_PURCHASE_SLACK_MS = 20_000;
+
+/** 1件の購入の最悪所要時間。 */
+export function worstCasePurchaseMs(timeoutMs: number): number {
+  return timeoutMs * 2 + L1_PURCHASE_SLACK_MS;
+}
+
+/**
+ * 残り時間で「もう1件」始めてよいか。純関数（DB なしでテストするため公開）。
+ * 判定は最悪ケース基準——平均で判断すると、遅い1件が maxDuration を跨ぐ。
+ */
+export function canStartAnotherPurchase(remainingMs: number, timeoutMs: number): boolean {
+  return remainingMs >= worstCasePurchaseMs(timeoutMs);
+}
 
 /** Endpoints purchased within this window are not re-purchased (1判定1購買). */
 export const SWEEP_WINDOW_DAYS = 6;
@@ -240,6 +288,79 @@ async function reserveSpend(input: {
   return { ok: false, reason: row.taken === true ? "already_purchased" : "daily_budget_exceeded" };
 }
 
+/**
+ * observed_purchases.delivery_verified の判定（2026-08-22 監査・項目1）。
+ *
+ * この列は**書き手側の保証**で、読み手（observed-purchases.ts）は導出できず
+ * フラグを信じるしかない。だから true にする条件は「品が実際に届いたと
+ * 我々が観測した」ことに限る:
+ *   - 有料リトライが HTTP 200 を返し、
+ *   - 本文が空でなく（空ボディの200は「届いた」と言えない）、
+ *   - 宣言スキーマに対して mismatch でない（宣言があるのに違う形の応答は、
+ *     配送の確認になっていない。宣言が無い no_declaration は減点しない）。
+ * どれか欠ければ false で**記録する**——行ごと捨てるのではなく、x402 相当の
+ * 「決済はした」事実として残す（scoreEconomicActivity はこの差を見ている）。
+ *
+ * 純関数。DB なしでテストするため公開。
+ */
+export function isDeliveryVerified(input: {
+  httpStatusPaid: number | null;
+  payloadNonEmpty: boolean;
+  l2Schema: string;
+}): boolean {
+  return input.httpStatusPaid === 200 && input.payloadNonEmpty && input.l2Schema !== "mismatch";
+}
+
+/**
+ * 孤児 `in_flight` の回収しきい値（2026-08-22 監査）。
+ *
+ * reserveSpend は署名の**前**に in_flight 行を書く（正しい——署名済み
+ * EIP-3009 は validBefore まで生きた金なので、記帳より先に予約する）。
+ * だが署名後・結果の記帳前に落ちた行を後から解決する仕組みが無く、
+ * スイープ窓（既定6日・優先1日）の重複判定は status を見ないので、
+ * 孤児が1件でもあるとそのエンドポイントは窓の間ずっと購入対象から
+ * 外れ続ける（本番実測 2026-08-22 時点では 0 件）。
+ *
+ * 30分の根拠: 1件の最悪ケースは worstCasePurchaseMs = 60s、バッチ全体でも
+ * cron の maxDuration = 300s が上限。30分はその6倍あるので、**実行中の
+ * 別インボケーションの行を誤って回収することはあり得ない**。
+ */
+export const ORPHAN_IN_FLIGHT_MINUTES = 30;
+
+/**
+ * 孤児 in_flight を解決する。変えるのは status と raw_response_meta だけで、
+ * **spent_units には触らない**——「署名したら計上する」は予算の不変条件で、
+ * ここで金額を戻すと、実際に動いたかもしれない金の分だけ当日の予算が
+ * 二重に空く。だから day 集計（runL1Batch の日次合計・reserveSpend の day
+ * CTE。どちらも status を見ずに spent_units を合計する）は回収の前後で
+ * 完全に同じ値を返す。
+ *
+ * 解決先を `request_error` にする理由: 我々のランナーが死んだという**我々側
+ * の事実**であり、売り手についての測定ではない。`settle_failed` に落とすと
+ * 測っていない失敗を売り手の決済率の分母（PAID_ATTEMPT_STATUSES）に入れて
+ * しまう。request_error は公開面（decisions / export.csv / backtest /
+ * reader）のどの分母からも既に外れている。
+ */
+export async function sweepOrphanedInFlight(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  olderThanMinutes: number = ORPHAN_IN_FLIGHT_MINUTES,
+): Promise<number> {
+  const raw = await db.execute(sql`
+    UPDATE x402_l1_purchases
+    SET status = 'request_error',
+        raw_response_meta = coalesce(raw_response_meta, '{}'::jsonb) || jsonb_build_object(
+          'phase', 'sweep',
+          'reason', 'orphaned_in_flight',
+          'note', 'reserved and possibly signed; the runner died before the outcome was written',
+          'sweptAt', to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+        )
+    WHERE status = 'in_flight'
+      AND attempted_at < now() - make_interval(mins => ${olderThanMinutes}::int)
+    RETURNING id
+  `);
+  return rowsOf(raw).length;
+}
+
 export async function runL1Batch(
   options: {
     limit?: number;
@@ -254,6 +375,8 @@ export async function runL1Batch(
     onlyEndpointId?: string;
     /** Test seam: Solana recent blockhash. Default hits SOLANA_RPC_URL. */
     getSolanaBlockhash?: () => Promise<string>;
+    /** Whole-batch wall-clock budget; default L1_BATCH_BUDGET_MS (test seam). */
+    batchBudgetMs?: number;
   } = {},
 ): Promise<L1BatchSummary> {
   // SSRF (2026-08-15 audit): resourceUrl is a seller-declared string from the
@@ -261,15 +384,26 @@ export async function runL1Batch(
   // or redirects to — a non-public address, so this runner cannot be pointed
   // at the platform's own internal surfaces (nor made to carry a signed
   // payment authorization there). See src/lib/net/safe-fetch.ts.
-  const { limit = 100, fetchImpl = guardedFetch, timeoutMs = 20_000, onlyEndpointId } = options;
+  const {
+    limit = 100,
+    fetchImpl = guardedFetch,
+    timeoutMs = 20_000,
+    onlyEndpointId,
+    batchBudgetMs = L1_BATCH_BUDGET_MS,
+  } = options;
+  const deadline = createDeadline(batchBudgetMs);
   const getSolanaBlockhash = options.getSolanaBlockhash ?? defaultSolanaBlockhash;
   const summary: L1BatchSummary = {
     attempted: 0,
     settled: 0,
     settleFailed: 0,
+    deliveredNoReceipt: 0,
     skipped: 0,
     budgetDenied: 0,
     spentUnitsTotal: "0",
+    stoppedForDeadline: false,
+    notAttempted: 0,
+    orphansResolved: 0,
     disabledReason: null,
   };
 
@@ -293,6 +427,17 @@ export async function runL1Batch(
   // （試行すらしない）。予算・台帳は Base と共有（USDC 基本単位が共通）。
   const solanaKeypair = isSolanaL1Enabled() ? loadSolanaKeypair() : null;
   const solanaReady = solanaKeypair !== null;
+
+  // 1.5 Resolve orphaned reservations from earlier runs BEFORE anything else
+  //     reads the ledger. Ordering is safe by construction: the sweep never
+  //     touches spent_units, so the day total below is identical either way.
+  //     A failure here must not stop the batch — it is housekeeping, not a
+  //     money gate — but it is never swallowed silently.
+  try {
+    summary.orphansResolved = await sweepOrphanedInFlight(db);
+  } catch (error) {
+    if (!isMissingSchemaError(error)) logServerError("observatory.l1.orphan_sweep", error);
+  }
 
   // 2. Today's spend from the ledger (UTC day).
   let spentToday = 0n;
@@ -371,14 +516,24 @@ export async function runL1Batch(
     isPriority: r.is_priority === true,
   }));
 
-  for (const candidate of candidates) {
+  const pendingHooks: Promise<void>[] = [];
+  for (const [index, candidate] of candidates.entries()) {
+    // Start nothing we cannot finish inside maxDuration. Purchases already in
+    // flight are never interrupted — the whole point is that a signed
+    // authorization must always reach its ledger row.
+    if (!canStartAnotherPurchase(deadline.remaining(), timeoutMs)) {
+      summary.stoppedForDeadline = true;
+      summary.notAttempted = candidates.length - index;
+      break;
+    }
     try {
-      const outcome = await purchaseOne({ candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday });
+      const outcome = await purchaseOne({ candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday, pendingHooks });
       spentToday += outcome.spent;
       summary.spentUnitsTotal = String(BigInt(summary.spentUnitsTotal) + outcome.spent);
       if (outcome.kind === "attempted") {
         summary.attempted++;
         if (outcome.settled) summary.settled++;
+        else if (outcome.status === "delivered_no_receipt") summary.deliveredNoReceipt++;
         else summary.settleFailed++;
       } else if (outcome.kind === "budget_denied") {
         summary.budgetDenied++;
@@ -393,6 +548,10 @@ export async function runL1Batch(
     }
   }
 
+  // レジストリ書き込みを回収してから返す。allSettled なので、ここで
+  // 何が失敗しても summary（購入の事実）は変わらない。
+  await Promise.allSettled(pendingHooks);
+
   return summary;
 }
 
@@ -405,8 +564,16 @@ async function purchaseOne(input: {
   timeoutMs: number;
   db: NonNullable<ReturnType<typeof getDb>>;
   spentToday: bigint;
-}): Promise<{ kind: "attempted" | "skipped" | "budget_denied"; settled: boolean; spent: bigint }> {
-  const { candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday } = input;
+  /** バッチ末尾で待つレジストリ書き込み（registry-hook）。 */
+  pendingHooks: Promise<void>[];
+}): Promise<{
+  kind: "attempted" | "skipped" | "budget_denied";
+  settled: boolean;
+  spent: bigint;
+  /** 台帳に書いた status（attempted のときのみ）——summary の集計はこれを見る。 */
+  status?: string;
+}> {
+  const { candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday, pendingHooks } = input;
   const method = (candidate.method ?? "GET").toUpperCase();
   const startedAt = Date.now();
   const isSolana = candidate.network === SOLANA_MAINNET_CAIP2;
@@ -432,20 +599,26 @@ async function purchaseOne(input: {
   }
 
   // Unpaid request → expect the wall.
+  //
+  // 2026-08-22 (audit, Critical): the abort timer MUST still be armed while the
+  // BODY is read. AbortController only bounds the response up to its headers —
+  // clearing the timer before `.text()` (what this code did) left a seller free
+  // to dribble a body out forever, and timeoutMs stopped meaning anything. The
+  // clear now lives in `finally`, so the whole request+body is inside one
+  // budget and a slow body aborts like any other timeout.
   let first: Response;
   let firstBody = "";
+  const firstController = new AbortController();
+  const firstTimer = setTimeout(() => firstController.abort(), timeoutMs);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     first = await fetchImpl(candidate.resourceUrl, {
       method,
-      signal: controller.signal,
+      signal: firstController.signal,
       redirect: "follow",
       headers: { accept: "application/json", "user-agent": "vet402-observatory-l1/1.0 (+https://vet402.com/observatory/methodology)", ...(method === "POST" ? { "content-type": "application/json" } : {}) },
       ...(method === "POST" ? { body: "{}" } : {}),
     });
-    clearTimeout(timer);
-    firstBody = (await first.text()).slice(0, 16_000);
+    firstBody = await readBodyCapped(first, 16_000);
   } catch (error) {
     await record({
       status: "request_error",
@@ -459,6 +632,8 @@ async function purchaseOne(input: {
       },
     });
     return { kind: "skipped", settled: false, spent: 0n };
+  } finally {
+    clearTimeout(firstTimer);
   }
 
   if (first.status !== 402) {
@@ -477,13 +652,17 @@ async function purchaseOne(input: {
         declaredAmount: candidate.priceAmount,
         declaredPayTo: candidate.payTo,
       })
-    : selectAccept(challenge.accepts, { declaredAmount: candidate.priceAmount });
+    : selectAccept(challenge.accepts, {
+        declaredAmount: candidate.priceAmount,
+        declaredPayTo: candidate.payTo,
+      });
   if (!selection.accept) {
     await record({
       status: selection.reason,
       rawResponseMeta: {
         phase: "select",
         declaredAmount: candidate.priceAmount,
+        declaredPayTo: candidate.payTo,
         challengeAccepts: challenge.accepts.slice(0, 4),
       },
     });
@@ -519,6 +698,30 @@ async function purchaseOne(input: {
       });
       return { kind: "skipped", settled: false, spent: 0n };
     }
+  }
+
+  // Self-dealing backstop (2026-08-22 audit), the LAST gate before money is
+  // committed. Candidate selection excludes our own payTo, but it can only
+  // filter the CATALOG's e.pay_to — a wall is free to answer with a different
+  // address, and when the catalog declared none (declaredPayTo === null) the
+  // payto_mismatch gate above has nothing to compare against either. An
+  // on-chain self-transfer dressed up as a "settle-through verified" receipt
+  // would make the neutrality that is the whole moat a lie, so it is refused
+  // here and recorded (operator.ts).
+  if (isOperatorPayTo(accept.payTo)) {
+    await record({
+      status: "payto_operator_self",
+      network: accept.network,
+      asset: accept.asset,
+      payTo: accept.payTo.startsWith("0x") ? accept.payTo.toLowerCase() : accept.payTo,
+      amountUnits: accept.amount,
+      rawResponseMeta: {
+        phase: "select",
+        reason: "wall named the operator's own payTo",
+        declaredPayTo: candidate.payTo,
+      },
+    });
+    return { kind: "skipped", settled: false, spent: 0n };
   }
 
   // Reserve BEFORE signing. This is the authoritative gate: it re-reads the
@@ -583,12 +786,16 @@ async function purchaseOne(input: {
   let paid: Response | null = null;
   let paidBody = "";
   let paidError: string | null = null;
+  // Same 2026-08-22 fix as the unpaid leg: the timer covers the body read too.
+  // On the PAID leg an aborted body is not a lost measurement — the settlement
+  // receipt lives in the HEADERS, which we already hold — so the outcome is
+  // still recorded, with the body error kept in rawResponseMeta.bodyError.
+  const paidController = new AbortController();
+  const paidTimer = setTimeout(() => paidController.abort(), timeoutMs);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     paid = await fetchImpl(candidate.resourceUrl, {
       method,
-      signal: controller.signal,
+      signal: paidController.signal,
       redirect: "follow",
       headers: {
         accept: "application/json",
@@ -598,10 +805,11 @@ async function purchaseOne(input: {
       },
       ...(method === "POST" ? { body: "{}" } : {}),
     });
-    clearTimeout(timer);
-    paidBody = (await paid.text()).slice(0, 16_000);
+    paidBody = await readBodyCapped(paid, 16_000);
   } catch (error) {
     paidError = String(error).slice(0, 300);
+  } finally {
+    clearTimeout(paidTimer);
   }
 
   const latencyMs = Date.now() - startedAt;
@@ -643,15 +851,75 @@ async function purchaseOne(input: {
         status: paid?.status ?? null,
         contentType,
         bodyHead: paidBody.slice(0, 500),
+        // A response whose HEADERS arrived but whose body aborted/failed: the
+        // error would otherwise be dropped (rawSettlement keeps the settlement
+        // when one exists), so it is kept here rather than silently lost.
+        ...(paid && paidError ? { bodyError: paidError } : {}),
       },
     })
     .where(eq(x402L1Purchases.id, reservation.rowId));
 
-  // ERC-8004 への公開（C4）。フラグOFF既定・graceful——購入の記帳には
-  // 何があっても影響しない（registry-hook.ts 冒頭）。
-  fireL1RegistryHook({ endpointId: candidate.id, payTo: accept.payTo, settled });
+  // observed_purchases への記帳（2026-08-22 監査・項目1）。
+  //
+  // この表は scoreEconomicActivity（重み0.40の最上位軸）の L1 枝・
+  // scoreL1Receiving・payee-engine の l1DeliveryDepth の唯一の材料で、
+  // 「trusted-writer ingest」と設計されながら**全リポで呼び手が存在せず**
+  // 0行だった（本番実測 2026-08-22: observed_purchases 0行 /
+  // x402_l1_purchases 1,167行・決済成功496）。その間ずっと
+  // signals.x402.l1PurchaseCount 等は常に 0 を公開していた。
+  //
+  // 何を1行とするか（schema と observed-purchases.ts の意味論に従う）:
+  //  - tx_hash は NOT NULL かつ一意＝この表の自然キー。決済レシート
+  //    （PAYMENT-RESPONSE の transaction）が無い試行は行にできないので、
+  //    書けるのは settled のときだけ。delivered_no_receipt は「品は来たが
+  //    レシートが無い」＝オンチェーンの購入として名指せないので書かない;
+  //  - delivery_verified は**書き手側の保証**（reader は読み取り時に導出
+  //    できず、このフラグを信じるだけ）。だから「品が実際に届いた」と
+  //    我々が観測した時だけ true にする: HTTP 200 かつ本文が空でなく、
+  //    宣言スキーマに対して mismatch でないこと。1つでも欠ければ false で
+  //    記録する——行を捨てるのではなく、x402 相当の事実として残す;
+  //  - block_timestamp は取らない（L1 はレシートのハッシュしか持たず、
+  //    ブロック時刻を引く経路がまだ無い）。null なら reader は created_at を
+  //    日次軸に使う（settledAt の coalesce）ので、数秒差で正しい日に入る。
+  //    推測で埋めない。
+  //
+  // 大文字小文字: recordObservedPurchase は wallet/counterparty を小文字化
+  // する。base58（Solana）には情報が失われるが、読み手
+  // （getObservedPurchaseStats / getObservedDeliveryStats）も引数を小文字化
+  // して比較するので、書き・読みで一貫している。台帳（x402_l1_purchases）
+  // 側は base58 の原文を保つ、という既存の分担はそのまま。
+  //
+  // graceful: ここで何が起きても購入の記帳（正典は x402_l1_purchases）は
+  // 既に完了している。ただし黙って消さない——失敗は logServerError に残す。
+  if (settled && settlement?.transaction) {
+    const deliveryVerified = isDeliveryVerified({
+      httpStatusPaid: paid?.status ?? null,
+      payloadNonEmpty,
+      l2Schema,
+    });
+    try {
+      await recordObservedPurchase({
+        wallet: payerLabel,
+        counterparty: accept.payTo,
+        amount: String(amount),
+        txHash: settlement.transaction,
+        resource: candidate.resourceUrl,
+        blockTimestamp: null,
+        deliveryVerified,
+        observedBy: `observatory-l1:${candidate.id}`,
+      });
+    } catch (error) {
+      logServerError("observatory.l1.observed_purchase", error);
+    }
+  }
 
-  return { kind: "attempted", settled, spent: amount };
+  // ERC-8004 への公開（C4）。フラグOFF既定・graceful——購入の記帳には
+  // 何があっても影響しない（registry-hook.ts 冒頭）。バッチ末尾で待てるよう
+  // Promise を集める: fire-and-forget のままだと Vercel が応答後に関数を
+  // 凍結するので、最後の候補の書き込みだけが静かに消える。
+  pendingHooks.push(fireL1RegistryHook({ endpointId: candidate.id, payTo: accept.payTo, settled }));
+
+  return { kind: "attempted", settled, spent: amount, status };
 }
 
 /**

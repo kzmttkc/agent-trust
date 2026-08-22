@@ -32,6 +32,42 @@ export const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 export const BASE_CAIP2 = "eip155:8453";
 
 /**
+ * Canonical EIP-712 domain of Base mainnet USDC — PINNED, not taken from the
+ * seller (2026-08-22 audit).
+ *
+ * Measured against the primary source on 2026-08-22 (eth_call to
+ * https://mainnet.base.org, contract 0x8335…2913):
+ *   name()    0x06fdde03 → "USD Coin"
+ *   version() 0x54fd4d50 → "2"
+ *
+ * Why it matters even though chainId and verifyingContract were already
+ * pinned: signX402Payment used to read `name` / `version` out of the SELLER's
+ * `accept.extra`. A wrong domain cannot move funds anywhere unintended (the
+ * signature simply fails verification), but the spend is RESERVED before the
+ * signature exists — so a handful of hostile sellers could burn the whole $25
+ * daily observation budget on authorizations that could never settle, at zero
+ * cost to themselves. The domain is a property of the token, which we already
+ * pinned; so we pin its name/version too and refuse any accept that
+ * contradicts them BEFORE the reservation is taken.
+ */
+export const BASE_USDC_EIP712_NAME = "USD Coin";
+export const BASE_USDC_EIP712_VERSION = "2";
+
+/**
+ * True iff the accept's `extra` does not contradict the canonical USDC domain.
+ * Absent fields are fine (we then use the pinned values); a field that is
+ * present and different — or present and not a string — is a refusal.
+ */
+export function hasCanonicalUsdcDomain(extra: Record<string, unknown> | undefined): boolean {
+  const name = extra?.name;
+  const version = extra?.version;
+  return (
+    (name === undefined || name === BASE_USDC_EIP712_NAME) &&
+    (version === undefined || version === BASE_USDC_EIP712_VERSION)
+  );
+}
+
+/**
  * Hard per-purchase ceiling in USDC base units (6 decimals): $1.00.
  * Catalog average is $0.32 (2026-08-13 survey); anything above the ceiling
  * is out of the observatory's price band and is recorded as such, not paid.
@@ -138,20 +174,37 @@ export function parseChallenge(input: {
 
 export type AcceptSelection =
   | { accept: ChallengeAccept; reason: null }
-  | { accept: null; reason: "no_eligible_accept" | "price_mismatch" | "over_cap" };
+  | {
+      accept: null;
+      reason: "no_eligible_accept" | "price_mismatch" | "payto_mismatch" | "over_cap";
+    };
 
 /**
  * The money gate. Only scheme `exact` + (eip3009 | unspecified) on Base in
- * canonical USDC is eligible; then the amount must equal the CATALOG-declared
- * price (when one exists) and sit under the hard ceiling. Order of refusals
- * matters for honest reporting: an eligible accept at the wrong price is
- * `price_mismatch` (a finding about the seller), not `no_eligible_accept`.
+ * canonical USDC is eligible; then the RECIPIENT must be the one the catalog
+ * declared, the amount must equal the CATALOG-declared price (when one exists),
+ * and it must sit under the hard ceiling. Order of refusals matters for honest
+ * reporting: an eligible accept at the wrong price is `price_mismatch` (a
+ * finding about the seller), not `no_eligible_accept`.
+ *
+ * payTo (2026-08-22 audit). The Solana path already cross-checked the wall's
+ * payTo against the catalog declaration (sol402-payer.selectSolanaAccept);
+ * the EVM path did not, while l1-runner signs EIP-3009 with `to: accept.payTo`
+ * — so a seller could name ANY address at the wall and be paid it, and the
+ * operator self-exclusion in candidate selection (which only filters the
+ * catalog's own e.pay_to) would not see it. The gate has the same semantics as
+ * Solana's: a catalog with no declared payTo (null) cannot contradict anything,
+ * so it passes through; a declared one must match case-insensitively.
+ *
+ * It is checked BEFORE price because "who gets the money" is the graver finding
+ * and, when nothing matches the declared payee, nothing here is payable at any
+ * price.
  */
 export function selectAccept(
   accepts: readonly unknown[],
-  options: { declaredAmount: string | null },
+  options: { declaredAmount: string | null; declaredPayTo: string | null },
 ): AcceptSelection {
-  const eligible = accepts
+  const protocolEligible = accepts
     .map(normalizeAccept)
     .filter((a): a is ChallengeAccept => a !== null)
     .filter((a) => a.scheme === "exact")
@@ -160,9 +213,23 @@ export function selectAccept(
     .filter((a) => {
       const method = a.extra?.assetTransferMethod;
       return method === undefined || method === "eip3009";
-    });
+    })
+    // The EIP-712 domain is the token's, not the seller's (see
+    // BASE_USDC_EIP712_NAME). Refusing here — before the budget reservation —
+    // is the point: a signature under a bogus domain can never settle, so
+    // accepting one would let a seller burn budget for free. The full
+    // accepts[] is recorded by the caller, so the contradiction stays visible.
+    .filter((a) => hasCanonicalUsdcDomain(a.extra));
 
-  if (eligible.length === 0) return { accept: null, reason: "no_eligible_accept" };
+  if (protocolEligible.length === 0) return { accept: null, reason: "no_eligible_accept" };
+
+  const declaredPayTo =
+    options.declaredPayTo === null ? null : options.declaredPayTo.toLowerCase();
+  const eligible =
+    declaredPayTo === null
+      ? protocolEligible
+      : protocolEligible.filter((a) => a.payTo.toLowerCase() === declaredPayTo);
+  if (eligible.length === 0) return { accept: null, reason: "payto_mismatch" };
 
   for (const accept of eligible) {
     let amount: bigint;
@@ -229,10 +296,15 @@ export function buildAuthorization(input: {
 }
 
 /**
- * EIP-3009 TransferWithAuthorization signature over the USDC domain. The
- * domain name/version come from the accept's `extra` (the token's own EIP-712
- * domain, relayed by the seller); Base USDC is name "USD Coin" version "2",
- * used as the default when extra is absent.
+ * EIP-3009 TransferWithAuthorization signature over the CANONICAL Base USDC
+ * domain. The domain is never taken from the seller: chainId and
+ * verifyingContract were always pinned, and since 2026-08-22 name/version are
+ * too (BASE_USDC_EIP712_NAME — measured on-chain, not assumed).
+ *
+ * selectAccept already refuses any accept whose `extra` contradicts the pin,
+ * so the guard below is belt-and-braces for a caller that skips the gate: this
+ * module signs money, and it must not be possible to talk it into signing
+ * under a domain of someone else's choosing.
  */
 export async function signX402Payment(input: {
   account: Account;
@@ -241,13 +313,14 @@ export async function signX402Payment(input: {
 }): Promise<{ signature: string }> {
   const { account, accept, authorization } = input;
   if (!account.signTypedData) throw new Error("account cannot sign typed data");
-  const name = typeof accept.extra?.name === "string" ? accept.extra.name : "USD Coin";
-  const version = typeof accept.extra?.version === "string" ? accept.extra.version : "2";
+  if (!hasCanonicalUsdcDomain(accept.extra)) {
+    throw new Error("x402: accept contradicts the canonical Base USDC EIP-712 domain");
+  }
 
   const signature = await account.signTypedData({
     domain: {
-      name,
-      version,
+      name: BASE_USDC_EIP712_NAME,
+      version: BASE_USDC_EIP712_VERSION,
       chainId: 8453,
       verifyingContract: BASE_USDC as `0x${string}`,
     },

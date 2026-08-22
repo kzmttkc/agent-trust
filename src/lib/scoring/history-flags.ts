@@ -21,13 +21,20 @@ export type HistoryFlags = {
     l0Flapping14d: boolean;
     /** カタログ申告価格と壁の要求が食い違った記録（price_mismatch）あり。 */
     priceMismatchRecorded: boolean;
+    /**
+     * カタログ申告の受取先と壁の要求した受取先が食い違った記録
+     * （payto_mismatch）あり。2026-08-22 追加——価格の食い違いより重い
+     * 所見（誰に払うかの差し替え）なので、同じ「売り手についての事実」の
+     * 面に並べる。述語は決定的、重み付けは呼び手の領域。
+     */
+    payToMismatchRecorded: boolean;
   };
-  counts: { settled: number; settleFailed: number; priceMismatch: number };
+  counts: { settled: number; settleFailed: number; priceMismatch: number; payToMismatch: number };
   definition: string;
 };
 
 export const HISTORY_FLAGS_DEFINITION =
-  "Deterministic predicates over vet402's own ledger for endpoints whose payTo equals the queried wallet. repeatSettleFailureNoSuccess: some endpoint has >=2 settle_failed and 0 settled. l0Flapping14d: some endpoint's L0 verdict changed >=3 times in the last 14 days. priceMismatchRecorded: any price_mismatch attempt recorded. Facts summarized, not opinions; weighting is the caller's.";
+  "Deterministic predicates over vet402's own ledger for endpoints whose payTo equals the queried wallet. repeatSettleFailureNoSuccess: some endpoint has >=2 settle_failed and 0 settled. l0Flapping14d: some endpoint's L0 verdict changed >=3 times in the last 14 days. priceMismatchRecorded: any price_mismatch attempt recorded. payToMismatchRecorded: any payto_mismatch attempt recorded (the wall named a payee other than the catalog-declared one). Facts summarized, not opinions; weighting is the caller's.";
 
 export async function computeHistoryFlags(payTo: string): Promise<HistoryFlags | null> {
   const db = getDb();
@@ -40,7 +47,8 @@ export async function computeHistoryFlags(payTo: string): Promise<HistoryFlags |
       SELECT pu.endpoint_id,
              count(*) FILTER (WHERE pu.status = 'settled') AS settled,
              count(*) FILTER (WHERE pu.status = 'settle_failed') AS failed,
-             count(*) FILTER (WHERE pu.status = 'price_mismatch') AS mismatch
+             count(*) FILTER (WHERE pu.status = 'price_mismatch') AS mismatch,
+             count(*) FILTER (WHERE pu.status = 'payto_mismatch') AS payto_mismatch
       FROM x402_l1_purchases pu JOIN eps ON eps.id = pu.endpoint_id
       GROUP BY pu.endpoint_id
     ), flap AS (
@@ -60,6 +68,7 @@ export async function computeHistoryFlags(payTo: string): Promise<HistoryFlags |
       coalesce((SELECT sum(settled)::int FROM purch), 0) AS settled,
       coalesce((SELECT sum(failed)::int FROM purch), 0) AS settle_failed,
       coalesce((SELECT sum(mismatch)::int FROM purch), 0) AS price_mismatch,
+      coalesce((SELECT sum(payto_mismatch)::int FROM purch), 0) AS payto_mismatch,
       EXISTS (SELECT 1 FROM purch WHERE failed >= 2 AND settled = 0) AS repeat_fail,
       EXISTS (SELECT 1 FROM flap WHERE changes >= 3) AS flapping
   `);
@@ -75,11 +84,13 @@ export async function computeHistoryFlags(payTo: string): Promise<HistoryFlags |
       repeatSettleFailureNoSuccess: r.repeat_fail === true,
       l0Flapping14d: r.flapping === true,
       priceMismatchRecorded: Number(r.price_mismatch ?? 0) > 0,
+      payToMismatchRecorded: Number(r.payto_mismatch ?? 0) > 0,
     },
     counts: {
       settled: Number(r.settled ?? 0),
       settleFailed: Number(r.settle_failed ?? 0),
       priceMismatch: Number(r.price_mismatch ?? 0),
+      payToMismatch: Number(r.payto_mismatch ?? 0),
     },
     definition: HISTORY_FLAGS_DEFINITION,
   };

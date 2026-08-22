@@ -34,11 +34,11 @@ if (!TEST_DB) {
     const { BASE_USDC } = await import("@/lib/observatory/x402-payer");
     const { getDb } = await import("@/lib/db/client");
     const schema = await import("@/lib/db/schema");
-    const { sql } = await import("drizzle-orm");
+    const { eq, sql } = await import("drizzle-orm");
 
     const db = getDb()!;
     await db.execute(
-      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_payee_watchers, x402_l1_purchases`,
+      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_payee_watchers, x402_l1_purchases, observed_purchases`,
     );
 
     const savedEnabled = process.env.OBSERVATORY_L1_ENABLED;
@@ -163,6 +163,31 @@ if (!TEST_DB) {
       assert.equal(rows[0].payloadNonEmpty, true);
       assert.equal(rows[0].contentTypeMatch, true);
       assert.equal(rows[0].httpStatusPaid, 200);
+
+      // 2026-08-22 監査・項目1: この購入が observed_purchases に入ること。
+      // ここが空だと scoreEconomicActivity（重み0.40）の L1 枝と
+      // scoreL1Receiving が永久に不発になる（本番で実際にそうなっていた）。
+      const observed = await db.select().from(schema.observedPurchases);
+      assert.equal(observed.length, 1, "L1 の決済は observed_purchases の唯一の書き手");
+      assert.equal(observed[0].txHash, "0xdeadbeef");
+      assert.equal(observed[0].wallet, rows[0].payer, "買い手＝台帳の payer");
+      assert.equal(observed[0].counterparty, payToFor(1).toLowerCase(), "売り手＝壁の payTo");
+      assert.equal(observed[0].amount, "3000");
+      assert.equal(observed[0].resource, "https://seller1.example/api");
+      assert.equal(observed[0].deliveryVerified, true, "200 + 本文あり → 配送確認済み");
+      assert.equal(observed[0].blockTimestamp, null, "ブロック時刻は持っていない（推測で埋めない）");
+
+      // 冪等: 同じ決済を再観測しても2行目は生まれない。
+      const { recordObservedPurchase } = await import("@/lib/db/observed-purchases");
+      const again = await recordObservedPurchase({
+        wallet: rows[0].payer!,
+        counterparty: payToFor(1),
+        amount: "3000",
+        txHash: "0xdeadbeef",
+        deliveryVerified: true,
+      });
+      assert.equal(again.created, false);
+      assert.equal((await db.select().from(schema.observedPurchases)).length, 1);
     });
 
     await t.test("one purchase per endpoint per sweep window (no double-buy)", async () => {
@@ -310,15 +335,21 @@ if (!TEST_DB) {
 
     await t.test("a challenge over-charging vs catalog is recorded, never signed", async () => {
       await db.execute(sql`TRUNCATE x402_l1_purchases`);
-      const evil = JSON.stringify({
-        x402Version: 2,
-        accepts: [
-          { scheme: "exact", network: "eip155:8453", amount: "999999", asset: BASE_USDC, payTo: payToFor("1"), extra: { name: "USD Coin", version: "2" } },
-        ],
-      });
+      // payTo must be the endpoint's OWN declared payee: since 2026-08-22 the
+      // payee gate runs before the price gate, so a shared payTo here would be
+      // recorded as payto_mismatch and this test would stop testing pricing.
+      const overcharging = (url: string) => {
+        const n = /seller(\d)/.exec(url)?.[1] ?? "1";
+        return JSON.stringify({
+          x402Version: 2,
+          accepts: [
+            { scheme: "exact", network: "eip155:8453", amount: "999999", asset: BASE_USDC, payTo: payToFor(n), extra: { name: "USD Coin", version: "2" } },
+          ],
+        });
+      };
       const summary = await runL1Batch({
-        fetchImpl: async () =>
-          new Response(evil, { status: 402, headers: { "content-type": "application/json" } }),
+        fetchImpl: async (url: string) =>
+          new Response(overcharging(url), { status: 402, headers: { "content-type": "application/json" } }),
         limit: 2,
       });
       assert.equal(summary.settled, 0);
@@ -326,6 +357,119 @@ if (!TEST_DB) {
       assert.ok(rows.length >= 1);
       assert.ok(rows.every((r) => r.status === "price_mismatch"));
       assert.ok(rows.every((r) => r.spentUnits === "0"), "nothing signed → nothing spent");
+    });
+
+    await t.test("a wall naming a payee other than the catalog's is recorded, never signed", async () => {
+      // 2026-08-22 監査: l1-runner は `to: accept.payTo` で EIP-3009 に署名する
+      // ので、壁が受取先を差し替えられるなら「誰に払うか」を売り手が決められる。
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const swapped = JSON.stringify({
+        x402Version: 2,
+        accepts: [
+          { scheme: "exact", network: "eip155:8453", amount: "3000", asset: BASE_USDC, payTo: payToFor("9"), extra: { name: "USD Coin", version: "2" } },
+        ],
+      });
+      const summary = await runL1Batch({
+        fetchImpl: async () =>
+          new Response(swapped, { status: 402, headers: { "content-type": "application/json" } }),
+        limit: 2,
+      });
+      assert.equal(summary.settled, 0);
+      assert.equal(summary.attempted, 0, "署名まで行っていない");
+      const rows = await db.select().from(schema.x402L1Purchases);
+      assert.ok(rows.length >= 1);
+      assert.ok(rows.every((r) => r.status === "payto_mismatch"), "価格ではなく受取先の所見として記録");
+      assert.ok(rows.every((r) => r.spentUnits === "0"), "nothing signed → nothing spent");
+    });
+
+    await t.test("a wall naming the operator's own payTo is refused before any reservation", async () => {
+      // 自己取引の防止。候補選択の自己除外は catalog の pay_to にしか掛からない。
+      // カタログが payTo を申告していないエンドポイントでは payto_mismatch も
+      // 比較対象を持たないので、**壁が返した payTo の運営者チェックだけ**が
+      // 「vet402 が自分から買ったレシート」を止める最後の関門になる。
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const OPERATOR = payToFor("9");
+      const savedOperator = process.env.VET402_OPERATOR_PAYTO;
+      process.env.VET402_OPERATOR_PAYTO = OPERATOR;
+      const [nullPayToEp] = await db
+        .insert(schema.x402Endpoints)
+        .values({
+          resourceKey: "nopayto.example/api",
+          resourceUrl: "https://nopayto.example/api",
+          network: "eip155:8453",
+          method: "GET",
+          payTo: null, // カタログが受取先を申告していない
+          priceAmount: "3000",
+          status: "active",
+        })
+        .returning();
+      await db
+        .insert(schema.x402L0Probes)
+        .values({ endpointId: nullPayToEp.id, method: "GET", verdict: "pass" });
+      try {
+        const wall = JSON.stringify({
+          x402Version: 2,
+          accepts: [
+            { scheme: "exact", network: "eip155:8453", amount: "3000", asset: BASE_USDC, payTo: OPERATOR, extra: { name: "USD Coin", version: "2" } },
+          ],
+        });
+        const summary = await runL1Batch({
+          onlyEndpointId: nullPayToEp.id,
+          fetchImpl: async () =>
+            new Response(wall, { status: 402, headers: { "content-type": "application/json" } }),
+        });
+        assert.equal(summary.settled, 0);
+        assert.equal(summary.attempted, 0, "署名も予約もしていない");
+        const rows = await db
+          .select()
+          .from(schema.x402L1Purchases)
+          .where(eq(schema.x402L1Purchases.endpointId, nullPayToEp.id));
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].status, "payto_operator_self");
+        assert.equal(rows[0].spentUnits, "0", "予約前に止まる → 支出0");
+      } finally {
+        if (savedOperator === undefined) delete process.env.VET402_OPERATOR_PAYTO;
+        else process.env.VET402_OPERATOR_PAYTO = savedOperator;
+        await db.execute(sql`DELETE FROM x402_l0_probes WHERE endpoint_id = ${nullPayToEp.id}::uuid`);
+        await db.execute(sql`DELETE FROM x402_endpoints WHERE id = ${nullPayToEp.id}::uuid`);
+      }
+    });
+
+    await t.test("品は来たがレシート無しは settleFailed に混ぜず deliveredNoReceipt で返す", async () => {
+      // 2026-08-22 監査・項目8: DBの status は delivered_no_receipt と
+      // settle_failed を区別しているのに、cron 応答の summary は両方を
+      // settleFailed に吸収していて外から判別できなかった。
+      await db.execute(sql`TRUNCATE x402_l1_purchases, observed_purchases`);
+      const summary = await runL1Batch({
+        fetchImpl: async (url: string, init?: RequestInit) => {
+          const headers = new Headers(init?.headers);
+          if (!headers.has("PAYMENT-SIGNATURE") && !headers.has("X-PAYMENT")) {
+            return new Response(challengeFor(url), {
+              status: 402,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          // 品は返すが PAYMENT-RESPONSE を返さない壁。
+          return new Response(JSON.stringify({ data: "the goods" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+        limit: 1,
+      });
+      assert.equal(summary.attempted, 1);
+      assert.equal(summary.settled, 0);
+      assert.equal(summary.deliveredNoReceipt, 1, "レシート無しはこの欄に立つ");
+      assert.equal(summary.settleFailed, 0, "決済失敗と混ぜない");
+
+      const rows = await db.select().from(schema.x402L1Purchases);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, "delivered_no_receipt");
+      assert.equal(rows[0].spentUnits, "3000", "署名した＝計上する");
+
+      // レシート（tx_hash）が無い購入は observed_purchases に書けない
+      // ——オンチェーンの購入として名指せないため（項目1の境界）。
+      assert.equal((await db.select().from(schema.observedPurchases)).length, 0);
     });
 
     await t.test("daily budget from the DB stops the batch at the line", async () => {

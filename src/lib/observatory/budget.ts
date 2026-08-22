@@ -1,18 +1,21 @@
 // ============================================================
-// vet402 Observatory — L1 purchasing budget guard SKELETON (design §8).
+// vet402 Observatory — L1 purchasing budget guard (design §8).
 //
-// NO CALLER EXISTS. Real purchasing is W3, a separate work order, gated on
-// funding approval. This guard ships ahead of it so that purchasing code has
-// to pass an already-tested fail-closed gate on day one instead of growing
-// its own under deadline pressure.
+// 2026-08-22: この見出しは「NO CALLER EXISTS. Real purchasing is W3」と
+// 書いたまま陳腐化していた。実際には l1-runner が本番で毎日呼んでいる
+// （runL1Batch の日次合計と purchaseOne の署名前ゲート）。
+//
+// この関数は**判定するだけ**で、数えない。当日の支出額は台帳
+// （x402_l1_purchases.spent_units の UTC 日次合計）から呼び手が渡す。
+// 二重防御の1段目でもある: 実際の予約は reserveSpend の単一SQL文が原子的に
+// 取り直すので、ここを通っても最終的な支出は台帳の側で決まる。
 //
 // Fail-closed, concretely:
 //   - OFF unless OBSERVATORY_L1_ENABLED is the exact string "true";
 //   - denied on NaN / negative / zero amounts (malformed input is not a
 //     reason to spend money);
 //   - denied when spend-so-far + request would exceed the daily cap.
-// The $25/day cap is the WO figure. Spend tracking (where spentTodayUsd
-// comes from) is W3's job — this module judges, it does not count.
+// The $25/day cap is the WO figure.
 // ============================================================
 
 export const DAILY_BUDGET_USD = 25;
@@ -26,7 +29,7 @@ export type BudgetDecision =
   | { allowed: false; reason: "l1_disabled" | "invalid_amount" | "daily_budget_exceeded" };
 
 export function checkL1Budget(input: {
-  /** USD already spent today (caller-supplied from the spend ledger, W3). */
+  /** USD already spent today (caller-supplied from x402_l1_purchases, UTC day). */
   spentTodayUsd: number;
   /** USD this purchase would cost. */
   requestUsd: number;

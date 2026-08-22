@@ -66,6 +66,13 @@ export type RecordObservedPurchaseInput = {
  * Trusted-writer ingest. Written ONLY by the vet402 observatory (never by API
  * scoring), the same trust boundary as funder_wallets and feedback_events.
  * Idempotent on tx_hash so re-observing the same settlement is a no-op.
+ *
+ * 2026-08-22: the read-then-insert alone was idempotent only against SEQUENTIAL
+ * re-observation — two overlapping L1 batches (or a backfill run alongside the
+ * cron) would both see "no row" and the loser would raise 23505 out of a path
+ * whose caller is deliberately graceful, i.e. an error log for a no-op. The
+ * unique index on tx_hash is now used as the arbiter (ON CONFLICT DO NOTHING)
+ * and the loser re-reads the winner's row.
  */
 export async function recordObservedPurchase(
   input: RecordObservedPurchaseInput,
@@ -74,12 +81,17 @@ export async function recordObservedPurchase(
   if (!db) throw new Error("database_unavailable");
 
   const txHash = input.txHash.toLowerCase();
-  const existing = await db
-    .select({ id: observedPurchases.id })
-    .from(observedPurchases)
-    .where(eq(observedPurchases.txHash, txHash))
-    .limit(1);
-  if (existing[0]) return { created: false, id: existing[0].id };
+  const readBack = async () => {
+    const existing = await db
+      .select({ id: observedPurchases.id })
+      .from(observedPurchases)
+      .where(eq(observedPurchases.txHash, txHash))
+      .limit(1);
+    return existing[0]?.id ?? null;
+  };
+
+  const known = await readBack();
+  if (known) return { created: false, id: known };
 
   const inserted = await db
     .insert(observedPurchases)
@@ -93,8 +105,15 @@ export async function recordObservedPurchase(
       deliveryVerified: input.deliveryVerified ?? false,
       observedBy: input.observedBy ?? null,
     })
+    .onConflictDoNothing({ target: observedPurchases.txHash })
     .returning();
-  return { created: true, id: inserted[0]!.id };
+  if (inserted[0]) return { created: true, id: inserted[0].id };
+
+  const winner = await readBack();
+  if (winner) return { created: false, id: winner };
+  // Nothing inserted and nothing to read back: the write was refused for a
+  // reason we cannot name. Fail loudly rather than report a phantom row.
+  throw new Error("observed_purchase_insert_lost");
 }
 
 /**

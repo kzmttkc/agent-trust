@@ -41,6 +41,7 @@ if (!TEST_DB) {
     assert.equal(flags!.flags.repeatSettleFailureNoSuccess, true);
     assert.equal(flags!.flags.l0Flapping14d, true);
     assert.equal(flags!.flags.priceMismatchRecorded, false);
+    assert.equal(flags!.flags.payToMismatchRecorded, false);
     assert.equal(flags!.counts.settleFailed, 2);
 
     const none = await computeHistoryFlags("0x0000000000000000000000000000000000000001");

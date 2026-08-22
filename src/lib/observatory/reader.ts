@@ -222,7 +222,8 @@ export type EndpointDetail = {
  * (`settled`), failed after the paid retry (`settle_failed`), or delivered
  * goods with no receipt header (`delivered_no_receipt`). Every other status —
  * `budget_denied` (our own daily-cap throttle), `request_error`, `no_402`,
- * `no_eligible_accept`, `price_mismatch`, `over_cap`, `in_flight` — is NOT a
+ * `no_eligible_accept`, `price_mismatch`, `payto_mismatch`,
+ * `payto_operator_self`, `over_cap`, `in_flight` — is NOT a
  * paid attempt: no payment happened, so it must never enter a seller's
  * settle-rate denominator. This is the SAME set the /observatory/state
  * aggregate uses (getObservatoryStats), so the per-endpoint receipt page, the

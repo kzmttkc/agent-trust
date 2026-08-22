@@ -40,7 +40,15 @@ export function isSolanaL1Enabled(): boolean {
 
 export type SolanaAcceptSelection =
   | { accept: ChallengeAccept; reason: null }
-  | { accept: null; reason: "no_eligible_accept" | "price_mismatch" | "over_cap" | "no_fee_payer" };
+  | {
+      accept: null;
+      reason:
+        | "no_eligible_accept"
+        | "price_mismatch"
+        | "payto_mismatch"
+        | "over_cap"
+        | "no_fee_payer";
+    };
 
 function feePayerOf(accept: ChallengeAccept): string | null {
   const fp = accept.extra?.feePayer;
@@ -57,18 +65,24 @@ export function selectSolanaAccept(
   accepts: readonly unknown[],
   options: { declaredAmount: string | null; declaredPayTo: string | null },
 ): SolanaAcceptSelection {
-  const eligible = (accepts as ChallengeAccept[])
+  const protocolEligible = (accepts as ChallengeAccept[])
     .filter((a) => a && typeof a === "object")
     .filter((a) => a.scheme === "exact")
     .filter((a) => a.network === SOLANA_MAINNET_CAIP2)
-    .filter((a) => a.asset === SOLANA_USDC_MINT)
-    .filter(
-      (a) =>
-        options.declaredPayTo === null ||
-        a.payTo.toLowerCase() === options.declaredPayTo.toLowerCase(),
-    );
+    .filter((a) => a.asset === SOLANA_USDC_MINT);
 
-  if (eligible.length === 0) return { accept: null, reason: "no_eligible_accept" };
+  if (protocolEligible.length === 0) return { accept: null, reason: "no_eligible_accept" };
+
+  // 2026-08-22: 受取先の食い違いは「機械的に支払えない壁」ではなく**売り手に
+  // ついての所見**なので、no_eligible_accept に潰さず payto_mismatch として
+  // 報告する（EVM 側 selectAccept と同じ語彙・同じ順序）。
+  const declaredPayTo =
+    options.declaredPayTo === null ? null : options.declaredPayTo.toLowerCase();
+  const eligible =
+    declaredPayTo === null
+      ? protocolEligible
+      : protocolEligible.filter((a) => a.payTo.toLowerCase() === declaredPayTo);
+  if (eligible.length === 0) return { accept: null, reason: "payto_mismatch" };
 
   const sponsored = eligible.filter((a) => feePayerOf(a) !== null);
   if (sponsored.length === 0) return { accept: null, reason: "no_fee_payer" };
