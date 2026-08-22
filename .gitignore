@@ -54,3 +54,9 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .venv/
+
+# 2026-08-22: pytest / pip -e が生成する成果物が追跡されており、テストを1回
+# 走らせるだけで作業ツリーが汚れていた（実際に汚れた）。ソースではない。
+__pycache__/
+*.py[cod]
+*.egg-info/
