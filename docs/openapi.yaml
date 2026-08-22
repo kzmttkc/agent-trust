@@ -765,8 +765,17 @@ paths:
         Permissionless L0 contribution intake (Phase 3.3 v0), OFF by default
         behind an operator flag. Submissions are EIP-191 signed over the
         canonical message
-        `vet402:contribution:v0:{endpointId}:{verdict}:{httpStatus}:{latencyMs}`
+        `vet402:contribution:v1:{endpointId}:{verdict}:{httpStatus}:{latencyMs}:{issued}`
         and stored with the signed message verbatim for auditability.
+
+        **Breaking change 2026-08-22 (v0 → v1).** `issued` (RFC 3339 UTC, e.g.
+        `2026-08-22T13:04:05Z`) is now part of the signed message and is
+        REQUIRED. The server rejects a signature whose `issued` is more than
+        10 minutes from server time in either direction (400
+        `signature_expired`), and rejects a repeat of the same canonical
+        message (409 `replayed`). Without both checks a captured signature
+        could be replayed indefinitely. Signatures produced against the v0
+        message form no longer verify.
         v0 contributions are NEVER folded into published verdicts — the public
         register remains computed from vet402's own probes until the weighted
         v1 design ships. IP-throttled to 10/min.
@@ -777,7 +786,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [endpointId, verdict, address, signature]
+              required: [endpointId, verdict, address, signature, issued]
               properties:
                 endpointId: { type: string, format: uuid }
                 verdict: { type: string, enum: [pass, fail, unverified] }
@@ -785,13 +794,25 @@ paths:
                 latencyMs: { type: integer, nullable: true }
                 address: { type: string, description: EVM address of the signer }
                 signature: { type: string, description: EIP-191 signature of the canonical message }
+                issued:
+                  type: string
+                  format: date-time
+                  description: >-
+                    RFC 3339 UTC instant folded into the signed message. Must be
+                    within 10 minutes of server time in either direction.
+                    Required since 2026-08-22 (message form v1).
       responses:
         "201":
           description: Stored (not folded into published verdicts)
         "400":
-          description: Invalid input or signature
+          description: >-
+            Invalid input, invalid signature, or `signature_expired` (the
+            signed `issued` is outside the 10-minute window)
         "403":
           description: Contributions intake is disabled (default)
+        "409":
+          description: >-
+            `replayed` — this exact canonical message was already accepted
         "429":
           description: Rate limited
         "503":
@@ -889,9 +910,18 @@ paths:
       summary: Seller dispute, EIP-191-signed by the endpoint's payTo
       description: |
         Only the holder of the endpoint's payTo key can dispute its record
-        (message form `vet402:dispute:v0:{endpointId}:{subject}:{sha256(reason)}`).
+        (message form
+        `vet402:dispute:v1:{endpointId}:{subject}:{sha256(reason)}:{issued}`).
         Acceptance triggers one real L0 re-measurement recorded through the
         normal publication gate. Records are never deleted on dispute. 5/min.
+
+        **Breaking change 2026-08-22 (v0 → v1).** `issued` (RFC 3339 UTC) is
+        now part of the signed message and is REQUIRED. A signature whose
+        `issued` is more than 10 minutes from server time in either direction
+        is rejected (400 `signature_expired`), and a repeat of the same
+        canonical message is rejected (409 `replayed`) — otherwise a captured
+        signature could be replayed to trigger unlimited live re-probes.
+        Signatures produced against the v0 message form no longer verify.
       security: []
       requestBody:
         required: true
@@ -899,18 +929,26 @@ paths:
           application/json:
             schema:
               type: object
-              required: [endpointId, subject, reason, address, signature]
+              required: [endpointId, subject, reason, address, signature, issued]
               properties:
                 endpointId: { type: string, format: uuid }
                 subject: { type: string, enum: [l0, l1, listing] }
                 reason: { type: string, maxLength: 4000 }
                 address: { type: string }
                 signature: { type: string }
+                issued:
+                  type: string
+                  format: date-time
+                  description: >-
+                    RFC 3339 UTC instant folded into the signed message. Must be
+                    within 10 minutes of server time in either direction.
+                    Required since 2026-08-22 (message form v1).
       responses:
         "201": { description: Accepted; includes remeasureVerdict when the re-probe ran }
-        "400": { description: Invalid input or signature }
+        "400": { description: "Invalid input, invalid signature, or `signature_expired` (signed `issued` outside the 10-minute window)" }
         "403": { description: Signer is not the endpoint's payTo }
         "404": { description: Unknown endpoint }
+        "409": { description: "`replayed` — this exact canonical message was already accepted" }
         "429": { description: Rate limited }
         "503": { description: Store unavailable }
 
