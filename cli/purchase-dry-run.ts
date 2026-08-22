@@ -32,7 +32,10 @@ async function main() {
     console.log(JSON.stringify({ wouldSign: false, reason: "unparseable_challenge" }, null, 1));
     return;
   }
-  const base = selectAccept(challenge.accepts, { declaredAmount: null });
+  // CLI は URL しか受け取らないのでカタログ申告値（price / payTo）を持たない。
+  // 本番ランナーは両方を突合するため、この dry-run は「申告なし」の場合の判定を
+  // 再現している——payto_mismatch / price_mismatch はここでは発火しない（下の note に明示）。
+  const base = selectAccept(challenge.accepts, { declaredAmount: null, declaredPayTo: null });
   const sol = selectSolanaAccept(challenge.accepts, { declaredAmount: null, declaredPayTo: null });
   const chosen = base.accept ?? sol.accept;
   console.log(JSON.stringify({
@@ -42,7 +45,7 @@ async function main() {
     wouldSignExactly: chosen
       ? { scheme: chosen.scheme, network: chosen.network, amountUnits: chosen.amount, asset: chosen.asset, payTo: chosen.payTo }
       : null,
-    note: "Dry-run only. Nothing was signed; no keys are read by this CLI. Live purchases run only inside the audited daily runner.",
+    note: "Dry-run only. Nothing was signed; no keys are read by this CLI. Live purchases run only inside the audited daily runner. This CLI has no catalog record, so the declared-amount and declared-payTo checks the daily runner applies (price_mismatch / payto_mismatch) are NOT exercised here.",
   }, null, 1));
 }
 main().catch((e) => { console.error(String(e)); process.exit(1); });

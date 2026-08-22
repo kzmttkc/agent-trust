@@ -1,5 +1,7 @@
 # ETHOnline 2026 — git rules (Continuity Track boundary)
 
+Operating plan: [`ROADMAP.md`](./ROADMAP.md). Follow that file; these rules are the git subset.
+
 1. **2026-09-03**: tag `pre-ethonline-2026` on `main` (scheduled; everything reachable from it is pre-existing).
 2. **2026-09-04 onward**: all work on branch `ethonline-2026`, cut from the tag.
 3. Commit prefix fixed: `ethonline:` — examples:
