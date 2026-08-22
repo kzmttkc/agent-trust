@@ -404,9 +404,31 @@ export async function scoreWallet(
   }
 
   const wallet = address as Address;
-  const resolvedAgentId = await resolveAgentIdByWallet(wallet);
+
+  // 2026-08-22 audit: everything below used to run with NO shared budget and
+  // with detectSybilFlags outside any try/catch — while scoreAgentById (line
+  // ~140) has had both since the 2026-08-12 outage (see the SCORE_BUDGET_MS
+  // block at the top of this file for why). The asymmetry mattered more than
+  // it looks: middleware's default scoreSource is "wallet", so THIS is the
+  // path most callers take, and with the DB down the agent path answered
+  // "BLOCK, sybil_checks_unavailable" while this one threw a 500. Same
+  // dependency, same failure, two different contracts. Now one.
+  //
+  // Kept sequential rather than Promise.all'd like the agent path: the sybil
+  // check needs walletMetrics, and budgetFor() already takes the smaller of a
+  // step's allowance and what is left overall, so the SEQUENCE cannot exceed
+  // the total either way.
+  const deadline = createDeadline(SCORE_BUDGET_MS);
+
+  const resolvedAgentId = await withDeadline(
+    resolveAgentIdByWallet(wallet),
+    deadline.budgetFor(IDENTITY_BUDGET_MS),
+    "agent_resolve",
+  );
 
   if (resolvedAgentId !== null) {
+    // The agent path opens its own budget — deliberately, so a delegated score
+    // is not squeezed by whatever this lookup already spent.
     return scoreAgentById(resolvedAgentId, { ...ctx, verifyWallet: address });
   }
 
@@ -423,8 +445,13 @@ export async function scoreWallet(
   let walletMetrics: Awaited<ReturnType<typeof fetchWalletMetrics>>;
   let walletMetricsUnavailable = false;
   try {
-    walletMetrics = await fetchWalletMetrics(wallet);
-  } catch {
+    walletMetrics = await withDeadline(
+      fetchWalletMetrics(wallet),
+      deadline.budgetFor(SIGNAL_BUDGET_MS),
+      "wallet_metrics",
+    );
+  } catch (error) {
+    logSignalDegraded("wallet_metrics", error);
     walletMetricsUnavailable = true;
     walletMetrics = {
       address: wallet,
@@ -447,8 +474,13 @@ export async function scoreWallet(
   };
   let x402StatsUnavailable = false;
   try {
-    x402Stats = await getX402PaymentStats(address);
-  } catch {
+    x402Stats = await withDeadline(
+      getX402PaymentStats(address),
+      deadline.budgetFor(SIGNAL_BUDGET_MS),
+      "x402_stats",
+    );
+  } catch (error) {
+    logSignalDegraded("x402_stats", error);
     x402StatsUnavailable = true;
   }
 
@@ -460,24 +492,42 @@ export async function scoreWallet(
     distinctCounterparties: 0,
   };
   try {
-    l1Stats = await getObservedPurchaseStats(address);
+    l1Stats = await withDeadline(
+      getObservedPurchaseStats(address),
+      deadline.budgetFor(SIGNAL_BUDGET_MS),
+      "l1_stats",
+    );
   } catch (error) {
     logSignalDegraded("l1_stats", error);
   }
   const x402Score = scoreEconomicActivity({ l1: l1Stats, x402: x402Stats });
 
-  const sybilFlags = await detectSybilFlags({
-    identity: {
-      agentId: BigInt(0),
-      owner: null,
-      agentWallet: wallet,
-      tokenUri: null,
-      registered: false,
-    },
-    walletMetrics,
-    feedbackStats: { recentCount: 0, uniqueClients: 0, windowDays: 7 },
-    totalFeedbackCount: 0,
-  });
+  // Same contract as the agent path: the sybil checks read the owner/funder
+  // indexes (DB), so "we could not check" degrades to
+  // `sybil_checks_unavailable` — which assessSybilRisk reads as high risk →
+  // BLOCK. It must never surface as "we checked and it was fine".
+  let sybilFlags: string[];
+  try {
+    sybilFlags = await withDeadline(
+      detectSybilFlags({
+        identity: {
+          agentId: BigInt(0),
+          owner: null,
+          agentWallet: wallet,
+          tokenUri: null,
+          registered: false,
+        },
+        walletMetrics,
+        feedbackStats: { recentCount: 0, uniqueClients: 0, windowDays: 7 },
+        totalFeedbackCount: 0,
+      }),
+      deadline.budgetFor(SYBIL_BUDGET_MS),
+      "sybil_checks",
+    );
+  } catch (error) {
+    logSignalDegraded("sybil_checks", error);
+    sybilFlags = ["sybil_checks_unavailable"];
+  }
   if (walletMetricsUnavailable) {
     sybilFlags.push("wallet_metrics_unavailable");
   }
@@ -548,7 +598,11 @@ export async function scoreWallet(
     expiresAt: now + CACHE_TTL_MS,
   };
 
-  if (!sybilFlags.some((flag) => flag.endsWith("_unavailable"))) {
+  // hasUnavailableInput (verdict.ts) is the single definition of "degraded",
+  // and line ~392 in the agent path already uses it. This was a local
+  // re-implementation of the same predicate — two copies of the rule that
+  // decides whether a verdict may be cached is one copy too many.
+  if (!hasUnavailableInput(sybilFlags)) {
     memoryCache.set(cacheKey, payload);
   }
   return applyPolicyLayer(payload, ctx);
