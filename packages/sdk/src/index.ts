@@ -137,6 +137,58 @@ export type PayeeScoreResult = {
   disclaimer: string;
 };
 
+/**
+ * Answer from the verify-at-settle fast surface
+ * (`GET /payees/{address}/verdict-fast`). See {@link VouchClient.getPayeeVerdictFast}.
+ *
+ * Two shapes, and only one of them is an answer:
+ *  - `hit`        — the engine had a confident, unexpired verdict pinned;
+ *  - `cache_cold` — nothing pinned. NOT a verdict, and NOT an allow.
+ */
+export type PayeeVerdictFast =
+  | {
+      status: "hit";
+      recommendation: Recommendation;
+      score: number;
+      cacheExpiresAt: string;
+      /** In-handler microseconds the server spent (a cache read + JSON). */
+      handlerMicros: number;
+    }
+  | {
+      status: "cache_cold";
+      recommendation: null;
+      /** Full-score path to call (fire-and-forget) to warm the same cache. */
+      warmVia: string;
+      note: string;
+      handlerMicros: number;
+    };
+
+/**
+ * Does this fast verdict clear a payment? The one correct reading of the fast
+ * surface, written once so nobody has to re-derive it at a call site.
+ *
+ * True ONLY for `status: "hit"` with an `ALLOW` recommendation that has not
+ * passed its own `cacheExpiresAt`. `cache_cold` is false — it means "nothing
+ * was pinned", which is the absence of a verdict, not a permissive one. The
+ * expiry re-check is belt-and-braces: the server already refuses to return an
+ * expired entry, but a fast path that gates money should not depend on the
+ * other side having done that.
+ *
+ * NOTE the deliberate asymmetry with {@link SpendGuard}: a `false` here means
+ * "do not pay yet", NOT "this payee is bad". Warm the cache with
+ * {@link VouchClient.getPayeeScore} and decide on the full body.
+ */
+export function payeeVerdictFastAllows(
+  verdict: PayeeVerdictFast,
+  nowMs: number = Date.now(),
+): boolean {
+  if (verdict.status !== "hit") return false;
+  if (verdict.recommendation !== "ALLOW") return false;
+  const expiresMs = Date.parse(verdict.cacheExpiresAt);
+  if (Number.isNaN(expiresMs)) return false;
+  return nowMs < expiresMs;
+}
+
 export type VouchClientOptions = {
   /**
    * Base URL of the Vouch REST API, including the `/api/v1` suffix.
@@ -285,6 +337,36 @@ export class VouchClient {
   getPayeeScore(payee: string): Promise<PayeeScoreResult> {
     assertWallet(payee);
     return this.request(`/payees/${payee}/score`);
+  }
+
+  /**
+   * verify-at-settle fast surface: the engine's already-pinned verdict, or an
+   * honest `cache_cold`. **This surface never computes** — it is a cache peek,
+   * with the server's in-handler p95 held under 1 ms by
+   * `tests/verdict-fast.test.ts`. For facilitators and payment middleware that
+   * need a trust check INSIDE the settlement flow.
+   *
+   * Fail-closed reading, and the caller owns it: treat anything that is not an
+   * explicit `hit` + `ALLOW` — `cache_cold` above all — as "do not pay yet".
+   * {@link payeeVerdictFastAllows} is that rule, already written.
+   *
+   * WHY IT IS SAFE TO ACT ON A HIT. The engine only pins verdicts it was
+   * confident in: a degraded or partially-measured reading is never cached
+   * (src/lib/scoring/payee-engine.ts — the `cache.set` is guarded by
+   * `!degraded && !partiallyMeasured`). So a `hit` cannot be a fail-closed
+   * refusal wearing an ALLOW, which is exactly why this body does not need to
+   * carry `degraded` / `signalsUnavailable`.
+   *
+   * WHY {@link SpendGuard} STILL DOES NOT USE IT. The guard also enforces
+   * `minPayeeScore` bands and its own `maxScoreAgeMs`, and reports the full
+   * `payeeScore` in its decision — none of which this body can supply. The
+   * fast surface is a pre-check for a settlement path that already has its own
+   * deadline, not a replacement for the score. Warm with
+   * {@link VouchClient.getPayeeScore} (same cache, TTL 5 min) and retry.
+   */
+  getPayeeVerdictFast(payee: string): Promise<PayeeVerdictFast> {
+    assertWallet(payee);
+    return this.request(`/payees/${payee}/verdict-fast`);
   }
 
   /**
