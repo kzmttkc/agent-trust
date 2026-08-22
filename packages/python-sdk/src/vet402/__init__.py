@@ -6,7 +6,12 @@ SpendGuard by default, same machine-readable reason codes, same error
 contract.
 """
 
-from .client import DEFAULT_API_URL, VouchClient, create_vouch_client
+from .client import (
+    DEFAULT_API_URL,
+    DEFAULT_TIMEOUT_SECONDS,
+    VouchClient,
+    create_vouch_client,
+)
 from .errors import VouchApiError
 from .spend_guard import (
     DEFAULT_MAX_SCORE_AGE_MS,
@@ -21,6 +26,7 @@ __version__ = "0.1.0"
 __all__ = [
     "DEFAULT_API_URL",
     "DEFAULT_MAX_SCORE_AGE_MS",
+    "DEFAULT_TIMEOUT_SECONDS",
     "SpendDecision",
     "SpendGuard",
     "SpendGuardTrustPolicy",

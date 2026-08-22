@@ -22,7 +22,43 @@ speed here never trades away quality.
 Treat anything that is not an explicit `ALLOW` — including `cache_cold` — as
 "do not pay yet". Warm the cache asynchronously by calling the full `/score`
 endpoint (same cache, TTL 5 minutes); retry the fast surface afterwards.
-This is exactly what `@vouchscore/sdk` / the Python SDK do by default.
+
+## SDK support
+
+`@vouchscore/sdk` (0.3.x) exposes this surface as two pieces:
+
+```ts
+import { createVouchClient, payeeVerdictFastAllows } from "@vouchscore/sdk";
+
+const vouch = createVouchClient({ apiKey: process.env.VOUCH_API_KEY! });
+
+const verdict = await vouch.getPayeeVerdictFast(payee);
+if (!payeeVerdictFastAllows(verdict)) {
+  // cache_cold, WARN, BLOCK, or past its own cacheExpiresAt — do not pay yet.
+  void vouch.getPayeeScore(payee); // fire-and-forget warm, same cache
+  return queueForRetry();
+}
+```
+
+`payeeVerdictFastAllows` is the rule above, written once: true only for
+`status: "hit"` with an `ALLOW` that has not passed its own `cacheExpiresAt`.
+`cache_cold` is false — it is the *absence* of a verdict, not a permissive one.
+
+**`SpendGuard` does not use this surface**, and that is deliberate: it enforces
+`minPayeeScore` bands and its own `maxScoreAgeMs`, and reports the full
+`payeeScore` in every decision — none of which this body can supply. The fast
+surface is a pre-check for a settlement path that already has its own deadline;
+`GET /score` remains the gate. The **Python SDK does not expose the fast
+surface at all** (2026-08-22): it has `get_payee_score` and `SpendGuard` only.
+
+> Corrected 2026-08-22. This section previously claimed the fail-closed reading
+> of `cache_cold` was "exactly what `@vouchscore/sdk` / the Python SDK do by
+> default". Measured at the time: `verdict-fast` appeared **nowhere** under
+> `packages/` — both SDKs only ever called `/payees/{address}/score`. The
+> document described a code path that did not exist. The TypeScript half now
+> does (`getPayeeVerdictFast` + `payeeVerdictFastAllows`, pinned by
+> `packages/sdk/test/verdict-fast.test.mjs`); the Python half is still absent
+> and is now stated as absent rather than claimed.
 
 ## Latency
 

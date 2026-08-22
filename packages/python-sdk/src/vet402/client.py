@@ -16,10 +16,34 @@ import httpx
 from .errors import VouchApiError
 from .spend_guard import SpendGuard, SpendGuardTrustPolicy
 
-__all__ = ["DEFAULT_API_URL", "VouchClient", "create_vouch_client"]
+__all__ = [
+    "DEFAULT_API_URL",
+    "DEFAULT_TIMEOUT_SECONDS",
+    "VouchClient",
+    "create_vouch_client",
+]
 
 #: Hosted production API. Used when ``api_url`` is omitted.
 DEFAULT_API_URL = "https://vet402.com/api/v1"
+
+#: Default per-request timeout in seconds, applied to connect, read, write and
+#: pool acquisition alike (httpx applies a bare float to all four).
+#:
+#: This is not a nicety — it is what makes the fail-closed chain reachable.
+#: :class:`~vet402.spend_guard.SpendGuard` can only deny on a lookup that
+#: RETURNS; an upstream that accepts the connection and then never answers
+#: would leave ``evaluate()`` blocked forever, which is neither an allow nor a
+#: deny. A timeout surfaces as an ``httpx.TimeoutException``, which
+#: :func:`~vet402.spend_guard.classify_lookup_failure` maps to
+#: ``payee_trust_unavailable``.
+#:
+#: 10 s, matching the TypeScript SDK's ``DEFAULT_REQUEST_TIMEOUT_MS``. It is
+#: deliberately looser than ``@vouchscore/middleware``'s 5000 ms: the
+#: middleware answers inside somebody else's HTTP handler, while
+#: ``GET /api/v1/payees/{address}/score`` declares ``maxDuration = 30`` for a
+#: COLD score. Because the guard fails closed, a bound tighter than the
+#: server's own cold path turns a slow-but-correct ALLOW into a denial.
+DEFAULT_TIMEOUT_SECONDS = 10.0
 
 _WALLET_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _TX_HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
@@ -45,7 +69,9 @@ class VouchClient:
             hosted production API (:data:`DEFAULT_API_URL`).
         transport: Optional ``httpx.BaseTransport`` — inject
             ``httpx.MockTransport`` in tests to run without a network.
-        timeout: Request timeout in seconds (default 10).
+        timeout: Per-request timeout in seconds. Defaults to
+            :data:`DEFAULT_TIMEOUT_SECONDS` (10 s) — see there for why the
+            bound exists and why it is not the middleware's 5 s.
     """
 
     def __init__(
@@ -54,7 +80,7 @@ class VouchClient:
         *,
         api_url: Optional[str] = None,
         transport: Optional[httpx.BaseTransport] = None,
-        timeout: float = 10.0,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         resolved_url = api_url if api_url is not None else DEFAULT_API_URL
         if not isinstance(resolved_url, str) or resolved_url.strip() == "":
@@ -95,7 +121,23 @@ class VouchClient:
         """Buyer-side lookup: "should my agent pay this wallet?" — scores the
         payment *recipient* (settlement receiving history, wallet health,
         exit-scam-shaped outflow, outcome labels).
-        (``GET /payees/{address}/score``)."""
+        (``GET /payees/{address}/score``).
+
+        The returned dict always carries two fields that gate a payment on
+        their own, whatever ``recommendation`` says:
+
+        - ``degraded`` (bool) — at least one input could not be read at all,
+          so the body is a fail-closed refusal, not a measurement;
+        - ``signalsUnavailable`` (list[str]) — every input that could not be
+          read, named (``wallet_metrics``, ``native_drain``, ``usdc_drain``,
+          ``outcome_history``). Non-empty with ``degraded`` false is a PARTIAL
+          measurement: real numbers, but not all of them.
+
+        **Neither may be treated as ALLOW.**
+        :class:`~vet402.spend_guard.SpendGuard` already refuses both
+        (``payee_score_degraded`` / ``payee_partial_measurement``); code that
+        reads this dict directly must make the same two checks itself.
+        """
         _assert_wallet(payee)
         return self._request("GET", f"/payees/{payee}/score")
 
@@ -202,7 +244,7 @@ def create_vouch_client(
     *,
     api_url: Optional[str] = None,
     transport: Optional[httpx.BaseTransport] = None,
-    timeout: float = 10.0,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> VouchClient:
     """Factory mirroring the TypeScript SDK's ``createVouchClient``."""
     return VouchClient(

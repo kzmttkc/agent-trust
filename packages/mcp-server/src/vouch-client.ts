@@ -7,7 +7,17 @@ export type TrustScoreResult = {
     identity: { registered: boolean; hasMetadataUri: boolean };
     reputation: { feedbackCount: number; avgScore: number; onChainAvgScore: number };
     wallet: { ageDays: number; txCount: number; isBurner: boolean };
-    x402: { paymentCount: number; uniqueDays: number; score: number };
+    /** The highest-weighted axis: "verifiable economic activity" (2026-08-14),
+     *  not x402 settlements alone — `score` is the STRONGER of the L1 observed
+     *  purchases and the x402 settlements. Kept under `x402` for back-compat. */
+    x402: {
+      paymentCount: number;
+      uniqueDays: number;
+      score: number;
+      /** Delivery-verified L1 observed purchases behind the axis score. */
+      l1PurchaseCount?: number;
+      l1DistinctSellers?: number;
+    };
     sybil: { risk: string; flags: string[] };
     manual: { list: string };
   };
@@ -38,12 +48,33 @@ export type PayeeScoreResult = {
   score: number;
   recommendation: "ALLOW" | "WARN" | "BLOCK";
   dataDepth: "thin" | "moderate" | "rich";
+  /**
+   * True when at least one input could not be read at all, so this body is a
+   * fail-closed refusal rather than a measurement. `dataDepth` answers "how
+   * much history does this wallet have?"; this answers "did we manage to
+   * look?". A `degraded: true` result must NEVER be treated as ALLOW,
+   * whatever `recommendation` says — the check_payee_trust tool description
+   * tells the model exactly that. Always sent by the API.
+   */
+  degraded: boolean;
+  /**
+   * Every input that could not be read on this request, named — currently one
+   * or more of `wallet_metrics`, `native_drain`, `usdc_drain`,
+   * `outcome_history`. Empty means the whole assessment was measured.
+   * Non-empty with `degraded: false` is a PARTIAL measurement: real numbers,
+   * but not all of them, and capped below ALLOW for that reason. Also not to
+   * be treated as ALLOW. Always sent by the API.
+   */
+  signalsUnavailable: string[];
   signals: {
     receiving: {
       paymentCount: number;
       uniqueDays: number;
       distinctPayers: number;
       score: number;
+      /** Delivery-verified L1 receipts behind the receiving score. */
+      l1DeliveryCount?: number;
+      l1DistinctBuyers?: number;
     };
     walletHealth: { ageDays: number; txCount: number; isBurner: boolean; score: number };
     drainPattern: {
@@ -52,6 +83,9 @@ export type PayeeScoreResult = {
       outgoingCount: number;
       incomingCount: number;
       score: number;
+      /** Asset legs that could not be read, e.g. ["native_drain"]. The same
+       *  names appear in the top-level `signalsUnavailable`. */
+      unmeasured?: string[];
     };
     outcomeHistory: { types: string[]; adjustment: number };
     flags: string[];
@@ -64,6 +98,8 @@ export type PayeeScoreResult = {
 export type VouchClientConfig = {
   apiUrl: string;
   apiKey: string;
+  /** Per-request timeout in ms. See DEFAULT_TIMEOUT_MS / VOUCH_TIMEOUT_MS. */
+  timeoutMs: number;
 };
 
 export type X402PaymentAttestation = {
@@ -91,6 +127,26 @@ const AGENT_ID_RE = /^\d+$/;
  */
 const DEFAULT_API_URL = "https://vet402.com/api/v1";
 
+/**
+ * Default per-request timeout (10 s), overridable with `VOUCH_TIMEOUT_MS` in
+ * the MCP client's env block — env IS this server's options object, it takes
+ * no constructor arguments.
+ *
+ * WHY A TIMEOUT AT ALL (2026-08-22). `fetch` has none. An upstream that
+ * accepts the connection and then never answers would leave the MCP tool call
+ * pending forever: the model gets no result and no error, so it cannot fail
+ * closed on a payee it could not check — the worst of both. A bounded failure
+ * is a result; a hang is not.
+ *
+ * WHY 10 s AND NOT @vouchscore/middleware's 5 s: matched to the sibling SDKs
+ * (packages/sdk DEFAULT_REQUEST_TIMEOUT_MS, packages/python-sdk's 10.0 s), and
+ * `GET /api/v1/payees/{address}/score` declares `maxDuration = 30` — the
+ * server budgets up to 30 s for a cold score, so a tighter bound would time
+ * out lookups that were merely cold. The middleware's 5 s is right for the
+ * middleware: it answers inside someone else's HTTP handler.
+ */
+const DEFAULT_TIMEOUT_MS = 10_000;
+
 function getConfig(): VouchClientConfig {
   const apiUrl = process.env.VOUCH_API_URL ?? DEFAULT_API_URL;
   const apiKey = process.env.VOUCH_API_KEY;
@@ -102,7 +158,15 @@ function getConfig(): VouchClientConfig {
     );
   }
 
-  return { apiUrl: apiUrl.replace(/\/$/, ""), apiKey };
+  // A malformed VOUCH_TIMEOUT_MS falls back to the default rather than
+  // throwing: a typo in an MCP client's env block must not take the whole
+  // server down at first tool call. Zero/negative/NaN/Infinity are all
+  // rejected — "no timeout" is the bug this exists to close.
+  const rawTimeout = Number(process.env.VOUCH_TIMEOUT_MS);
+  const timeoutMs =
+    Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : DEFAULT_TIMEOUT_MS;
+
+  return { apiUrl: apiUrl.replace(/\/$/, ""), apiKey, timeoutMs };
 }
 
 function assertAgentId(agentId: string): void {
@@ -129,9 +193,13 @@ export class VouchApiError extends Error {
 }
 
 async function vouchFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const { apiUrl, apiKey } = getConfig();
+  const { apiUrl, apiKey, timeoutMs } = getConfig();
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
+    // Bounded, always. See DEFAULT_TIMEOUT_MS: a hung upstream would otherwise
+    // leave the tool call pending forever, and a tool call that never returns
+    // cannot be failed closed by the model.
+    signal: init?.signal ?? AbortSignal.timeout(timeoutMs),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       ...(init?.body ? { "Content-Type": "application/json" } : {}),

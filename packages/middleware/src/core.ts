@@ -169,6 +169,24 @@ export const DEFAULT_MAX_SCORE_AGE_MS = 5 * 60 * 1000;
  *      age bound. A present `cacheExpiresAt` STILL caps (it is a hard ceiling,
  *      independent of maxScoreAgeMs), and an unparseable `scoredAt` is STILL
  *      stale. So +Infinity turns off "too old", not "well-formed".
+ *
+ * DELIBERATELY NOT THE SAME FUNCTION as `isScoreStale` in `@vouchscore/sdk`
+ * (packages/sdk/src/spend-guard.ts), which for a body carrying NEITHER
+ * timestamp answers STALE where this one answers FRESH. The divergence is
+ * kept on purpose (2026-08-22 audit — the two were flagged as "one name, two
+ * answers"; unifying them would break whichever side lost):
+ *
+ *   - the SDK's input is a full `PayeeScoreResult`, where both timestamps are
+ *     always present (docs/openapi.yaml lists them in `required`). Absence
+ *     there means a malformed or tampered payload, so it fails closed;
+ *   - this gate reads TWO endpoints through a partial `ScoreResponse`, where
+ *     a body without freshness fields is a legitimate shape. Treating that as
+ *     expired would block every such response forever, which is not
+ *     fail-closed but simply broken.
+ *
+ * The rule both share: never let an unreadable timestamp pass as a fresh one.
+ * They differ only on whether ABSENCE counts as unreadable — a property of
+ * the input each one is given, not of the rule.
  */
 function isScoreStale(body: ScoreResponse, nowMs: number, maxScoreAgeMs: number): boolean {
   const hasScoredAt = typeof body.scoredAt === "string";

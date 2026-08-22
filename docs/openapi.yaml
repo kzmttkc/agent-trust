@@ -988,7 +988,11 @@ paths:
         In-handler p95 is pinned under 1ms by the test suite. API key
         required (1 unit). See docs/verify-at-settle.md.
       responses:
-        "200": { description: status hit (recommendation, score) or cache_cold }
+        "200":
+          description: A pinned verdict (`hit`) or an honest `cache_cold`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PayeeVerdictFast" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { description: Verdict surface unavailable }
@@ -1798,7 +1802,21 @@ components:
             uniqueDays: { type: integer }
             score:
               type: number
-              description: Internal 0–100 settlement component
+              description: >-
+                Internal 0–100 component for the highest-weighted axis.
+                vet402 2026-08-14: the axis is "verifiable economic activity",
+                not x402 settlements alone — this reflects the STRONGER of the
+                L1 observed purchases below and the x402 settlements above.
+                Kept under `x402` for wire back-compat.
+            l1PurchaseCount:
+              type: integer
+              description: >-
+                vet402 2026-08-14 — delivery-verified L1 observed purchases
+                behind the axis score (the premium signal). 0 until the
+                observatory writes its first row for this wallet.
+            l1DistinctSellers:
+              type: integer
+              description: Distinct L1 counterparties behind l1PurchaseCount.
         sybil:
           type: object
           properties:
@@ -1876,6 +1894,13 @@ components:
                 blocksBehind:
                   type: integer
                   nullable: true
+                lastBlock:
+                  type: string
+                  nullable: true
+                  description: Last block the owner indexer has processed (decimal string); null when unknown
+                indexedAgentRows:
+                  type: integer
+                  description: Agent rows the owner indexer currently holds
                 staleRisk: { type: boolean }
             settlement:
               type: object
@@ -1997,6 +2022,16 @@ components:
             score:
               type: number
               description: Internal 0-100 receiving-track-record component
+            l1DeliveryCount:
+              type: integer
+              description: >-
+                vet402 2026-08-14 — delivery-verified L1 receipts behind the
+                receiving score (the premium signal: the observatory actually
+                paid this payee and checked what came back). 0 until the
+                observatory writes its first row for this wallet.
+            l1DistinctBuyers:
+              type: integer
+              description: Distinct L1 buyers behind l1DeliveryCount.
         walletHealth:
           type: object
           description: Reused from the same on-chain wallet-age/tx-count/burner heuristics as the seller-side score
@@ -2021,6 +2056,15 @@ components:
             score:
               type: number
               description: Internal 0-100 drain-pattern component
+            unmeasured:
+              type: array
+              items: { type: string }
+              description: >-
+                Asset legs that could NOT be read on this request, named rather
+                than averaged away — e.g. ["native_drain"], ["usdc_drain"], or
+                both. Empty when every leg was assessed. These names also
+                appear in the top-level `signalsUnavailable`; a non-empty list
+                means the drain view is partial.
         outcomeHistory:
           type: object
           description: Prior verdict_outcomes labels naming this wallet (auto-detected or partner-reported)
@@ -2036,9 +2080,75 @@ components:
           items: { type: string }
           description: e.g. wallet_metrics_unavailable, drain_check_unavailable, new_burner_wallet, negative_outcome:rug_pull_outflow
 
+    PayeeVerdictFast:
+      oneOf:
+        - $ref: "#/components/schemas/PayeeVerdictFastHit"
+        - $ref: "#/components/schemas/PayeeVerdictFastCold"
+      discriminator:
+        propertyName: status
+      description: |
+        verify-at-settle answer. **Only `hit` + `ALLOW` clears a payment.**
+        `cache_cold` is the ABSENCE of a verdict, not a permissive one — treat
+        it as not-ALLOW, warm asynchronously via the full `/score` endpoint
+        (same cache, TTL 5 min), and retry. See docs/verify-at-settle.md; the
+        rule is implemented as `payeeVerdictFastAllows` in @vouchscore/sdk.
+
+        This body deliberately carries no `degraded` / `signalsUnavailable`:
+        the engine never pins a degraded or partially-measured reading, so a
+        `hit` cannot be a fail-closed refusal wearing an ALLOW.
+
+    PayeeVerdictFastHit:
+      type: object
+      required: [status, recommendation, score, cacheExpiresAt, handlerMicros]
+      properties:
+        status:
+          type: string
+          enum: [hit]
+        recommendation:
+          $ref: "#/components/schemas/Recommendation"
+        score: { type: integer, minimum: 0, maximum: 100 }
+        cacheExpiresAt:
+          type: string
+          format: date-time
+          description: >-
+            When this pinned verdict stops being the current answer. Clients
+            gating money should re-check it rather than assume the server
+            filtered expired entries (it does — this is belt and braces).
+        handlerMicros:
+          type: number
+          description: In-handler microseconds spent (a cache read plus JSON)
+
+    PayeeVerdictFastCold:
+      type: object
+      required: [status, recommendation, warmVia, note, handlerMicros]
+      properties:
+        status:
+          type: string
+          enum: [cache_cold]
+        recommendation:
+          type: string
+          nullable: true
+          enum: [null]
+          description: Always null — nothing was pinned. NOT an allow.
+        warmVia:
+          type: string
+          description: Full-score path to call fire-and-forget to warm the same cache
+        note: { type: string }
+        handlerMicros: { type: number }
+
     PayeeScoreResult:
       type: object
-      required: [payee, score, recommendation, dataDepth, signals, scoredAt, cacheExpiresAt, disclaimer]
+      required:
+        - payee
+        - score
+        - recommendation
+        - dataDepth
+        - degraded
+        - signalsUnavailable
+        - signals
+        - scoredAt
+        - cacheExpiresAt
+        - disclaimer
       properties:
         payee:
           type: string
@@ -2051,6 +2161,38 @@ components:
           $ref: "#/components/schemas/Recommendation"
         dataDepth:
           $ref: "#/components/schemas/DataDepth"
+        degraded:
+          type: boolean
+          description: >-
+            **Read this before you act on `recommendation`.** True when at
+            least one input could not be read at all, so this body is a
+            fail-closed refusal, not a measurement. `dataDepth` answers "how
+            much history does this wallet have?"; this answers "did we manage
+            to look?".
+
+            A client MUST NOT treat a `degraded: true` body as ALLOW, whatever
+            `recommendation` and `score` say. The engine already forces
+            BLOCK here and refuses to cache the verdict; @vouchscore/sdk
+            (SpendGuard, `payee_score_degraded`), the Python SDK, and
+            @vouchscore/middleware (`score_degraded`) all deny on this field
+            alone. Always present.
+        signalsUnavailable:
+          type: array
+          items: { type: string }
+          description: >-
+            **Read this before you act on `recommendation`.** Every input that
+            could not be read on this request, named — currently one or more of
+            `wallet_metrics`, `native_drain`, `usdc_drain`, `outcome_history`.
+            Empty means the whole assessment was measured. Treat the list as
+            open: new input names may be added without a breaking change.
+
+            Non-empty with `degraded: false` is the partial-measurement case:
+            the score IS backed by real measurements, just not all of them, and
+            it has been capped below ALLOW for exactly that reason. A client
+            that must not act on an incomplete view MUST NOT treat a body with
+            a non-empty `signalsUnavailable` as ALLOW — SpendGuard denies it as
+            `payee_partial_measurement` and the middleware as
+            `partial_measurement`. Always present (empty array when clean).
         signals:
           $ref: "#/components/schemas/PayeeSignals"
         scoredAt:
