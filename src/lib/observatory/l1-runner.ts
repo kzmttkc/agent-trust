@@ -31,6 +31,7 @@ import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { x402L1Purchases } from "@/lib/db/schema";
 import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
+import { createDeadline } from "@/lib/util/deadline";
 import { checkL1Budget, isL1Enabled, DAILY_BUDGET_USD } from "./budget";
 import { operatorPayToDenylist } from "./operator";
 import {
@@ -59,6 +60,10 @@ export type L1BatchSummary = {
   skipped: number;
   budgetDenied: number;
   spentUnitsTotal: string;
+  /** True when the batch stopped early to stay inside maxDuration (see L1_BATCH_BUDGET_MS). */
+  stoppedForDeadline: boolean;
+  /** Candidates left untouched by that stop — zero on a normal full walk. */
+  notAttempted: number;
   disabledReason: "l1_disabled" | "wallet_key_missing" | null;
 };
 
@@ -106,6 +111,38 @@ const guardedFetch = createSafeFetchImpl();
 
 /** The daily cap in USDC base units — the same $25 checkL1Budget judges in USD. */
 const DAILY_BUDGET_UNITS = BigInt(DAILY_BUDGET_USD) * BigInt(USDC_PER_USD);
+
+/**
+ * バッチ全体の壁時計予算（2026-08-22 監査・Critical の後半）。
+ *
+ * /api/cron/l1-purchase は maxDuration=300s。runL1Batch は limit=100 件を
+ * 逐次処理するのに全体のデッドラインを持っておらず、300s を越えた瞬間に
+ * **署名済み・予約済みの購入が記帳される前に殺される**——in_flight の行だけ
+ * が残り「金が動いたかもしれないのにレシートが無い」最悪の落ち方をする。
+ *
+ * 対策は「走っている購入を殺す」ではなく「**新しい購入を始めない**」。
+ * 1件の最悪ケースは HTTP 2本（各 timeoutMs・本文読み取り込み）＋ 署名・
+ * 予約・記帳・Solana の blockhash RPC で、後者を L1_PURCHASE_SLACK_MS で
+ * 見積もる。既定では 210s + (20s*2 + 20s) = 270s < 300s なので、
+ * デッドライン直前に始めた1件が最悪でも maxDuration の内側で終わる。
+ */
+export const L1_BATCH_BUDGET_MS = 210_000;
+
+/** 1購入あたり、2本の HTTP 以外（署名・DB・blockhash RPC）に見込む余裕。 */
+export const L1_PURCHASE_SLACK_MS = 20_000;
+
+/** 1件の購入の最悪所要時間。 */
+export function worstCasePurchaseMs(timeoutMs: number): number {
+  return timeoutMs * 2 + L1_PURCHASE_SLACK_MS;
+}
+
+/**
+ * 残り時間で「もう1件」始めてよいか。純関数（DB なしでテストするため公開）。
+ * 判定は最悪ケース基準——平均で判断すると、遅い1件が maxDuration を跨ぐ。
+ */
+export function canStartAnotherPurchase(remainingMs: number, timeoutMs: number): boolean {
+  return remainingMs >= worstCasePurchaseMs(timeoutMs);
+}
 
 /** Endpoints purchased within this window are not re-purchased (1判定1購買). */
 export const SWEEP_WINDOW_DAYS = 6;
@@ -254,6 +291,8 @@ export async function runL1Batch(
     onlyEndpointId?: string;
     /** Test seam: Solana recent blockhash. Default hits SOLANA_RPC_URL. */
     getSolanaBlockhash?: () => Promise<string>;
+    /** Whole-batch wall-clock budget; default L1_BATCH_BUDGET_MS (test seam). */
+    batchBudgetMs?: number;
   } = {},
 ): Promise<L1BatchSummary> {
   // SSRF (2026-08-15 audit): resourceUrl is a seller-declared string from the
@@ -261,7 +300,14 @@ export async function runL1Batch(
   // or redirects to — a non-public address, so this runner cannot be pointed
   // at the platform's own internal surfaces (nor made to carry a signed
   // payment authorization there). See src/lib/net/safe-fetch.ts.
-  const { limit = 100, fetchImpl = guardedFetch, timeoutMs = 20_000, onlyEndpointId } = options;
+  const {
+    limit = 100,
+    fetchImpl = guardedFetch,
+    timeoutMs = 20_000,
+    onlyEndpointId,
+    batchBudgetMs = L1_BATCH_BUDGET_MS,
+  } = options;
+  const deadline = createDeadline(batchBudgetMs);
   const getSolanaBlockhash = options.getSolanaBlockhash ?? defaultSolanaBlockhash;
   const summary: L1BatchSummary = {
     attempted: 0,
@@ -270,6 +316,8 @@ export async function runL1Batch(
     skipped: 0,
     budgetDenied: 0,
     spentUnitsTotal: "0",
+    stoppedForDeadline: false,
+    notAttempted: 0,
     disabledReason: null,
   };
 
@@ -371,7 +419,15 @@ export async function runL1Batch(
     isPriority: r.is_priority === true,
   }));
 
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
+    // Start nothing we cannot finish inside maxDuration. Purchases already in
+    // flight are never interrupted — the whole point is that a signed
+    // authorization must always reach its ledger row.
+    if (!canStartAnotherPurchase(deadline.remaining(), timeoutMs)) {
+      summary.stoppedForDeadline = true;
+      summary.notAttempted = candidates.length - index;
+      break;
+    }
     try {
       const outcome = await purchaseOne({ candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday });
       spentToday += outcome.spent;
