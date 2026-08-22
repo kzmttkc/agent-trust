@@ -27,15 +27,14 @@ const ACCOUNT = privateKeyToAccount(
  * 一致したときだけ1行返す最小フェイク。
  */
 function insertCapturingDb(rows: unknown[], existing: string[] = []) {
-  let lastLookup: string | null = null;
   return {
     select() {
       return {
         from() {
           return {
             where(condition: unknown) {
-              // drizzle の eq() は内部構造なので、値の突合はテスト側で持つ
-              // `lastLookup` ではなく existing 配列の有無だけで代表させる。
+              // drizzle の eq() は内部構造なので値の突合はしない。
+              // 「同じ message が既に台帳にあるか」を existing の有無で代表させる。
               void condition;
               return { limit: async () => (existing.length > 0 ? [{ id: "dup" }] : []) };
             },
@@ -47,7 +46,6 @@ function insertCapturingDb(rows: unknown[], existing: string[] = []) {
       return {
         values(v: unknown) {
           rows.push(v);
-          void lastLookup;
           return { returning: async () => [{ id: "c1", ...(v as object) }] };
         },
       };
