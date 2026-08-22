@@ -41,8 +41,9 @@ openssl rand -hex 32   # CRON_SECRET
 | `ADMIN_SECRET` | Yes | global blacklist admin |
 | `CRON_SECRET` | Yes | Vercel cron auth (min 32 chars) |
 | `BASE_RPC_URL` | Yes | Base mainnet RPC |
-| `TRUST_PROXY_HEADERS` | Yes | `true` on Vercel (uses `x-vercel-forwarded-for` only) |
-| `TRUST_GENERIC_FORWARDED_FOR` | No | `true` only behind a stripping proxy that rewrites XFF (dangerous) |
+| `PROXY_HEADER_SOURCE` | Yes | `vercel` on Vercel. `generic` only behind a proxy that rewrites XFF. `none` otherwise |
+| `TRUST_PROXY_HEADERS` | Deprecated | superseded by `PROXY_HEADER_SOURCE`; still inferred from, warns |
+| `TRUST_GENERIC_FORWARDED_FOR` | Deprecated | superseded by `PROXY_HEADER_SOURCE=generic` |
 | `BLOCKSCOUT_API_URL` | Recommended | `https://base.blockscout.com/api` |
 | `BLOCKSCOUT_API_KEY` | Optional | higher rate limits |
 | `BETA_INVITE_CODE` | Closed β | omit for public β |
@@ -61,7 +62,7 @@ openssl rand -hex 32   # CRON_SECRET
 APP_ENV=production \
   DATABASE_URL=... API_KEY_PEPPER=... \
   DASHBOARD_SESSION_SECRET=... ADMIN_SECRET=... CRON_SECRET=... \
-  BASE_RPC_URL=https://... TRUST_PROXY_HEADERS=true \
+  BASE_RPC_URL=https://... PROXY_HEADER_SOURCE=vercel \
   npm run check:env
 
 # Push to main — Vercel auto-deploys
@@ -97,7 +98,9 @@ Vercel sends `Authorization: Bearer $CRON_SECRET` automatically when `CRON_SECRE
 
 ## 7.1 Monitoring & alerts
 
-Production boot validates **all** required env vars (`BASE_RPC_URL`, `CRON_SECRET`, `TRUST_PROXY_HEADERS`, etc.) via `assertProductionConfig()` — same rules as `npm run check:env`.
+Production boot validates **all** required env vars (`BASE_RPC_URL`, `CRON_SECRET`, `PROXY_HEADER_SOURCE`, etc.) via `assertProductionConfig()` — same rules as `npm run check:env`.
+
+`PROXY_HEADER_SOURCE` names WHICH forwarded-IP header may be believed, because "there is a proxy in front of me" and "that proxy is Vercel" are different claims (2026-08-22 audit: off Vercel, `x-vercel-forwarded-for` is client-settable, so trusting it made every per-IP rate limit bypassable). `vercel` off Vercel is a **boot error**; an unset/uninferable value degrades to `none` — one shared bucket, no per-IP limits — with a warning.
 
 **Deep health** (always requires `ADMIN_SECRET`):
 

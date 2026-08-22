@@ -126,7 +126,7 @@ npm run api-key:create -- --plan free --name "my app"
 **Production:** set `APP_ENV=production` explicitly (do not rely on `NODE_ENV` alone).
 
 **Production required env vars:** `DATABASE_URL`, `API_KEY_PEPPER`, `DASHBOARD_SESSION_SECRET`, `ADMIN_SECRET` (min 32 chars, no placeholders).  
-Set `TRUST_PROXY_HEADERS=true` only when deployed behind a reverse proxy that strips spoofed IP headers.  
+Set `PROXY_HEADER_SOURCE` to name the proxy in front of the app (`vercel` | `generic` | `none`); per-IP rate limits depend on it, and the default `none` believes no forwarded header.  
 **Never set in production:** `DEV_API_KEY`, `SKIP_CHAIN_READS`.
 
 Deep health check: `GET /api/health?deep=1` with `Authorization: Bearer $ADMIN_SECRET` (development allows unauthenticated deep checks).
