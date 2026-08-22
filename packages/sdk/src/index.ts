@@ -145,6 +145,16 @@ export type VouchClientOptions = {
   apiUrl?: string;
   apiKey: string;
   fetch?: typeof fetch;
+  /**
+   * Per-request timeout in milliseconds. Default
+   * {@link DEFAULT_REQUEST_TIMEOUT_MS} (10 s).
+   *
+   * There is no way to disable it, on purpose: SpendGuard is fail-CLOSED, and
+   * a fail-closed judgement that never runs is not a judgement — an upstream
+   * that accepts the connection and then never answers would hang the agent's
+   * payment path forever, which is neither an allow nor a deny.
+   */
+  timeoutMs?: number;
 };
 
 /**
@@ -158,6 +168,31 @@ export type VouchClientOptions = {
  * now the default instead of a crash.
  */
 export const DEFAULT_API_URL = "https://vet402.com/api/v1";
+
+/**
+ * Default per-request timeout (10 s). A timeout surfaces as a lookup failure,
+ * which SpendGuard denies as `payee_trust_unavailable` — fail-closed.
+ *
+ * WHY 10 s AND NOT THE MIDDLEWARE'S 5 s (2026-08-22). @vouchscore/middleware
+ * defaults to 5000 ms and is right to: it runs INSIDE an HTTP handler that has
+ * its own deadline, so it must give the framework its answer back quickly. An
+ * SDK does not necessarily run inside a request at all. Two measured facts set
+ * this value instead:
+ *
+ *   1. the sibling Python SDK already ships a 10 s default
+ *      (packages/python-sdk/src/vet402/client.py, `timeout: float = 10.0`),
+ *      and two SDKs with identical SpendGuard semantics must not disagree on
+ *      how long "too long" is;
+ *   2. `GET /api/v1/payees/{address}/score` declares `maxDuration = 30`
+ *      (src/app/api/v1/payees/[address]/score/route.ts) — the server itself
+ *      budgets up to 30 s for a COLD score (chain reads + DB). Because the
+ *      guard fails closed, a bound tighter than the server's own cold path
+ *      does not fail safe in the useful sense: it turns a slow-but-correct
+ *      ALLOW into a denial of a payment that should have gone through.
+ *
+ * Override with `timeoutMs` when your own deadline is stricter.
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 /**
  * Error thrown when the Vouch API answers with a non-2xx status.
@@ -200,6 +235,7 @@ export class VouchClient {
   private readonly apiUrl: string;
   private readonly apiKey: string;
   private readonly fetchFn: typeof fetch;
+  private readonly timeoutMs: number;
 
   constructor(options: VouchClientOptions) {
     const apiUrl = options.apiUrl ?? DEFAULT_API_URL;
@@ -214,9 +250,19 @@ export class VouchClient {
         "invalid_api_key: apiKey is required — create one at https://vet402.com/dashboard",
       );
     }
+    const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      // Infinity is rejected as well: "no timeout" is the bug this option
+      // exists to close, and AbortSignal.timeout(Infinity) throws anyway.
+      throw new Error(
+        "invalid_timeout_ms: timeoutMs must be a positive, finite number of " +
+          `milliseconds (default ${DEFAULT_REQUEST_TIMEOUT_MS})`,
+      );
+    }
     this.apiUrl = apiUrl.replace(/\/$/, "");
     this.apiKey = options.apiKey;
     this.fetchFn = options.fetch ?? fetch;
+    this.timeoutMs = timeoutMs;
   }
 
   getAgentScore(agentId: string, wallet?: string): Promise<TrustScoreResult> {
@@ -278,8 +324,17 @@ export class VouchClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    // A hung upstream must not hang the caller's payment path. Without this
+    // the whole fail-closed chain is unreachable: SpendGuard can only deny on
+    // a lookup that RETURNS, and `fetch` has no timeout of its own — a server
+    // that accepts the connection and never answers would keep the agent
+    // waiting indefinitely, neither allowing nor denying. The abort surfaces
+    // as a rejection, which SpendGuard classifies `payee_trust_unavailable`.
+    // Mirrors @vouchscore/middleware's AbortSignal.timeout (core.ts); the
+    // different default is justified at DEFAULT_REQUEST_TIMEOUT_MS.
     const response = await this.fetchFn(`${this.apiUrl}${path}`, {
       ...init,
+      signal: init?.signal ?? AbortSignal.timeout(this.timeoutMs),
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         ...(init?.body ? { "Content-Type": "application/json" } : {}),

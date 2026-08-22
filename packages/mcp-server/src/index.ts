@@ -39,6 +39,15 @@ const KNOWN_ERROR_CODES = new Set([
 
 function sanitizeToolError(error: unknown): string {
   if (!(error instanceof Error)) return "request_failed";
+  // A timed-out lookup, named rather than flattened into "request_failed"
+  // (2026-08-22, when vouch-client gained AbortSignal.timeout). The model's
+  // correct move differs: "request_failed" reads as a bad request it should
+  // stop repeating, while a timeout is an upstream that may answer on retry.
+  // Either way the payee was NOT vetted — fail closed, do not pay. The return
+  // value is a fixed literal, so nothing from the error object leaks.
+  if (error.name === "TimeoutError" || error.name === "AbortError") {
+    return "lookup_timeout: the trust lookup did not answer in time — the payee was NOT checked";
+  }
   if (!KNOWN_ERROR_CODES.has(error.message)) return "request_failed";
 
   const reason = error instanceof VouchApiError ? error.reason : undefined;

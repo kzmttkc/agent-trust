@@ -173,6 +173,17 @@ function classifyLookupFailure(error: unknown): SpendDenyReason {
       ? "payee_trust_unauthenticated"
       : "payee_trust_unavailable";
   }
+  // A timed-out or aborted lookup, stated rather than inferred (2026-08-22,
+  // when the SDK's fetch gained AbortSignal.timeout). `AbortSignal.timeout`
+  // rejects with a DOMException named "TimeoutError" and an explicit abort
+  // with "AbortError"; neither carries a `status`, and a DOMException's legacy
+  // `code` is a NUMBER, so both would fall through to the message check below
+  // and land on `payee_trust_unavailable` by accident. That is the right
+  // answer — a lookup that never came back is an upstream problem, not a
+  // credential one, and retrying may help — so it is written down instead of
+  // being left to depend on the shape of a DOMException.
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === "TimeoutError" || name === "AbortError") return "payee_trust_unavailable";
   const code = (error as { code?: unknown } | null)?.code;
   const message = error instanceof Error ? error.message : "";
   const token = typeof code === "string" ? code : message;
