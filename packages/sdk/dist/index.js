@@ -1,6 +1,31 @@
 import { SpendGuard } from "./spend-guard.js";
 export { SpendGuard, DEFAULT_MAX_SCORE_AGE_MS, } from "./spend-guard.js";
 /**
+ * Does this fast verdict clear a payment? The one correct reading of the fast
+ * surface, written once so nobody has to re-derive it at a call site.
+ *
+ * True ONLY for `status: "hit"` with an `ALLOW` recommendation that has not
+ * passed its own `cacheExpiresAt`. `cache_cold` is false — it means "nothing
+ * was pinned", which is the absence of a verdict, not a permissive one. The
+ * expiry re-check is belt-and-braces: the server already refuses to return an
+ * expired entry, but a fast path that gates money should not depend on the
+ * other side having done that.
+ *
+ * NOTE the deliberate asymmetry with {@link SpendGuard}: a `false` here means
+ * "do not pay yet", NOT "this payee is bad". Warm the cache with
+ * {@link VouchClient.getPayeeScore} and decide on the full body.
+ */
+export function payeeVerdictFastAllows(verdict, nowMs = Date.now()) {
+    if (verdict.status !== "hit")
+        return false;
+    if (verdict.recommendation !== "ALLOW")
+        return false;
+    const expiresMs = Date.parse(verdict.cacheExpiresAt);
+    if (Number.isNaN(expiresMs))
+        return false;
+    return nowMs < expiresMs;
+}
+/**
  * Hosted production API. Used when `apiUrl` is omitted.
  *
  * 2026-08-13 (hackathon persona R2): `createVouchClient({ apiKey })` used to
@@ -11,6 +36,30 @@ export { SpendGuard, DEFAULT_MAX_SCORE_AGE_MS, } from "./spend-guard.js";
  * now the default instead of a crash.
  */
 export const DEFAULT_API_URL = "https://vet402.com/api/v1";
+/**
+ * Default per-request timeout (10 s). A timeout surfaces as a lookup failure,
+ * which SpendGuard denies as `payee_trust_unavailable` — fail-closed.
+ *
+ * WHY 10 s AND NOT THE MIDDLEWARE'S 5 s (2026-08-22). @vouchscore/middleware
+ * defaults to 5000 ms and is right to: it runs INSIDE an HTTP handler that has
+ * its own deadline, so it must give the framework its answer back quickly. An
+ * SDK does not necessarily run inside a request at all. Two measured facts set
+ * this value instead:
+ *
+ *   1. the sibling Python SDK already ships a 10 s default
+ *      (packages/python-sdk/src/vet402/client.py, `timeout: float = 10.0`),
+ *      and two SDKs with identical SpendGuard semantics must not disagree on
+ *      how long "too long" is;
+ *   2. `GET /api/v1/payees/{address}/score` declares `maxDuration = 30`
+ *      (src/app/api/v1/payees/[address]/score/route.ts) — the server itself
+ *      budgets up to 30 s for a COLD score (chain reads + DB). Because the
+ *      guard fails closed, a bound tighter than the server's own cold path
+ *      does not fail safe in the useful sense: it turns a slow-but-correct
+ *      ALLOW into a denial of a payment that should have gone through.
+ *
+ * Override with `timeoutMs` when your own deadline is stricter.
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 /**
  * Error thrown when the Vouch API answers with a non-2xx status.
  *
@@ -37,6 +86,7 @@ export class VouchClient {
     apiUrl;
     apiKey;
     fetchFn;
+    timeoutMs;
     constructor(options) {
         const apiUrl = options.apiUrl ?? DEFAULT_API_URL;
         if (typeof apiUrl !== "string" || apiUrl.trim() === "") {
@@ -46,9 +96,17 @@ export class VouchClient {
         if (typeof options.apiKey !== "string" || options.apiKey.trim() === "") {
             throw new Error("invalid_api_key: apiKey is required — create one at https://vet402.com/dashboard");
         }
+        const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+            // Infinity is rejected as well: "no timeout" is the bug this option
+            // exists to close, and AbortSignal.timeout(Infinity) throws anyway.
+            throw new Error("invalid_timeout_ms: timeoutMs must be a positive, finite number of " +
+                `milliseconds (default ${DEFAULT_REQUEST_TIMEOUT_MS})`);
+        }
         this.apiUrl = apiUrl.replace(/\/$/, "");
         this.apiKey = options.apiKey;
         this.fetchFn = options.fetch ?? fetch;
+        this.timeoutMs = timeoutMs;
     }
     getAgentScore(agentId, wallet) {
         assertAgentId(agentId);
@@ -69,6 +127,35 @@ export class VouchClient {
     getPayeeScore(payee) {
         assertWallet(payee);
         return this.request(`/payees/${payee}/score`);
+    }
+    /**
+     * verify-at-settle fast surface: the engine's already-pinned verdict, or an
+     * honest `cache_cold`. **This surface never computes** — it is a cache peek,
+     * with the server's in-handler p95 held under 1 ms by
+     * `tests/verdict-fast.test.ts`. For facilitators and payment middleware that
+     * need a trust check INSIDE the settlement flow.
+     *
+     * Fail-closed reading, and the caller owns it: treat anything that is not an
+     * explicit `hit` + `ALLOW` — `cache_cold` above all — as "do not pay yet".
+     * {@link payeeVerdictFastAllows} is that rule, already written.
+     *
+     * WHY IT IS SAFE TO ACT ON A HIT. The engine only pins verdicts it was
+     * confident in: a degraded or partially-measured reading is never cached
+     * (src/lib/scoring/payee-engine.ts — the `cache.set` is guarded by
+     * `!degraded && !partiallyMeasured`). So a `hit` cannot be a fail-closed
+     * refusal wearing an ALLOW, which is exactly why this body does not need to
+     * carry `degraded` / `signalsUnavailable`.
+     *
+     * WHY {@link SpendGuard} STILL DOES NOT USE IT. The guard also enforces
+     * `minPayeeScore` bands and its own `maxScoreAgeMs`, and reports the full
+     * `payeeScore` in its decision — none of which this body can supply. The
+     * fast surface is a pre-check for a settlement path that already has its own
+     * deadline, not a replacement for the score. Warm with
+     * {@link VouchClient.getPayeeScore} (same cache, TTL 5 min) and retry.
+     */
+    getPayeeVerdictFast(payee) {
+        assertWallet(payee);
+        return this.request(`/payees/${payee}/verdict-fast`);
     }
     /**
      * Non-custodial spend-policy guard. Returns allow/deny decisions only —
@@ -102,8 +189,17 @@ export class VouchClient {
         });
     }
     async request(path, init) {
+        // A hung upstream must not hang the caller's payment path. Without this
+        // the whole fail-closed chain is unreachable: SpendGuard can only deny on
+        // a lookup that RETURNS, and `fetch` has no timeout of its own — a server
+        // that accepts the connection and never answers would keep the agent
+        // waiting indefinitely, neither allowing nor denying. The abort surfaces
+        // as a rejection, which SpendGuard classifies `payee_trust_unavailable`.
+        // Mirrors @vouchscore/middleware's AbortSignal.timeout (core.ts); the
+        // different default is justified at DEFAULT_REQUEST_TIMEOUT_MS.
         const response = await this.fetchFn(`${this.apiUrl}${path}`, {
             ...init,
+            signal: init?.signal ?? AbortSignal.timeout(this.timeoutMs),
             headers: {
                 Authorization: `Bearer ${this.apiKey}`,
                 ...(init?.body ? { "Content-Type": "application/json" } : {}),

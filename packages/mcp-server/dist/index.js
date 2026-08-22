@@ -3,7 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { explainTrustScore } from "./explain.js";
-import { attestX402Payment, fetchAgentScore, fetchPayeeScore, fetchWalletScore, VouchApiError, } from "./vouch-client.js";
+import { sanitizeToolError } from "./tool-errors.js";
+import { attestX402Payment, fetchAgentScore, fetchPayeeScore, fetchWalletScore, } from "./vouch-client.js";
 const server = new McpServer({
     name: "vouch-trust",
     version: "0.1.0",
@@ -11,30 +12,6 @@ const server = new McpServer({
 const AGENT_ID = z.string().max(78).describe("ERC-8004 agent ID (tokenId)");
 const WALLET = z.string().max(42).describe("EVM wallet address (0x...)");
 const TX_HASH = z.string().max(66).describe("Payment transaction hash (0x + 64 hex)");
-// Every error code the Vouch API can return for the endpoints this MCP server calls
-// (agents/:id/score, wallets/:address/score, payees/:address/score, payments/x402).
-// Keep in sync with src/app/api/v1/* and docs/openapi.yaml ErrorResponse.error enum.
-const KNOWN_ERROR_CODES = new Set([
-    "invalid_request",
-    "invalid_agent_id",
-    "invalid_wallet_address",
-    "invalid_tx_hash",
-    "attestation_unverifiable",
-    "missing_api_key",
-    "invalid_api_key",
-    "auth_unavailable",
-    "rate_limit_exceeded",
-    "scoring_unavailable",
-    "payment_ingest_unavailable",
-]);
-function sanitizeToolError(error) {
-    if (!(error instanceof Error))
-        return "request_failed";
-    if (!KNOWN_ERROR_CODES.has(error.message))
-        return "request_failed";
-    const reason = error instanceof VouchApiError ? error.reason : undefined;
-    return reason ? `${error.message}: ${reason}` : error.message;
-}
 server.tool("check_agent_trust", "Get ERC-8004 agent trust score (0-100) and ALLOW/WARN/BLOCK recommendation on Base.", {
     agentId: AGENT_ID,
     wallet: WALLET.optional().describe("Optional wallet to verify against agentWallet metadata"),
@@ -68,7 +45,29 @@ server.tool("check_wallet_trust", "Get trust score for a wallet address. Resolve
         };
     }
 });
-server.tool("check_payee_trust", "Buyer-side check before paying a wallet: payee trust score (0-100), dataDepth (thin/moderate/rich), and ALLOW/WARN/BLOCK recommendation.", {
+// The description is the only thing the model reads before deciding what the
+// result MEANS. It used to name score / dataDepth / ALLOW-WARN-BLOCK and stop
+// there, so a model that got a `degraded` body with a stale ALLOW in it had
+// no instruction not to act on it. The raw JSON always carried the two fields
+// (the tool returns JSON.stringify of the whole body); nothing told the model
+// they outrank the recommendation. Now it does. — 2026-08-22 audit
+server.tool("check_payee_trust", [
+    "Buyer-side check before paying a wallet: payee trust score (0-100),",
+    "dataDepth (thin/moderate/rich), and ALLOW/WARN/BLOCK recommendation.",
+    "",
+    "The result ALSO carries two fields that OVERRIDE the recommendation:",
+    "- degraded (boolean): true means an input could not be read at all, so",
+    "  the body is a refusal, not a measurement.",
+    "- signalsUnavailable (array): non-empty means some inputs were not",
+    "  measured (e.g. wallet_metrics, native_drain, usdc_drain,",
+    "  outcome_history), so the view is partial.",
+    "",
+    "DO NOT treat the payee as ALLOW if degraded is true or signalsUnavailable",
+    "is non-empty — whatever recommendation and score say. Both mean the payee",
+    "was not fully checked, and an unchecked payee is not a safe one. The same",
+    "applies when this tool returns an error (including lookup_timeout): no",
+    "answer is not an ALLOW. Re-check before paying rather than assuming.",
+].join("\n"), {
     payee: WALLET.describe("Payee wallet address (0x...) the agent is about to pay"),
 }, async ({ payee }) => {
     try {
