@@ -30,6 +30,18 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # 2026-08-22: `npm test` に mcp:test を足したが、mcp-server は
+      # @modelcontextprotocol/sdk と zod を**自前の** node_modules に持つ
+      # （このリポは workspaces ではなく、各パッケージが独立した lock を持つ）。
+      # root の npm ci だけでは解決できず、ビルドが TS2307 で落ちる。
+      # 手元では node_modules が既にあるので緑に見えていた——クリーンな
+      # チェックアウトで初めて出る欠陥クラス。sdk / middleware は依存ゼロだが、
+      # 将来の追加で同じ穴が空かないよう3つとも入れる。
+      - name: Install package deps (sdk / middleware / mcp-server)
+        run: |
+          npm ci --prefix packages/sdk
+          npm ci --prefix packages/middleware
+          npm ci --prefix packages/mcp-server
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
