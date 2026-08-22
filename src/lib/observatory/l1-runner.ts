@@ -30,6 +30,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { x402L1Purchases } from "@/lib/db/schema";
+import { readBodyCapped } from "@/lib/net/read-capped";
 import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
 import { createDeadline } from "@/lib/util/deadline";
 import { checkL1Budget, isL1Enabled, DAILY_BUDGET_USD } from "./budget";
@@ -571,7 +572,7 @@ async function purchaseOne(input: {
       headers: { accept: "application/json", "user-agent": "vet402-observatory-l1/1.0 (+https://vet402.com/observatory/methodology)", ...(method === "POST" ? { "content-type": "application/json" } : {}) },
       ...(method === "POST" ? { body: "{}" } : {}),
     });
-    firstBody = (await first.text()).slice(0, 16_000);
+    firstBody = await readBodyCapped(first, 16_000);
   } catch (error) {
     await record({
       status: "request_error",
@@ -758,7 +759,7 @@ async function purchaseOne(input: {
       },
       ...(method === "POST" ? { body: "{}" } : {}),
     });
-    paidBody = (await paid.text()).slice(0, 16_000);
+    paidBody = await readBodyCapped(paid, 16_000);
   } catch (error) {
     paidError = String(error).slice(0, 300);
   } finally {

@@ -21,6 +21,7 @@
 // condition): see publishedVerdict().
 // ============================================================
 
+import { readBodyCapped } from "@/lib/net/read-capped";
 import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
 
 export type ProbeTarget = {
@@ -175,6 +176,7 @@ export async function probeEndpoint(
     });
   } catch (error) {
     const reason = classifyNetworkError(error);
+    clearTimeout(timer);
     return {
       method,
       // A target we REFUSED to contact is not a measurement of the seller:
@@ -192,16 +194,20 @@ export async function probeEndpoint(
       failReason: reason,
       rawResponseMeta: { error: reason },
     };
-  } finally {
-    clearTimeout(timer);
   }
 
   const latencyMs = Date.now() - startedAt;
+  // 2026-08-22 監査: 本文は上限バイトで打ち切って読む（全部読んでから
+  // slice すると上限が何も守らない）。abort タイマーも本文読み取りが
+  // 終わるまで張ったままにする——AbortController はヘッダまでしか効かない
+  // ので、先に解除すると遅いボディ送出を無制限に待てる（l1-runner と同じ欠陥）。
   let bodyText = "";
   try {
-    bodyText = (await response.text()).slice(0, 4_000);
+    bodyText = await readBodyCapped(response, 4_000);
   } catch {
     bodyText = "";
+  } finally {
+    clearTimeout(timer);
   }
   const meta: Record<string, unknown> = {
     status: response.status,
