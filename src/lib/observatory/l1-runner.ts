@@ -432,19 +432,25 @@ async function purchaseOne(input: {
   }
 
   // Unpaid request → expect the wall.
+  //
+  // 2026-08-22 (audit, Critical): the abort timer MUST still be armed while the
+  // BODY is read. AbortController only bounds the response up to its headers —
+  // clearing the timer before `.text()` (what this code did) left a seller free
+  // to dribble a body out forever, and timeoutMs stopped meaning anything. The
+  // clear now lives in `finally`, so the whole request+body is inside one
+  // budget and a slow body aborts like any other timeout.
   let first: Response;
   let firstBody = "";
+  const firstController = new AbortController();
+  const firstTimer = setTimeout(() => firstController.abort(), timeoutMs);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     first = await fetchImpl(candidate.resourceUrl, {
       method,
-      signal: controller.signal,
+      signal: firstController.signal,
       redirect: "follow",
       headers: { accept: "application/json", "user-agent": "vet402-observatory-l1/1.0 (+https://vet402.com/observatory/methodology)", ...(method === "POST" ? { "content-type": "application/json" } : {}) },
       ...(method === "POST" ? { body: "{}" } : {}),
     });
-    clearTimeout(timer);
     firstBody = (await first.text()).slice(0, 16_000);
   } catch (error) {
     await record({
@@ -459,6 +465,8 @@ async function purchaseOne(input: {
       },
     });
     return { kind: "skipped", settled: false, spent: 0n };
+  } finally {
+    clearTimeout(firstTimer);
   }
 
   if (first.status !== 402) {
@@ -583,12 +591,16 @@ async function purchaseOne(input: {
   let paid: Response | null = null;
   let paidBody = "";
   let paidError: string | null = null;
+  // Same 2026-08-22 fix as the unpaid leg: the timer covers the body read too.
+  // On the PAID leg an aborted body is not a lost measurement — the settlement
+  // receipt lives in the HEADERS, which we already hold — so the outcome is
+  // still recorded, with the body error kept in rawResponseMeta.bodyError.
+  const paidController = new AbortController();
+  const paidTimer = setTimeout(() => paidController.abort(), timeoutMs);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     paid = await fetchImpl(candidate.resourceUrl, {
       method,
-      signal: controller.signal,
+      signal: paidController.signal,
       redirect: "follow",
       headers: {
         accept: "application/json",
@@ -598,10 +610,11 @@ async function purchaseOne(input: {
       },
       ...(method === "POST" ? { body: "{}" } : {}),
     });
-    clearTimeout(timer);
     paidBody = (await paid.text()).slice(0, 16_000);
   } catch (error) {
     paidError = String(error).slice(0, 300);
+  } finally {
+    clearTimeout(paidTimer);
   }
 
   const latencyMs = Date.now() - startedAt;
@@ -643,6 +656,10 @@ async function purchaseOne(input: {
         status: paid?.status ?? null,
         contentType,
         bodyHead: paidBody.slice(0, 500),
+        // A response whose HEADERS arrived but whose body aborted/failed: the
+        // error would otherwise be dropped (rawSettlement keeps the settlement
+        // when one exists), so it is kept here rather than silently lost.
+        ...(paid && paidError ? { bodyError: paidError } : {}),
       },
     })
     .where(eq(x402L1Purchases.id, reservation.rowId));
