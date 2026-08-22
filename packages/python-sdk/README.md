@@ -168,7 +168,7 @@ vouch = VouchClient("vk_test", transport=httpx.MockTransport(handler))
 ## Links
 
 - [API key](https://vet402.com/dashboard/keys) — `VOUCH_API_KEY`
-- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml)
+- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/vet402/blob/main/docs/openapi.yaml)
 - [`@vouchscore/sdk`](https://www.npmjs.com/package/@vouchscore/sdk) — TypeScript twin of this package
 - [`@vouchscore/middleware`](https://www.npmjs.com/package/@vouchscore/middleware) — seller side (x402 request gate)
 - [`@vouchscore/mcp-server`](https://www.npmjs.com/package/@vouchscore/mcp-server) — MCP tool

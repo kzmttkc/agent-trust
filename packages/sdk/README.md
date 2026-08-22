@@ -137,9 +137,9 @@ How it works:
 Absolute, because relative repo paths do not resolve on the npm package page.
 
 - [API key](https://vet402.com/dashboard/keys) — `VOUCH_API_KEY`
-- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml)
-- [Runnable AgentKit SpendGuard demo](https://github.com/kzmttkc/agent-trust/tree/main/examples/agentkit-spend-guard)
-- [x402 integration guide](https://github.com/kzmttkc/agent-trust/blob/main/docs/x402-integration.md)
+- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/vet402/blob/main/docs/openapi.yaml)
+- [Runnable AgentKit SpendGuard demo](https://github.com/kzmttkc/vet402/tree/main/examples/agentkit-spend-guard)
+- [x402 integration guide](https://github.com/kzmttkc/vet402/blob/main/docs/x402-integration.md)
 - [`@vouchscore/middleware`](https://www.npmjs.com/package/@vouchscore/middleware) — seller side (x402 request gate)
 - [`@vouchscore/mcp-server`](https://www.npmjs.com/package/@vouchscore/mcp-server) — MCP tool
 

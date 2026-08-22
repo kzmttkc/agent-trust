@@ -115,8 +115,8 @@ signing, or transaction submission — settlement stays with your x402 stack.
 ## Links
 
 - [API key](https://vet402.com/dashboard/keys) — `VOUCH_API_KEY`
-- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml)
-- [x402 integration guide](https://github.com/kzmttkc/agent-trust/blob/main/docs/x402-integration.md)
+- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/vet402/blob/main/docs/openapi.yaml)
+- [x402 integration guide](https://github.com/kzmttkc/vet402/blob/main/docs/x402-integration.md)
 - [`@vouchscore/sdk`](https://www.npmjs.com/package/@vouchscore/sdk) — buyer side (SpendGuard)
 - [`@vouchscore/mcp-server`](https://www.npmjs.com/package/@vouchscore/mcp-server) — MCP tool
 

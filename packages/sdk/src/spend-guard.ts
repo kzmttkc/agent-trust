@@ -130,6 +130,28 @@ export const DEFAULT_MAX_SCORE_AGE_MS = 5 * 60 * 1000;
  * counts as stale (we cannot prove freshness), and the score's own
  * `cacheExpiresAt` is honoured as a hard ceiling in addition to `maxScoreAgeMs`
  * so a lax bound can never resurrect a score past its declared expiry.
+ *
+ * DELIBERATELY NOT THE SAME FUNCTION as `isScoreStale` in
+ * `@vouchscore/middleware` (packages/middleware/src/core.ts), which answers
+ * differently for a body carrying NEITHER timestamp: it returns FRESH, this
+ * one returns STALE. Both are right for their input, and the divergence is
+ * kept on purpose (2026-08-22 audit — the two were flagged as "one name, two
+ * answers", and unifying them would break whichever side lost):
+ *
+ *   - here the input is a `PayeeScoreResult`, whose `scoredAt` and
+ *     `cacheExpiresAt` are BOTH always present (docs/openapi.yaml lists them
+ *     in `required`; src/lib/scoring/payee-engine.ts builds them
+ *     unconditionally). A body reaching this function without them is a
+ *     malformed or tampered payload, not a legitimate shape — so "cannot
+ *     prove freshness" is the honest answer and it fails closed;
+ *   - the middleware gates TWO endpoints and types its input as a partial
+ *     `ScoreResponse`. For it, missing timestamps are a legitimate body
+ *     shape, and "absence is not expiry" is the honest answer there.
+ *
+ * The rule of thumb the two share: never let an unreadable timestamp pass as
+ * a fresh one. They differ only on whether ABSENCE is unreadable, and that
+ * depends on whether absence was ever legal — which is a property of the
+ * input, not of the rule.
  */
 function isScoreStale(
   score: PayeeScoreResult,

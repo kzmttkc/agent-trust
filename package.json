@@ -8,10 +8,10 @@
   "homepage": "https://vet402.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kzmttkc/agent-trust.git"
+    "url": "git+https://github.com/kzmttkc/vet402.git"
   },
   "bugs": {
-    "url": "https://github.com/kzmttkc/agent-trust/issues"
+    "url": "https://github.com/kzmttkc/vet402/issues"
   },
   "keywords": [
     "x402",

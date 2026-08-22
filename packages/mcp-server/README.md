@@ -92,15 +92,15 @@ A `serverInfo` line comes back on stdout. The package also installs a
 ## Building from the repo (contributors)
 
 ```bash
-git clone https://github.com/kzmttkc/agent-trust.git
+git clone https://github.com/kzmttkc/vet402.git
 cd agent-trust/packages/mcp-server && npm install && npm run build
 # then point your client at "command": "node", "args": ["<abs>/dist/index.js"]
 ```
 
 ## Links
 
-- [MCP setup guide](https://github.com/kzmttkc/agent-trust/blob/main/docs/mcp-setup.md)
-- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/agent-trust/blob/main/docs/openapi.yaml)
+- [MCP setup guide](https://github.com/kzmttkc/vet402/blob/main/docs/mcp-setup.md)
+- [API docs](https://vet402.com/docs/api) · [OpenAPI spec](https://github.com/kzmttkc/vet402/blob/main/docs/openapi.yaml)
 - [`@vouchscore/sdk`](https://www.npmjs.com/package/@vouchscore/sdk) — buyer side (SpendGuard)
 - [`@vouchscore/middleware`](https://www.npmjs.com/package/@vouchscore/middleware) — seller side (x402 request gate)
 
