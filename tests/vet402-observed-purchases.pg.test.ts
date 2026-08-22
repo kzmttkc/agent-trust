@@ -18,6 +18,7 @@ import { __setDbForTests } from "@/lib/db/client";
 import {
   getObservedPurchaseStats,
   getObservedDeliveryStats,
+  recordObservedPurchase,
 } from "@/lib/db/observed-purchases";
 
 const URL =
@@ -69,6 +70,10 @@ before(async () => {
     observed_by text,
     created_at timestamptz DEFAULT now()
   )`;
+  // 本番と同じ一意制約。recordObservedPurchase の ON CONFLICT はこれを
+  // 仲裁者として使うので、フィクスチャに無いと「本番では通る書き込みが
+  // テストでだけ落ちる／その逆」になる。
+  await sql`CREATE UNIQUE INDEX observed_purchases_tx_hash_idx ON observed_purchases (tx_hash)`;
   await sql`CREATE TABLE funder_wallets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     funder text NOT NULL,
@@ -134,6 +139,40 @@ test("only DELIVERY-VERIFIED purchases to independent sellers count", async (t) 
   const stats = await getObservedPurchaseStats(W);
   assert.equal(stats.purchaseCount, 1, "only the delivered, independent, non-dust purchase counts");
   assert.equal(stats.distinctCounterparties, 1);
+});
+
+test("recordObservedPurchase は tx_hash で冪等（同じ決済を二重に数えない）", async (t) => {
+  if (!reachable) return t.skip("no Postgres (set TEST_DATABASE_URL)");
+  await reset();
+  const BUYER = wal(601);
+  const SELLER = wal(602);
+  const TX = tx();
+  const input = {
+    wallet: BUYER,
+    counterparty: SELLER,
+    amount: "3000",
+    txHash: TX,
+    resource: "https://seller.example/api",
+    deliveryVerified: true,
+    observedBy: "observatory-l1:test",
+  };
+
+  const first = await recordObservedPurchase(input);
+  assert.equal(first.created, true);
+
+  // 同じ決済の再観測（cron の再実行・バックフィルの重ね掛け）。
+  const second = await recordObservedPurchase(input);
+  assert.equal(second.created, false);
+  assert.equal(second.id, first.id, "勝った行のidを返す");
+
+  // 大文字小文字違いの同じ tx_hash も同じ1件。
+  const third = await recordObservedPurchase({ ...input, txHash: TX.toUpperCase() });
+  assert.equal(third.created, false);
+
+  const rows = await sql!`SELECT count(*)::int AS n FROM observed_purchases WHERE tx_hash = ${TX.toLowerCase()}`;
+  assert.equal(rows[0].n, 1, "行は1つだけ");
+  const stats = await getObservedPurchaseStats(BUYER);
+  assert.equal(stats.purchaseCount, 1, "スコアの分子も二重計上されない");
 });
 
 test("payees funded by the buyer's own funder are dropped (self-dealing via funding cluster)", async (t) => {

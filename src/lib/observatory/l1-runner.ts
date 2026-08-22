@@ -30,6 +30,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { isMissingSchemaError } from "@/lib/db/pg-errors";
 import { x402L1Purchases } from "@/lib/db/schema";
+import { recordObservedPurchase } from "@/lib/db/observed-purchases";
 import { readBodyCapped } from "@/lib/net/read-capped";
 import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
 import { createDeadline } from "@/lib/util/deadline";
@@ -278,6 +279,29 @@ async function reserveSpend(input: {
   const rowId = typeof row.row_id === "string" && row.row_id !== "" ? row.row_id : null;
   if (rowId) return { ok: true, rowId };
   return { ok: false, reason: row.taken === true ? "already_purchased" : "daily_budget_exceeded" };
+}
+
+/**
+ * observed_purchases.delivery_verified の判定（2026-08-22 監査・項目1）。
+ *
+ * この列は**書き手側の保証**で、読み手（observed-purchases.ts）は導出できず
+ * フラグを信じるしかない。だから true にする条件は「品が実際に届いたと
+ * 我々が観測した」ことに限る:
+ *   - 有料リトライが HTTP 200 を返し、
+ *   - 本文が空でなく（空ボディの200は「届いた」と言えない）、
+ *   - 宣言スキーマに対して mismatch でない（宣言があるのに違う形の応答は、
+ *     配送の確認になっていない。宣言が無い no_declaration は減点しない）。
+ * どれか欠ければ false で**記録する**——行ごと捨てるのではなく、x402 相当の
+ * 「決済はした」事実として残す（scoreEconomicActivity はこの差を見ている）。
+ *
+ * 純関数。DB なしでテストするため公開。
+ */
+export function isDeliveryVerified(input: {
+  httpStatusPaid: number | null;
+  payloadNonEmpty: boolean;
+  l2Schema: string;
+}): boolean {
+  return input.httpStatusPaid === 200 && input.payloadNonEmpty && input.l2Schema !== "mismatch";
 }
 
 /**
@@ -812,6 +836,60 @@ async function purchaseOne(input: {
       },
     })
     .where(eq(x402L1Purchases.id, reservation.rowId));
+
+  // observed_purchases への記帳（2026-08-22 監査・項目1）。
+  //
+  // この表は scoreEconomicActivity（重み0.40の最上位軸）の L1 枝・
+  // scoreL1Receiving・payee-engine の l1DeliveryDepth の唯一の材料で、
+  // 「trusted-writer ingest」と設計されながら**全リポで呼び手が存在せず**
+  // 0行だった（本番実測 2026-08-22: observed_purchases 0行 /
+  // x402_l1_purchases 1,167行・決済成功496）。その間ずっと
+  // signals.x402.l1PurchaseCount 等は常に 0 を公開していた。
+  //
+  // 何を1行とするか（schema と observed-purchases.ts の意味論に従う）:
+  //  - tx_hash は NOT NULL かつ一意＝この表の自然キー。決済レシート
+  //    （PAYMENT-RESPONSE の transaction）が無い試行は行にできないので、
+  //    書けるのは settled のときだけ。delivered_no_receipt は「品は来たが
+  //    レシートが無い」＝オンチェーンの購入として名指せないので書かない;
+  //  - delivery_verified は**書き手側の保証**（reader は読み取り時に導出
+  //    できず、このフラグを信じるだけ）。だから「品が実際に届いた」と
+  //    我々が観測した時だけ true にする: HTTP 200 かつ本文が空でなく、
+  //    宣言スキーマに対して mismatch でないこと。1つでも欠ければ false で
+  //    記録する——行を捨てるのではなく、x402 相当の事実として残す;
+  //  - block_timestamp は取らない（L1 はレシートのハッシュしか持たず、
+  //    ブロック時刻を引く経路がまだ無い）。null なら reader は created_at を
+  //    日次軸に使う（settledAt の coalesce）ので、数秒差で正しい日に入る。
+  //    推測で埋めない。
+  //
+  // 大文字小文字: recordObservedPurchase は wallet/counterparty を小文字化
+  // する。base58（Solana）には情報が失われるが、読み手
+  // （getObservedPurchaseStats / getObservedDeliveryStats）も引数を小文字化
+  // して比較するので、書き・読みで一貫している。台帳（x402_l1_purchases）
+  // 側は base58 の原文を保つ、という既存の分担はそのまま。
+  //
+  // graceful: ここで何が起きても購入の記帳（正典は x402_l1_purchases）は
+  // 既に完了している。ただし黙って消さない——失敗は logServerError に残す。
+  if (settled && settlement?.transaction) {
+    const deliveryVerified = isDeliveryVerified({
+      httpStatusPaid: paid?.status ?? null,
+      payloadNonEmpty,
+      l2Schema,
+    });
+    try {
+      await recordObservedPurchase({
+        wallet: payerLabel,
+        counterparty: accept.payTo,
+        amount: String(amount),
+        txHash: settlement.transaction,
+        resource: candidate.resourceUrl,
+        blockTimestamp: null,
+        deliveryVerified,
+        observedBy: `observatory-l1:${candidate.id}`,
+      });
+    } catch (error) {
+      logServerError("observatory.l1.observed_purchase", error);
+    }
+  }
 
   // ERC-8004 への公開（C4）。フラグOFF既定・graceful——購入の記帳には
   // 何があっても影響しない（registry-hook.ts 冒頭）。

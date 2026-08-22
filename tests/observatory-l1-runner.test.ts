@@ -38,7 +38,7 @@ if (!TEST_DB) {
 
     const db = getDb()!;
     await db.execute(
-      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_payee_watchers, x402_l1_purchases`,
+      sql`TRUNCATE x402_endpoints, x402_catalog_snapshots, x402_l0_probes, x402_delisting_events, x402_payee_watchers, x402_l1_purchases, observed_purchases`,
     );
 
     const savedEnabled = process.env.OBSERVATORY_L1_ENABLED;
@@ -163,6 +163,31 @@ if (!TEST_DB) {
       assert.equal(rows[0].payloadNonEmpty, true);
       assert.equal(rows[0].contentTypeMatch, true);
       assert.equal(rows[0].httpStatusPaid, 200);
+
+      // 2026-08-22 監査・項目1: この購入が observed_purchases に入ること。
+      // ここが空だと scoreEconomicActivity（重み0.40）の L1 枝と
+      // scoreL1Receiving が永久に不発になる（本番で実際にそうなっていた）。
+      const observed = await db.select().from(schema.observedPurchases);
+      assert.equal(observed.length, 1, "L1 の決済は observed_purchases の唯一の書き手");
+      assert.equal(observed[0].txHash, "0xdeadbeef");
+      assert.equal(observed[0].wallet, rows[0].payer, "買い手＝台帳の payer");
+      assert.equal(observed[0].counterparty, payToFor(1).toLowerCase(), "売り手＝壁の payTo");
+      assert.equal(observed[0].amount, "3000");
+      assert.equal(observed[0].resource, "https://seller1.example/api");
+      assert.equal(observed[0].deliveryVerified, true, "200 + 本文あり → 配送確認済み");
+      assert.equal(observed[0].blockTimestamp, null, "ブロック時刻は持っていない（推測で埋めない）");
+
+      // 冪等: 同じ決済を再観測しても2行目は生まれない。
+      const { recordObservedPurchase } = await import("@/lib/db/observed-purchases");
+      const again = await recordObservedPurchase({
+        wallet: rows[0].payer!,
+        counterparty: payToFor(1),
+        amount: "3000",
+        txHash: "0xdeadbeef",
+        deliveryVerified: true,
+      });
+      assert.equal(again.created, false);
+      assert.equal((await db.select().from(schema.observedPurchases)).length, 1);
     });
 
     await t.test("one purchase per endpoint per sweep window (no double-buy)", async () => {
