@@ -21,7 +21,22 @@ export type TrustScoreResult = {
     identity: { registered: boolean; hasMetadataUri: boolean };
     reputation: { feedbackCount: number; avgScore: number; onChainAvgScore: number };
     wallet: { ageDays: number; txCount: number; isBurner: boolean };
-    x402: { paymentCount: number; uniqueDays: number; score: number };
+    /**
+     * The highest-weighted axis. vet402 2026-08-14: it is "verifiable economic
+     * activity", not x402 settlements alone — `score` reflects the STRONGER of
+     * the L1 observed purchases below and the x402 settlements. Kept under
+     * `x402` for wire back-compat.
+     */
+    x402: {
+      paymentCount: number;
+      uniqueDays: number;
+      score: number;
+      /** Delivery-verified L1 observed purchases behind the axis score (the
+       *  premium signal). Optional for back-compat; 0 until the observatory
+       *  writes its first row for this wallet. */
+      l1PurchaseCount?: number;
+      l1DistinctSellers?: number;
+    };
     sybil: { risk: string; flags: string[] };
     manual: { list: string };
   };
@@ -88,6 +103,12 @@ export type PayeeScoreResult = {
       uniqueDays: number;
       distinctPayers: number;
       score: number;
+      /** Delivery-verified L1 receipts behind the receiving score (the premium
+       *  signal: the observatory actually paid this payee and checked what came
+       *  back). Optional for back-compat; 0 until the observatory writes its
+       *  first row for this wallet. */
+      l1DeliveryCount?: number;
+      l1DistinctBuyers?: number;
     };
     walletHealth: { ageDays: number; txCount: number; isBurner: boolean; score: number };
     drainPattern: {
@@ -96,6 +117,17 @@ export type PayeeScoreResult = {
       outgoingCount: number;
       incomingCount: number;
       score: number;
+      /**
+       * Asset legs that could NOT be read on this request — e.g.
+       * ["native_drain"], ["usdc_drain"], or both. Empty when every leg was
+       * assessed. The API always sends it; optional here so existing callers
+       * that build a PayeeScoreResult literal (tests, fixtures) keep compiling.
+       *
+       * These same names also appear in the top-level `signalsUnavailable`,
+       * which is the field SpendGuard denies on — read that one to gate a
+       * payment; read this one to say WHICH part of the drain view is missing.
+       */
+      unmeasured?: string[];
     };
     outcomeHistory: { types: string[]; adjustment: number };
     flags: string[];
