@@ -27,7 +27,10 @@ import {
   buildAuthorization,
   signX402Payment,
   encodePaymentHeader,
+  hasCanonicalUsdcDomain,
   BASE_USDC,
+  BASE_USDC_EIP712_NAME,
+  BASE_USDC_EIP712_VERSION,
   MAX_PER_PURCHASE_UNITS,
 } from "@/lib/observatory/x402-payer";
 
@@ -286,6 +289,67 @@ test("signX402Payment produces an EIP-3009 signature that recovers to our wallet
     signature: signature as `0x${string}`,
   });
   assert.equal(valid, true);
+});
+
+// ---- EIP-712 domain pinning (2026-08-22 audit) -----------------------------
+//
+// The domain belongs to the TOKEN, and the token is already pinned (Base
+// mainnet USDC, chainId 8453). Reading name/version out of the seller's
+// `extra` could not misdirect funds — a bogus domain just makes the signature
+// unverifiable — but the spend is RESERVED before the signature exists, so a
+// few hostile sellers could burn the $25/day budget for free. Refuse before
+// the reservation instead.
+// 一次確認 2026-08-22: eth_call https://mainnet.base.org → name() "USD Coin",
+// version() "2"。
+
+test("pinned domain matches what Base USDC actually reports on-chain", () => {
+  assert.equal(BASE_USDC_EIP712_NAME, "USD Coin");
+  assert.equal(BASE_USDC_EIP712_VERSION, "2");
+});
+
+test("hasCanonicalUsdcDomain: 未指定は可・食い違いは不可", () => {
+  assert.equal(hasCanonicalUsdcDomain(undefined), true);
+  assert.equal(hasCanonicalUsdcDomain({}), true);
+  assert.equal(hasCanonicalUsdcDomain({ name: "USD Coin", version: "2" }), true);
+  assert.equal(hasCanonicalUsdcDomain({ name: "USDC", version: "2" }), false);
+  assert.equal(hasCanonicalUsdcDomain({ name: "USD Coin", version: "1" }), false);
+  assert.equal(hasCanonicalUsdcDomain({ name: 2, version: "2" }), false);
+});
+
+test("selectAccept refuses an accept whose EIP-712 domain contradicts the pin (before any reservation)", () => {
+  const spoofed = { ...V2_ACCEPT, extra: { name: "Tether USD", version: "2" } };
+  const chosen = selectAccept([spoofed], { declaredAmount: "3000", declaredPayTo: null });
+  assert.equal(chosen.accept, null);
+  assert.equal(chosen.reason, "no_eligible_accept");
+
+  const spoofedVersion = { ...V2_ACCEPT, extra: { name: "USD Coin", version: "3" } };
+  assert.equal(
+    selectAccept([spoofedVersion], { declaredAmount: "3000", declaredPayTo: null }).accept,
+    null,
+  );
+
+  // extra ごと無い challenge は従来どおり通る（ピン留め値で署名する）。
+  const noExtra = { ...V2_ACCEPT, extra: undefined };
+  assert.ok(selectAccept([noExtra], { declaredAmount: "3000", declaredPayTo: null }).accept);
+});
+
+test("signX402Payment refuses to sign under a seller-chosen domain", async () => {
+  const authorization = buildAuthorization({
+    from: account.address,
+    to: V2_ACCEPT.payTo,
+    value: "3000",
+    nowSec: 1_755_000_000,
+    maxTimeoutSeconds: 300,
+  });
+  await assert.rejects(
+    () =>
+      signX402Payment({
+        account,
+        accept: { ...V2_ACCEPT, extra: { name: "USD Coin", version: "9" } },
+        authorization,
+      }),
+    /canonical Base USDC EIP-712 domain/,
+  );
 });
 
 // ---- transport encoding ----------------------------------------------------
