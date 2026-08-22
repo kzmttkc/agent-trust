@@ -16,9 +16,24 @@ npm install -g @vouchscore/mcp-server   # optional — the configs below use npx
 |---|---|
 | `check_agent_trust` | Score by agent ID (optional wallet verification) |
 | `check_wallet_trust` | Score by wallet (x402 payer path) |
-| `check_payee_trust` | Buyer-side: score a payment *recipient* before paying it (score + dataDepth + recommendation) |
+| `check_payee_trust` | Buyer-side: score a payment *recipient* before paying it (score + dataDepth + recommendation + `degraded` / `signalsUnavailable`) |
 | `explain_trust_score` | Human-readable score breakdown (includes x402 + dataCoverage) |
 | `attest_x402_payment` | Write settlement attestation after payment verification |
+
+### Reading a `check_payee_trust` result
+
+The tool returns the API body verbatim. Two of its fields **override
+`recommendation`**, and the tool description tells the model so:
+
+- `degraded: true` — an input could not be read at all; the body is a refusal,
+  not a measurement.
+- `signalsUnavailable` non-empty — some inputs were not measured
+  (`wallet_metrics`, `native_drain`, `usdc_drain`, `outcome_history`); the view
+  is partial.
+
+Either one means the payee was not fully checked, and an unchecked payee is not
+a safe one. The same goes for a tool error, including `lookup_timeout`: no
+answer is not an ALLOW.
 
 ## Setup — Claude Desktop
 
@@ -76,6 +91,7 @@ A `serverInfo` line comes back on stdout. The package also installs a
 |---|---|---|
 | `VOUCH_API_KEY` | — | Required. [Create one here](https://vet402.com/dashboard/keys). |
 | `VOUCH_API_URL` | `https://vet402.com/api/v1` | API base URL. Override only to point at another deployment. |
+| `VOUCH_TIMEOUT_MS` | `10000` | Per-request timeout. Cannot be disabled — a lookup that never returns cannot be failed closed on. A malformed value falls back to the default rather than breaking every tool call. |
 
 > **0.1.0 defaults `VOUCH_API_URL` to `http://localhost:3000/api/v1`** — a
 > development default that shipped by accident. The configs above set it

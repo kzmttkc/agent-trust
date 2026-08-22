@@ -33,7 +33,56 @@ await vouch.attestX402Payment({
 });
 ```
 
-Methods: `getAgentScore`, `getWalletScore`, `getPayeeScore`, `batchScore`, `attestX402Payment`, `createSpendGuard`.
+Methods: `getAgentScore`, `getWalletScore`, `getPayeeScore`,
+`getPayeeVerdictFast`, `batchScore`, `attestX402Payment`, `createSpendGuard`.
+
+### Two fields that outrank `recommendation`
+
+A payee score always carries `degraded` and `signalsUnavailable`, and **both
+override the recommendation**:
+
+| Field | Meaning | What you must do |
+|---|---|---|
+| `degraded: true` | An input could not be read **at all**. The body is a refusal, not a measurement. | Never treat as ALLOW. |
+| `signalsUnavailable` non-empty | Some inputs were not measured (`wallet_metrics`, `native_drain`, `usdc_drain`, `outcome_history`) — a real but **partial** view, capped below ALLOW for that reason. | Never treat as ALLOW. |
+
+`SpendGuard` already refuses both (`payee_score_degraded` /
+`payee_partial_measurement`). If you read `getPayeeScore` directly, make the
+same two checks yourself before moving money.
+
+### Timeouts
+
+Every request is bounded by `AbortSignal.timeout`, default
+`DEFAULT_REQUEST_TIMEOUT_MS` (10 s), overridable per client:
+
+```typescript
+const vouch = createVouchClient({ apiKey: process.env.VOUCH_API_KEY!, timeoutMs: 3000 });
+```
+
+There is no way to disable it. `SpendGuard` is fail-closed, and a fail-closed
+judgement that never runs is not a judgement — a timeout surfaces as
+`payee_trust_unavailable` (a deny), never as a hang.
+
+### verify-at-settle (`getPayeeVerdictFast`)
+
+For facilitators and payment middleware that need the check **inside** the
+settlement flow. This surface never computes: it returns the engine's already
+pinned verdict, or an honest `cache_cold`.
+
+```typescript
+import { payeeVerdictFastAllows } from "@vouchscore/sdk";
+
+const verdict = await vouch.getPayeeVerdictFast(payee);
+if (!payeeVerdictFastAllows(verdict)) {
+  void vouch.getPayeeScore(payee); // fire-and-forget warm, same cache (TTL 5 min)
+  return queueForRetry();          // cache_cold is the ABSENCE of a verdict, not an allow
+}
+```
+
+`SpendGuard` deliberately does not use it: the guard enforces `minPayeeScore`
+bands and its own `maxScoreAgeMs` and reports the full `payeeScore`, none of
+which the fast body can supply. It is a pre-check, not a replacement for
+`getPayeeScore`.
 
 > **On 0.1.0?** Check with `npm ls @vouchscore/sdk`. That release predates
 > three things documented here: the `apiUrl` default (pass
