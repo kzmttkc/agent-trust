@@ -46,7 +46,7 @@ test("classify: hookが呼ばれる終局3状態のみ候補・settledだけが 
       verdict: "fail",
     });
   }
-  for (const status of ["in_flight", "no_402", "budget_denied", "request_error", "over_cap", "price_mismatch", "no_eligible_accept"]) {
+  for (const status of ["in_flight", "no_402", "budget_denied", "request_error", "over_cap", "price_mismatch", "payto_mismatch", "payto_operator_self", "no_eligible_accept"]) {
     assert.deepEqual(classifyForRegistry(row({ attemptedAt: "2026-08-20T00:00:00Z", status })), {
       kind: "not_hook_outcome",
     });
