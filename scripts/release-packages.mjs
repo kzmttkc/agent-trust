@@ -91,6 +91,11 @@ run("npm", ["test"], path.join(ROOT, "packages/sdk"));
 console.log("\n── middleware tests ──");
 run("npm", ["test"], path.join(ROOT, "packages/middleware"));
 
+// 2026-08-22: mcp-server は公開 npm バイナリなのにテストが無く、
+// ここでも回されていなかった。テストを入れたので出荷前の関門に加える。
+console.log("\n── mcp-server tests ──");
+run("npm", ["test"], path.join(ROOT, "packages/mcp-server"));
+
 // ---- 4. dry run ------------------------------------------------------------
 for (const { dir } of manifests) {
   console.log(`\n── npm publish --dry-run: ${dir} ──`);
