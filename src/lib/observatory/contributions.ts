@@ -22,6 +22,7 @@ import { verifyMessage } from "viem";
 import { getDb } from "@/lib/db/client";
 import { probeContributions } from "@/lib/db/schema";
 import { isValidIssuedAt } from "@/lib/verify-message";
+import { UUID_RE } from "@/lib/validation/uuid";
 
 /** payees/verify の ISSUED_WINDOW_MS と同じ 10 分。 */
 const ISSUED_WINDOW_MS = 10 * 60_000;
@@ -31,7 +32,6 @@ export function isContributionsEnabled(): boolean {
 }
 
 const VERDICTS = new Set(["pass", "fail", "unverified"]);
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
 export function contributionMessage(input: {

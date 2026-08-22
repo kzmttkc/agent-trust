@@ -28,6 +28,7 @@ import { getDb } from "@/lib/db/client";
 import { disputes, x402Endpoints, x402L0Probes } from "@/lib/db/schema";
 import { isValidIssuedAt } from "@/lib/verify-message";
 import { probeEndpoint, type ProbeOptions } from "./l0-probe";
+import { UUID_RE } from "@/lib/validation/uuid";
 
 /**
  * 署名の `issued` がサーバ時刻からどれだけずれてよいか。payees/verify の
@@ -36,7 +37,6 @@ import { probeEndpoint, type ProbeOptions } from "./l0-probe";
  */
 const ISSUED_WINDOW_MS = 10 * 60_000;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SUBJECTS = new Set(["l0", "l1", "listing"]);
 
 export function disputeMessage(input: {

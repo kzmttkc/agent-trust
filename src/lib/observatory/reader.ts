@@ -25,6 +25,7 @@ import { publishedVerdict, MIN_CONSECUTIVE_FAILS_TO_PUBLISH } from "./l0-probe";
 import { isOperatorPayTo, operatorPayToDenylist } from "./operator";
 import { chainLabel, isTestnet } from "./chains";
 import type { ObservatoryQuery, ObservatoryVerdict } from "./query";
+import { UUID_RE } from "@/lib/validation/uuid";
 
 export type ObservatoryListRow = {
   id: string;
@@ -49,8 +50,6 @@ export type ObservatoryOverview = {
     fetchedCount: number;
   } | null;
 };
-
-const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function getObservatoryOverview(
   options: Partial<ObservatoryQuery> = {},
@@ -260,7 +259,7 @@ async function countPaidAttempts(
 }
 
 export async function getEndpointDetail(id: string): Promise<EndpointDetail> {
-  if (!uuidRe.test(id)) return null;
+  if (!UUID_RE.test(id)) return null;
   const db = getDb();
   if (!db) return null;
 
@@ -376,7 +375,7 @@ export type EndpointPurchases = {
  * id and for a malformed id (never touches the DB on the latter).
  */
 export async function getEndpointPurchases(id: string): Promise<EndpointPurchases> {
-  if (!uuidRe.test(id)) return null;
+  if (!UUID_RE.test(id)) return null;
   const db = getDb();
   if (!db) return null;
 

@@ -15,8 +15,7 @@ import { verificationRequests, x402Endpoints, x402L0Probes } from "@/lib/db/sche
 import { mapWithConcurrency } from "@/lib/util/concurrency";
 import { createDeadline } from "@/lib/util/deadline";
 import { probeEndpoint, type ProbeOptions } from "./l0-probe";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_RE } from "@/lib/validation/uuid";
 
 export type EnqueueResult =
   | { ok: true; id: string; deduped: boolean }
