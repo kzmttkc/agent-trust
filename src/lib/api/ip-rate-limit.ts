@@ -97,7 +97,22 @@ function consumeMemoryIpRateLimit(
   if (!bucket || bucket.resetAt <= now) {
     const resetAt = now + windowMs;
     memoryBuckets.set(key, { count: 1, resetAt });
-    return { allowed: true, limit, remaining: limit - 1, resetAt: Math.ceil(resetAt / 1000) };
+    const resetSec = Math.ceil(resetAt / 1000);
+    // 2026-08-22 監査: ここが窓の1本目を **limit を見ずに** 通していた。
+    // DB経路は `row.count > limit` で判定するので limit=0（「今日は1件も
+    // 許さない」= デモ専用サブ予算のゼロ設定）を正しく拒否するのに、
+    // メモリ経路だけ1本すり抜ける。判定を両経路で「消費後の count が
+    // limit 以下か」に揃える——資金ガードの分岐が実行環境で変わってはいけない。
+    if (1 > limit) {
+      return {
+        allowed: false,
+        limit,
+        remaining: 0,
+        resetAt: resetSec,
+        retryAfter: Math.max(1, Math.ceil(windowMs / 1000)),
+      };
+    }
+    return { allowed: true, limit, remaining: limit - 1, resetAt: resetSec };
   }
 
   const resetSec = Math.ceil(bucket.resetAt / 1000);
