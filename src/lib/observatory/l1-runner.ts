@@ -33,7 +33,7 @@ import { x402L1Purchases } from "@/lib/db/schema";
 import { UnsafeTargetError, createSafeFetchImpl } from "@/lib/net/safe-fetch";
 import { createDeadline } from "@/lib/util/deadline";
 import { checkL1Budget, isL1Enabled, DAILY_BUDGET_USD } from "./budget";
-import { operatorPayToDenylist } from "./operator";
+import { isOperatorPayTo, operatorPayToDenylist } from "./operator";
 import {
   buildAuthorization,
   encodePaymentHeader,
@@ -605,13 +605,17 @@ async function purchaseOne(input: {
         declaredAmount: candidate.priceAmount,
         declaredPayTo: candidate.payTo,
       })
-    : selectAccept(challenge.accepts, { declaredAmount: candidate.priceAmount });
+    : selectAccept(challenge.accepts, {
+        declaredAmount: candidate.priceAmount,
+        declaredPayTo: candidate.payTo,
+      });
   if (!selection.accept) {
     await record({
       status: selection.reason,
       rawResponseMeta: {
         phase: "select",
         declaredAmount: candidate.priceAmount,
+        declaredPayTo: candidate.payTo,
         challengeAccepts: challenge.accepts.slice(0, 4),
       },
     });
@@ -647,6 +651,30 @@ async function purchaseOne(input: {
       });
       return { kind: "skipped", settled: false, spent: 0n };
     }
+  }
+
+  // Self-dealing backstop (2026-08-22 audit), the LAST gate before money is
+  // committed. Candidate selection excludes our own payTo, but it can only
+  // filter the CATALOG's e.pay_to — a wall is free to answer with a different
+  // address, and when the catalog declared none (declaredPayTo === null) the
+  // payto_mismatch gate above has nothing to compare against either. An
+  // on-chain self-transfer dressed up as a "settle-through verified" receipt
+  // would make the neutrality that is the whole moat a lie, so it is refused
+  // here and recorded (operator.ts).
+  if (isOperatorPayTo(accept.payTo)) {
+    await record({
+      status: "payto_operator_self",
+      network: accept.network,
+      asset: accept.asset,
+      payTo: accept.payTo.startsWith("0x") ? accept.payTo.toLowerCase() : accept.payTo,
+      amountUnits: accept.amount,
+      rawResponseMeta: {
+        phase: "select",
+        reason: "wall named the operator's own payTo",
+        declaredPayTo: candidate.payTo,
+      },
+    });
+    return { kind: "skipped", settled: false, spent: 0n };
   }
 
   // Reserve BEFORE signing. This is the authoritative gate: it re-reads the

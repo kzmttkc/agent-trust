@@ -968,7 +968,8 @@ paths:
       description: |
         Machine predicates over vet402's own ledger (repeat settle failure
         with no success; L0 verdict flapping in 14d; recorded price
-        mismatches), with counts and the exact definition embedded. Facts
+        mismatches; recorded payTo mismatches), with counts and the exact
+        definition embedded. Facts
         summarized — weighting is the caller's. API key required (1 unit).
       responses:
         "200": { description: Flags, counts, definition }

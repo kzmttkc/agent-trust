@@ -138,20 +138,37 @@ export function parseChallenge(input: {
 
 export type AcceptSelection =
   | { accept: ChallengeAccept; reason: null }
-  | { accept: null; reason: "no_eligible_accept" | "price_mismatch" | "over_cap" };
+  | {
+      accept: null;
+      reason: "no_eligible_accept" | "price_mismatch" | "payto_mismatch" | "over_cap";
+    };
 
 /**
  * The money gate. Only scheme `exact` + (eip3009 | unspecified) on Base in
- * canonical USDC is eligible; then the amount must equal the CATALOG-declared
- * price (when one exists) and sit under the hard ceiling. Order of refusals
- * matters for honest reporting: an eligible accept at the wrong price is
- * `price_mismatch` (a finding about the seller), not `no_eligible_accept`.
+ * canonical USDC is eligible; then the RECIPIENT must be the one the catalog
+ * declared, the amount must equal the CATALOG-declared price (when one exists),
+ * and it must sit under the hard ceiling. Order of refusals matters for honest
+ * reporting: an eligible accept at the wrong price is `price_mismatch` (a
+ * finding about the seller), not `no_eligible_accept`.
+ *
+ * payTo (2026-08-22 audit). The Solana path already cross-checked the wall's
+ * payTo against the catalog declaration (sol402-payer.selectSolanaAccept);
+ * the EVM path did not, while l1-runner signs EIP-3009 with `to: accept.payTo`
+ * — so a seller could name ANY address at the wall and be paid it, and the
+ * operator self-exclusion in candidate selection (which only filters the
+ * catalog's own e.pay_to) would not see it. The gate has the same semantics as
+ * Solana's: a catalog with no declared payTo (null) cannot contradict anything,
+ * so it passes through; a declared one must match case-insensitively.
+ *
+ * It is checked BEFORE price because "who gets the money" is the graver finding
+ * and, when nothing matches the declared payee, nothing here is payable at any
+ * price.
  */
 export function selectAccept(
   accepts: readonly unknown[],
-  options: { declaredAmount: string | null },
+  options: { declaredAmount: string | null; declaredPayTo: string | null },
 ): AcceptSelection {
-  const eligible = accepts
+  const protocolEligible = accepts
     .map(normalizeAccept)
     .filter((a): a is ChallengeAccept => a !== null)
     .filter((a) => a.scheme === "exact")
@@ -162,7 +179,15 @@ export function selectAccept(
       return method === undefined || method === "eip3009";
     });
 
-  if (eligible.length === 0) return { accept: null, reason: "no_eligible_accept" };
+  if (protocolEligible.length === 0) return { accept: null, reason: "no_eligible_accept" };
+
+  const declaredPayTo =
+    options.declaredPayTo === null ? null : options.declaredPayTo.toLowerCase();
+  const eligible =
+    declaredPayTo === null
+      ? protocolEligible
+      : protocolEligible.filter((a) => a.payTo.toLowerCase() === declaredPayTo);
+  if (eligible.length === 0) return { accept: null, reason: "payto_mismatch" };
 
   for (const accept of eligible) {
     let amount: bigint;

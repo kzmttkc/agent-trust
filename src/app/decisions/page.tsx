@@ -22,6 +22,8 @@ export const revalidate = 600;
 
 const DECISION_LABEL: Record<string, string> = {
   refused_price_mismatch: "REFUSED — wall demanded more than declared",
+  refused_payto_mismatch: "REFUSED — wall named a payee other than the declared one",
+  refused_payto_operator_self: "REFUSED — wall named our own receiving address",
   refused_over_cap: "REFUSED — price over hard cap",
   refused_wall_unpayable: "REFUSED — wall not machine-payable",
   paid_settled: "PAID — settled, receipt on-chain",

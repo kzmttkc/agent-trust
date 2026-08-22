@@ -79,6 +79,16 @@ test("selectSolanaAccept: legacy lowercased catalog payTo still matches (case-in
   assert.equal(overcharge.reason, "price_mismatch");
 });
 
+test("selectSolanaAccept: 壁がカタログと違う受取先を要求 → payto_mismatch（EVM と同じ語彙）", () => {
+  // 2026-08-22: 以前は no_eligible_accept に潰れていた。受取先の差し替えは
+  // 「支払えない壁」ではなく売り手についての所見なので、名前を分ける。
+  const other = selectSolanaAccept([accept()], {
+    declaredAmount: "10000",
+    declaredPayTo: "11111111111111111111111111111111",
+  });
+  assert.equal(other.reason, "payto_mismatch");
+});
+
 test("buildSolanaPaymentTransaction: spec MUST constraints hold on the deserialized tx", async () => {
   const sel = selectSolanaAccept([accept()], { declaredAmount: "10000", declaredPayTo: PAY_TO });
   assert.equal(sel.reason, null);

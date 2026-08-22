@@ -34,7 +34,7 @@ if (!TEST_DB) {
     const { BASE_USDC } = await import("@/lib/observatory/x402-payer");
     const { getDb } = await import("@/lib/db/client");
     const schema = await import("@/lib/db/schema");
-    const { sql } = await import("drizzle-orm");
+    const { eq, sql } = await import("drizzle-orm");
 
     const db = getDb()!;
     await db.execute(
@@ -310,15 +310,21 @@ if (!TEST_DB) {
 
     await t.test("a challenge over-charging vs catalog is recorded, never signed", async () => {
       await db.execute(sql`TRUNCATE x402_l1_purchases`);
-      const evil = JSON.stringify({
-        x402Version: 2,
-        accepts: [
-          { scheme: "exact", network: "eip155:8453", amount: "999999", asset: BASE_USDC, payTo: payToFor("1"), extra: { name: "USD Coin", version: "2" } },
-        ],
-      });
+      // payTo must be the endpoint's OWN declared payee: since 2026-08-22 the
+      // payee gate runs before the price gate, so a shared payTo here would be
+      // recorded as payto_mismatch and this test would stop testing pricing.
+      const overcharging = (url: string) => {
+        const n = /seller(\d)/.exec(url)?.[1] ?? "1";
+        return JSON.stringify({
+          x402Version: 2,
+          accepts: [
+            { scheme: "exact", network: "eip155:8453", amount: "999999", asset: BASE_USDC, payTo: payToFor(n), extra: { name: "USD Coin", version: "2" } },
+          ],
+        });
+      };
       const summary = await runL1Batch({
-        fetchImpl: async () =>
-          new Response(evil, { status: 402, headers: { "content-type": "application/json" } }),
+        fetchImpl: async (url: string) =>
+          new Response(overcharging(url), { status: 402, headers: { "content-type": "application/json" } }),
         limit: 2,
       });
       assert.equal(summary.settled, 0);
@@ -326,6 +332,82 @@ if (!TEST_DB) {
       assert.ok(rows.length >= 1);
       assert.ok(rows.every((r) => r.status === "price_mismatch"));
       assert.ok(rows.every((r) => r.spentUnits === "0"), "nothing signed → nothing spent");
+    });
+
+    await t.test("a wall naming a payee other than the catalog's is recorded, never signed", async () => {
+      // 2026-08-22 監査: l1-runner は `to: accept.payTo` で EIP-3009 に署名する
+      // ので、壁が受取先を差し替えられるなら「誰に払うか」を売り手が決められる。
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const swapped = JSON.stringify({
+        x402Version: 2,
+        accepts: [
+          { scheme: "exact", network: "eip155:8453", amount: "3000", asset: BASE_USDC, payTo: payToFor("9"), extra: { name: "USD Coin", version: "2" } },
+        ],
+      });
+      const summary = await runL1Batch({
+        fetchImpl: async () =>
+          new Response(swapped, { status: 402, headers: { "content-type": "application/json" } }),
+        limit: 2,
+      });
+      assert.equal(summary.settled, 0);
+      assert.equal(summary.attempted, 0, "署名まで行っていない");
+      const rows = await db.select().from(schema.x402L1Purchases);
+      assert.ok(rows.length >= 1);
+      assert.ok(rows.every((r) => r.status === "payto_mismatch"), "価格ではなく受取先の所見として記録");
+      assert.ok(rows.every((r) => r.spentUnits === "0"), "nothing signed → nothing spent");
+    });
+
+    await t.test("a wall naming the operator's own payTo is refused before any reservation", async () => {
+      // 自己取引の防止。候補選択の自己除外は catalog の pay_to にしか掛からない。
+      // カタログが payTo を申告していないエンドポイントでは payto_mismatch も
+      // 比較対象を持たないので、**壁が返した payTo の運営者チェックだけ**が
+      // 「vet402 が自分から買ったレシート」を止める最後の関門になる。
+      await db.execute(sql`TRUNCATE x402_l1_purchases`);
+      const OPERATOR = payToFor("9");
+      const savedOperator = process.env.VET402_OPERATOR_PAYTO;
+      process.env.VET402_OPERATOR_PAYTO = OPERATOR;
+      const [nullPayToEp] = await db
+        .insert(schema.x402Endpoints)
+        .values({
+          resourceKey: "nopayto.example/api",
+          resourceUrl: "https://nopayto.example/api",
+          network: "eip155:8453",
+          method: "GET",
+          payTo: null, // カタログが受取先を申告していない
+          priceAmount: "3000",
+          status: "active",
+        })
+        .returning();
+      await db
+        .insert(schema.x402L0Probes)
+        .values({ endpointId: nullPayToEp.id, method: "GET", verdict: "pass" });
+      try {
+        const wall = JSON.stringify({
+          x402Version: 2,
+          accepts: [
+            { scheme: "exact", network: "eip155:8453", amount: "3000", asset: BASE_USDC, payTo: OPERATOR, extra: { name: "USD Coin", version: "2" } },
+          ],
+        });
+        const summary = await runL1Batch({
+          onlyEndpointId: nullPayToEp.id,
+          fetchImpl: async () =>
+            new Response(wall, { status: 402, headers: { "content-type": "application/json" } }),
+        });
+        assert.equal(summary.settled, 0);
+        assert.equal(summary.attempted, 0, "署名も予約もしていない");
+        const rows = await db
+          .select()
+          .from(schema.x402L1Purchases)
+          .where(eq(schema.x402L1Purchases.endpointId, nullPayToEp.id));
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].status, "payto_operator_self");
+        assert.equal(rows[0].spentUnits, "0", "予約前に止まる → 支出0");
+      } finally {
+        if (savedOperator === undefined) delete process.env.VET402_OPERATOR_PAYTO;
+        else process.env.VET402_OPERATOR_PAYTO = savedOperator;
+        await db.execute(sql`DELETE FROM x402_l0_probes WHERE endpoint_id = ${nullPayToEp.id}::uuid`);
+        await db.execute(sql`DELETE FROM x402_endpoints WHERE id = ${nullPayToEp.id}::uuid`);
+      }
     });
 
     await t.test("daily budget from the DB stops the batch at the line", async () => {

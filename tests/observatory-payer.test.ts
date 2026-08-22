@@ -96,44 +96,44 @@ test("parseChallenge returns null on garbage", () => {
 // ---- selectAccept (the money gate) ----------------------------------------
 
 test("selectAccept picks the Base-USDC exact accept matching the catalog price", () => {
-  const chosen = selectAccept([V2_ACCEPT], { declaredAmount: "3000" });
+  const chosen = selectAccept([V2_ACCEPT], { declaredAmount: "3000", declaredPayTo: null });
   assert.ok(chosen.accept);
   assert.equal(chosen.accept!.amount, "3000");
 });
 
 test("selectAccept refuses any non-USDC asset — a scam token is a skip, not a payment", () => {
   const evil = { ...V2_ACCEPT, asset: "0x000000000000000000000000000000000000dEaD" };
-  const chosen = selectAccept([evil], { declaredAmount: "3000" });
+  const chosen = selectAccept([evil], { declaredAmount: "3000", declaredPayTo: null });
   assert.equal(chosen.accept, null);
   assert.equal(chosen.reason, "no_eligible_accept");
 });
 
 test("selectAccept refuses non-Base networks and non-exact schemes", () => {
   assert.equal(
-    selectAccept([{ ...V2_ACCEPT, network: "eip155:1" }], { declaredAmount: "3000" }).accept,
+    selectAccept([{ ...V2_ACCEPT, network: "eip155:1" }], { declaredAmount: "3000", declaredPayTo: null }).accept,
     null,
   );
   assert.equal(
-    selectAccept([{ ...V2_ACCEPT, scheme: "upto" }], { declaredAmount: "3000" }).accept,
+    selectAccept([{ ...V2_ACCEPT, scheme: "upto" }], { declaredAmount: "3000", declaredPayTo: null }).accept,
     null,
   );
   // batch-settlement etc. also excluded even on Base/USDC
   assert.equal(
-    selectAccept([{ ...V2_ACCEPT, scheme: "batch-settlement" }], { declaredAmount: "3000" })
+    selectAccept([{ ...V2_ACCEPT, scheme: "batch-settlement" }], { declaredAmount: "3000", declaredPayTo: null })
       .accept,
     null,
   );
 });
 
 test("selectAccept refuses a challenge amount that contradicts the catalog declaration", () => {
-  const chosen = selectAccept([{ ...V2_ACCEPT, amount: "999999" }], { declaredAmount: "3000" });
+  const chosen = selectAccept([{ ...V2_ACCEPT, amount: "999999" }], { declaredAmount: "3000", declaredPayTo: null });
   assert.equal(chosen.accept, null);
   assert.equal(chosen.reason, "price_mismatch");
 });
 
 test("selectAccept enforces the hard per-purchase ceiling even when catalog agrees", () => {
   const big = String(MAX_PER_PURCHASE_UNITS + 1n);
-  const chosen = selectAccept([{ ...V2_ACCEPT, amount: big }], { declaredAmount: big });
+  const chosen = selectAccept([{ ...V2_ACCEPT, amount: big }], { declaredAmount: big, declaredPayTo: null });
   assert.equal(chosen.accept, null);
   assert.equal(chosen.reason, "over_cap");
 });
@@ -144,16 +144,17 @@ test("selectAccept: price mismatch AND every accept over cap reports over_cap (t
   // fact is that nothing was payable at all — so the reason is over_cap, not
   // price_mismatch. This is the allOverCap sub-branch.
   const big = String(MAX_PER_PURCHASE_UNITS + 5n);
-  const chosen = selectAccept([{ ...V2_ACCEPT, amount: big }], { declaredAmount: "3000" });
+  const chosen = selectAccept([{ ...V2_ACCEPT, amount: big }], { declaredAmount: "3000", declaredPayTo: null });
   assert.equal(chosen.accept, null);
   assert.equal(chosen.reason, "over_cap");
 });
 
 test("selectAccept without a declared catalog price still enforces the ceiling", () => {
-  const ok = selectAccept([V2_ACCEPT], { declaredAmount: null });
+  const ok = selectAccept([V2_ACCEPT], { declaredAmount: null, declaredPayTo: null });
   assert.ok(ok.accept, "no declaration → ceiling is the only price gate");
   const big = selectAccept([{ ...V2_ACCEPT, amount: String(MAX_PER_PURCHASE_UNITS + 1n) }], {
     declaredAmount: null,
+    declaredPayTo: null,
   });
   assert.equal(big.accept, null);
 });
@@ -163,12 +164,71 @@ test("selectAccept skips permit2-only accepts (eip3009 or unspecified only)", ()
     ...V2_ACCEPT,
     extra: { ...V2_ACCEPT.extra, assetTransferMethod: "permit2" },
   };
-  assert.equal(selectAccept([permit2], { declaredAmount: "3000" }).accept, null);
+  assert.equal(selectAccept([permit2], { declaredAmount: "3000", declaredPayTo: null }).accept, null);
   const eip3009 = {
     ...V2_ACCEPT,
     extra: { ...V2_ACCEPT.extra, assetTransferMethod: "eip3009" },
   };
-  assert.ok(selectAccept([eip3009], { declaredAmount: "3000" }).accept);
+  assert.ok(selectAccept([eip3009], { declaredAmount: "3000", declaredPayTo: null }).accept);
+});
+
+// ---- selectAccept: the payTo gate (2026-08-22 audit) -----------------------
+//
+// l1-runner signs EIP-3009 with `to: accept.payTo` — the address the WALL
+// returns, not the one the catalog advertised. Until this gate existed the EVM
+// path never compared the two (Solana already did), so a seller could be paid
+// at any address it liked, and the operator self-exclusion in candidate
+// selection (which filters only the catalog's e.pay_to) could not see it.
+
+const OTHER_PAYTO = "0x1111111111111111111111111111111111111111";
+
+test("selectAccept refuses a wall payTo that contradicts the catalog declaration", () => {
+  const chosen = selectAccept([V2_ACCEPT], {
+    declaredAmount: "3000",
+    declaredPayTo: OTHER_PAYTO,
+  });
+  assert.equal(chosen.accept, null);
+  assert.equal(chosen.reason, "payto_mismatch");
+});
+
+test("payTo comparison is case-insensitive (checksummed vs lowercase are the same payee)", () => {
+  const chosen = selectAccept([V2_ACCEPT], {
+    declaredAmount: "3000",
+    declaredPayTo: V2_ACCEPT.payTo.toLowerCase(),
+  });
+  assert.ok(chosen.accept, "同じアドレスの表記違いで拒否してはいけない");
+  assert.equal(chosen.accept!.payTo, V2_ACCEPT.payTo, "署名の宛先は壁が言った表記のまま");
+});
+
+test("a catalog with no declared payTo passes through (nothing to contradict)", () => {
+  const chosen = selectAccept([V2_ACCEPT], { declaredAmount: "3000", declaredPayTo: null });
+  assert.ok(chosen.accept);
+});
+
+test("payto_mismatch is reported ahead of price_mismatch — whom we pay is the graver finding", () => {
+  const chosen = selectAccept([{ ...V2_ACCEPT, amount: "999999" }], {
+    declaredAmount: "3000",
+    declaredPayTo: OTHER_PAYTO,
+  });
+  assert.equal(chosen.reason, "payto_mismatch");
+});
+
+test("the matching payee is selected even when another accept names a different one", () => {
+  const chosen = selectAccept(
+    [{ ...V2_ACCEPT, payTo: OTHER_PAYTO }, V2_ACCEPT],
+    { declaredAmount: "3000", declaredPayTo: V2_ACCEPT.payTo },
+  );
+  assert.ok(chosen.accept);
+  assert.equal(chosen.accept!.payTo, V2_ACCEPT.payTo);
+});
+
+test("a protocol-ineligible challenge is still no_eligible_accept, not payto_mismatch", () => {
+  // 資産が違う時点で「受取先が違う」以前の話——所見を取り違えない。
+  const chosen = selectAccept(
+    [{ ...V2_ACCEPT, asset: "0x000000000000000000000000000000000000dEaD" }],
+    { declaredAmount: "3000", declaredPayTo: OTHER_PAYTO },
+  );
+  assert.equal(chosen.reason, "no_eligible_accept");
 });
 
 // ---- authorization + signature --------------------------------------------
