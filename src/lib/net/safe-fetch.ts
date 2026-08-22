@@ -25,6 +25,25 @@
 // the URL is chosen by an authenticated customer and delivery carries a
 // signature). Stated here rather than implied, so nobody re-derives the
 // guarantee from the name.
+//
+// WHAT IT ALSO GUARANTEES (2026-08-22 audit). Credentials do not cross an
+// origin boundary on a redirect. The L1 paid retry puts a signed EIP-3009
+// authorization in `X-PAYMENT` (x402 v1) / `PAYMENT-SIGNATURE` (v2) — the
+// header names encodePaymentHeader actually emits, read from
+// observatory/x402-payer.ts, not guessed. Before this, a seller answering
+// 302 to a host it does not control handed that authorization to a third
+// party: the SSRF gate re-ran on every hop (correct, unchanged) but the
+// headers rode along. The blast radius was already bounded — the
+// authorization names `to = accept.payTo` and expires at `now + 600s`, so a
+// stranger can only push the money to the payee it was always going to — yet
+// it still allows a double settle and makes the on-chain payer disagree with
+// who we think paid.
+//
+// WHAT IT STILL DOES NOT: a SAME-origin redirect keeps every header, which is
+// intended (that is one server talking to itself, and the paid retry has to
+// survive a trailing-slash 301). Nor does it re-sign anything: a stripped
+// payment header means the next hop sees an unpaid request and answers 402,
+// which the caller records as a measurement — degraded, never forged.
 // ============================================================
 import {
   defaultResolver,
@@ -125,6 +144,42 @@ async function assertPublicTarget(url: URL, resolve: AddressResolver): Promise<v
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
+/**
+ * Headers dropped when a redirect crosses an origin.
+ *
+ * The first four are what the fetch spec itself removes on a cross-origin
+ * redirect (`Authorization`, `Cookie`, `Cookie2`, `Proxy-Authorization`);
+ * undici does this for us only when IT follows the redirect, and we follow
+ * manually so the SSRF gate can re-run — so we owe the same removal.
+ *
+ * The last two are the x402 payment headers, which no spec knows about and
+ * which are the reason this list exists at all. Names taken verbatim from
+ * encodePaymentHeader() in src/lib/observatory/x402-payer.ts:
+ * `X-PAYMENT` for x402 v1, `PAYMENT-SIGNATURE` for v2. Lowercase because
+ * Headers normalizes on both set and delete.
+ *
+ * A name added to the payer must be added here too — there is a test that
+ * asserts both of the current ones are stripped, so a rename breaks loudly.
+ */
+const CROSS_ORIGIN_SENSITIVE_HEADERS = [
+  "authorization",
+  "cookie",
+  "cookie2",
+  "proxy-authorization",
+  "x-payment",
+  "payment-signature",
+] as const;
+
+/**
+ * Same origin = same scheme, host AND port. `URL.origin` gives exactly that
+ * for http(s) (the only schemes assertPublicTarget lets through), so an
+ * https→http downgrade to the same hostname counts as a crossing — which it
+ * is, since the credential would then travel in clear text.
+ */
+function crossesOrigin(from: URL, to: URL): boolean {
+  return from.origin !== to.origin;
+}
+
 export type SafeFetchOptions = {
   fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
   resolve?: AddressResolver;
@@ -198,6 +253,13 @@ export async function safeFetch(
       headers = new Headers(headers);
       headers.delete("content-type");
       headers.delete("content-length");
+    }
+    // Credentials stop at the origin boundary (see the header block above).
+    // Cloned rather than mutated in place so the caller's own `init.headers`
+    // is never edited underneath it.
+    if (crossesOrigin(current, next)) {
+      headers = new Headers(headers);
+      for (const name of CROSS_ORIGIN_SENSITIVE_HEADERS) headers.delete(name);
     }
     current = next;
   }
