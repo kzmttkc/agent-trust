@@ -7,6 +7,7 @@ import {
 } from "@/lib/api/ip-rate-limit";
 import { getEndpointPurchases } from "@/lib/observatory/reader";
 import { logServerError } from "@/lib/util/log";
+import { UUID_RE } from "@/lib/validation/uuid";
 
 /**
  * GET /api/v1/observatory/endpoints/{id}/purchases — the receipt, as data.
@@ -26,8 +27,6 @@ import { logServerError } from "@/lib/util/log";
 const RL_LIMIT = 30;
 const RL_WINDOW_MS = 60_000;
 
-const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -41,7 +40,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  if (!uuidRe.test(id)) {
+  if (!UUID_RE.test(id)) {
     return NextResponse.json(
       { error: "invalid_endpoint_id" },
       { status: 400, headers: perCallerHeaders },

@@ -4,6 +4,7 @@ import { consumeIpRateLimit, ipRateLimitHeaders } from "@/lib/api/ip-rate-limit"
 import { endpointReceiptBadge, renderReceiptBadgeSvg } from "@/lib/badge/receipt-badge";
 import { getEndpointPurchases } from "@/lib/observatory/reader";
 import { logServerError } from "@/lib/util/log";
+import { UUID_RE } from "@/lib/validation/uuid";
 
 /**
  * Embeddable SVG receipt badge for one x402 endpoint (seller-outreach hook,
@@ -17,7 +18,6 @@ export const revalidate = 600;
 
 const BADGE_LIMIT = 60;
 const BADGE_WINDOW_MS = 60_000;
-const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function svgResponse(svg: string, cache: string): NextResponse {
   return new NextResponse(svg, {
@@ -43,7 +43,7 @@ export async function GET(
 
   const { id } = await params;
   const clean = id.replace(/\.svg$/, "");
-  if (!uuidRe.test(clean)) {
+  if (!UUID_RE.test(clean)) {
     return NextResponse.json({ error: "invalid_endpoint_id" }, { status: 400 });
   }
 

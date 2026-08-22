@@ -130,6 +130,47 @@ test("ROUTE: level=l1 は DEMO_L1_ENABLED が無い限り 403——1日1回の�
   assert.equal(body.error, "demo_l1_disabled");
 });
 
+test("ROUTE: uuidでない endpointId は 400——L1トークンを消費する前に落ちる", async () => {
+  // 2026-08-22 監査: 検査が無く、非uuid が SQL の ::uuid まで届いて
+  // Postgres 22P02 → 503 になっていた。しかも L1 経路ではその手前で
+  // 「1回/日/IP」を1つ消費していた。フラグ(403)より先に 400 が返ることが、
+  // 検査がトークン消費より手前にある証拠になる。
+  delete process.env.DEMO_L1_ENABLED;
+  const { NextRequest } = await import("next/server");
+  const { POST } = await import("@/app/api/v1/demo/verify/route");
+  const req = new NextRequest("http://localhost/api/v1/demo/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpointId: "not-a-uuid'; DROP", level: "l1" }),
+  });
+  const res = await POST(req);
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: string };
+  assert.equal(body.error, "invalid_endpoint_id");
+});
+
+test("ROUTE: デモ専用の日次サブ予算が尽きていれば、呼び手の1日ぶんトークンより先に 429", async () => {
+  // 予算 0 = デモ起点の実購入を今日は1件も許さない、の意。
+  process.env.DEMO_L1_ENABLED = "true";
+  process.env.DEMO_L1_DAILY_MAX = "0";
+  try {
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("@/app/api/v1/demo/verify/route");
+    const req = new NextRequest("http://localhost/api/v1/demo/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endpointId: ENDPOINT_ID, level: "l1" }),
+    });
+    const res = await POST(req);
+    assert.equal(res.status, 429);
+    const body = (await res.json()) as { error: string };
+    assert.equal(body.error, "demo_budget_exhausted");
+  } finally {
+    delete process.env.DEMO_L1_ENABLED;
+    delete process.env.DEMO_L1_DAILY_MAX;
+  }
+});
+
 test("ROUTE: 未知の level は 400", async () => {
   const { NextRequest } = await import("next/server");
   const { POST } = await import("@/app/api/v1/demo/verify/route");

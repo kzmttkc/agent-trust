@@ -4,6 +4,36 @@ import { BASE_CHAIN_ID } from "./config";
 import { DEFAULT_CHAIN_ID, chainById, rpcUrlFor } from "./chains";
 
 /**
+ * Explicit transport timeouts and retry counts (2026-08-22 audit).
+ *
+ * These were left unspecified, so viem's defaults applied: a 10s timeout with
+ * retryCount 3 — up to FOUR attempts, ~30s+ worst case on one RPC call. Every
+ * other outbound path in this codebase states its own number (l0-probe 10s,
+ * payee-engine 8s, the scoring engine's 3.5s per-signal budget), and this was
+ * the one that inherited a default nobody had checked against them.
+ *
+ * LIVE reads (getPublicClient) serve requests. The scoring engine gives a
+ * single signal SIGNAL_BUDGET_MS = 3,500ms out of a 6,000ms total
+ * (scoring/engine.ts), and the live log read documented below already runs
+ * under a 2.5s deadline. A transport allowed to spend 30s inside a 3.5s
+ * budget is not a timeout, it is decoration — the deadline was always the
+ * thing doing the work. 2.5s with a single retry keeps one transient blip
+ * survivable while staying the same order of magnitude as the budget that
+ * bounds it. Shortening this does NOT make verdicts harsher: a signal that
+ * misses its budget was already degrading to `*_unavailable`.
+ *
+ * BATCH reads (getIndexerPublicClient) run in cron with a 300s maxDuration and
+ * no user waiting. Measured 2026-08-12: 173 consecutive eth_getLogs chunks
+ * covering 345,600 blocks in 24.8s, i.e. ~0.14s per chunk. 20s is ~140x that
+ * — generous on purpose, because for a batch a retry is much cheaper than a
+ * gap in the index, which is why this one keeps three of them.
+ */
+const LIVE_RPC_TIMEOUT_MS = 2_500;
+const LIVE_RPC_RETRIES = 1;
+const BATCH_RPC_TIMEOUT_MS = 20_000;
+const BATCH_RPC_RETRIES = 3;
+
+/**
  * Chain-aware since 2026-08-05 (C-8). No argument = Base, so every existing
  * caller keeps its exact behaviour. A non-Base chain id resolves through the
  * registry and THROWS when that chain is not enabled in this environment —
@@ -25,7 +55,10 @@ export function getPublicClient(chainId: number = DEFAULT_CHAIN_ID) {
     // the chain-agnostic read surface (readContract / getBlockNumber /
     // getTransactionReceipt / getLogs).
     chain: chain.viemChain as typeof base,
-    transport: http(rpcUrl),
+    transport: http(rpcUrl, {
+      timeout: LIVE_RPC_TIMEOUT_MS,
+      retryCount: LIVE_RPC_RETRIES,
+    }),
   });
 }
 
@@ -68,7 +101,10 @@ export function getIndexerPublicClient() {
     "https://mainnet.base.org";
   return createPublicClient({
     chain: base,
-    transport: http(rpcUrl),
+    transport: http(rpcUrl, {
+      timeout: BATCH_RPC_TIMEOUT_MS,
+      retryCount: BATCH_RPC_RETRIES,
+    }),
   });
 }
 

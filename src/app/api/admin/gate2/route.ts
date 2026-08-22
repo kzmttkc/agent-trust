@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertProductionConfig } from "@/lib/config/env";
 import { secureCompare } from "@/lib/util/secure-compare";
 import { consumeIpRateLimit, getClientIp } from "@/lib/api/ip-rate-limit";
 import { buildGate2Report, Gate2NotConfiguredError, Gate2SchemaMissingError } from "@/lib/gate2/report";
+import { logServerError } from "@/lib/util/log";
 
 /**
  * Admin-only Gate2 PMF report, computed inside the running production
@@ -26,6 +28,12 @@ function authorizeAdmin(request: NextRequest): boolean {
 }
 
 export async function GET(request: NextRequest) {
+  // 2026-08-22 audit: the sibling admin route (global-lists) opens its gate
+  // with this same production-config trap; this one didn't. It catches a
+  // mislabeled deploy (NODE_ENV=production with APP_ENV=development) before
+  // an admin report is computed against it.
+  assertProductionConfig();
+
   // 2026-08-15 audit: the sibling admin route (global-lists) rate-limits
   // every verb BEFORE the bearer check; this one didn't. ADMIN_SECRET's
   // length/entropy floor already makes brute force impractical, so this is
@@ -53,7 +61,12 @@ export async function GET(request: NextRequest) {
     if (error instanceof Gate2SchemaMissingError) {
       return NextResponse.json({ error: "schema_not_ready" }, { status: 503 });
     }
-    console.error("gate2 admin route: unexpected error", error);
+    // 2026-08-22 audit: this used to hand console.error the whole error
+    // object. A pg error carries the failing query and connection details on
+    // its own fields, so a stack-printed object can put fragments of the
+    // connection string into logs. logServerError prints the message only —
+    // the same discipline every sibling route already follows.
+    logServerError("gate2_admin", error);
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
 }

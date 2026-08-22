@@ -1,4 +1,12 @@
 import { hasLowEntropy, WEAK_SECRET_PATTERNS } from "./env-secrets";
+import {
+  isUsingLegacyProxyConfig,
+  isValidProxyHeaderSource,
+  isVercelRuntime,
+  PROXY_HEADER_SOURCES,
+  rawProxyHeaderSource,
+  resolveProxyHeaderSource,
+} from "./proxy-headers";
 
 export type ProductionEnvIssue = {
   level: "error" | "warn";
@@ -64,6 +72,76 @@ function validateBaseRpcUrl(value: string | undefined): ProductionEnvIssue | nul
 }
 
 /**
+ * Forwarded-IP configuration (2026-08-22 audit).
+ *
+ * The one condition that must be an ERROR rather than a warning is "trust the
+ * Vercel header while not on Vercel": off Vercel nothing overwrites
+ * `x-vercel-forwarded-for`, so believing it hands every caller a free
+ * per-request identity and every per-IP limit stops existing. That state is
+ * only reachable by writing PROXY_HEADER_SOURCE=vercel explicitly — the
+ * legacy inference in proxy-headers.ts refuses to produce it without VERCEL=1
+ * — so this check cannot fire on the current production deployment.
+ *
+ * `none` in production is a WARNING, not an error, and deliberately so. The
+ * old rule ("TRUST_PROXY_HEADERS must be true") was an error, but the new
+ * inference depends on VERCEL=1 being present in the runtime; if that
+ * platform variable were ever absent, an error here would turn a degraded
+ * rate limiter into a total boot failure. `none` is fail-closed already —
+ * everyone shares one bucket, nobody gets a bypass — so it is worth a loud
+ * warning and not an outage. The message says which of the two situations it
+ * is.
+ */
+export function collectProxyHeaderIssues(): ProductionEnvIssue[] {
+  const issues: ProductionEnvIssue[] = [];
+  const raw = rawProxyHeaderSource();
+
+  if (raw !== null && !isValidProxyHeaderSource(raw)) {
+    issues.push({
+      level: "error",
+      message: `PROXY_HEADER_SOURCE must be one of ${PROXY_HEADER_SOURCES.join("|")} (got "${raw}")`,
+    });
+    return issues;
+  }
+
+  const source = resolveProxyHeaderSource();
+
+  if (source === "vercel" && !isVercelRuntime()) {
+    issues.push({
+      level: "error",
+      message:
+        "PROXY_HEADER_SOURCE=vercel trusts x-vercel-forwarded-for, which only Vercel overwrites — off Vercel any client can spoof it and every per-IP rate limit is bypassable. Use generic (behind a stripping proxy) or none.",
+    });
+  }
+
+  if (source === "generic") {
+    issues.push({
+      level: "warn",
+      message:
+        "PROXY_HEADER_SOURCE=generic trusts spoofable X-Forwarded-For / X-Real-IP — only sound behind a proxy that rewrites them",
+    });
+  }
+
+  if (source === "none") {
+    issues.push({
+      level: "warn",
+      message:
+        raw === "none"
+          ? "PROXY_HEADER_SOURCE=none — every caller shares one rate-limit bucket (no per-IP limits)"
+          : "PROXY_HEADER_SOURCE is not set and could not be inferred safely — every caller shares one rate-limit bucket. Set PROXY_HEADER_SOURCE=vercel|generic|none explicitly.",
+    });
+  }
+
+  if (isUsingLegacyProxyConfig()) {
+    issues.push({
+      level: "warn",
+      message: `TRUST_PROXY_HEADERS is deprecated — set PROXY_HEADER_SOURCE=${source} explicitly`,
+    });
+  }
+
+  return issues;
+}
+
+/**
  * Collect production env validation issues without throwing.
  * Used by deploy scripts, deep health, and startup guards.
  */
@@ -99,20 +177,7 @@ export function collectProductionEnvIssues(): ProductionEnvIssue[] {
     });
   }
 
-  if (process.env.TRUST_PROXY_HEADERS !== "true") {
-    issues.push({
-      level: "error",
-      message: "TRUST_PROXY_HEADERS must be set to true in production (use platform IP headers)",
-    });
-  }
-
-  if (process.env.TRUST_GENERIC_FORWARDED_FOR === "true") {
-    issues.push({
-      level: "warn",
-      message:
-        "TRUST_GENERIC_FORWARDED_FOR=true trusts spoofable X-Forwarded-For — only enable behind a stripping proxy",
-    });
-  }
+  issues.push(...collectProxyHeaderIssues());
 
   const indexerRpc = process.env.INDEXER_RPC_URL?.trim();
   if (indexerRpc) {

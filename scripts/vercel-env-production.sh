@@ -31,6 +31,12 @@ add_env DASHBOARD_SESSION_SECRET "$DASHBOARD_SESSION_SECRET"
 add_env ADMIN_SECRET "$ADMIN_SECRET"
 add_env CRON_SECRET "$CRON_SECRET"
 add_env BASE_RPC_URL "${BASE_RPC_URL:-https://mainnet.base.org}"
+# 2026-08-22: PROXY_HEADER_SOURCE supersedes TRUST_PROXY_HEADERS — it names
+# WHICH forwarded header may be believed. `vercel` is correct here and only
+# here; the app errors at boot if it is set while VERCEL=1 is absent.
+# TRUST_PROXY_HEADERS is still written so a rollback to the previous build
+# keeps its per-IP limits.
+add_env PROXY_HEADER_SOURCE "${PROXY_HEADER_SOURCE:-vercel}"
 add_env TRUST_PROXY_HEADERS "${TRUST_PROXY_HEADERS:-true}"
 add_env BLOCKSCOUT_API_URL "${BLOCKSCOUT_API_URL:-https://base.blockscout.com/api}"
 

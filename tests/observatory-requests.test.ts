@@ -49,7 +49,7 @@ if (!TEST_DB) {
             { status: 402, headers: { "content-type": "application/json" } },
           ),
       });
-      assert.deepEqual(summary, { drained: 1, probed: 1, invalid: 0 });
+      assert.deepEqual(summary, { drained: 1, probed: 1, invalid: 0, deferred: 0 });
       const probes = await db.select().from(schema.x402L0Probes);
       assert.equal(probes.length, 1);
       assert.equal((probes[0].rawResponseMeta as { trigger?: string }).trigger, "request");

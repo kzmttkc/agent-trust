@@ -8,6 +8,10 @@ import { logServerError } from "@/lib/util/log";
  * POST /api/v1/observatory/contributions — 外部L0観測の受け取り（Phase 3.3 v0）。
  * 既定OFF（CONTRIBUTIONS_ENABLED）。受理しても公開verdictには混ぜない——
  * v0は署名付き保存のみ（src/lib/observatory/contributions.ts 冒頭）。
+ *
+ * 2026-08-22（監査残件）: 署名にリプレイ防止が無かったので `issued` を必須に
+ * した。呼び手は署名時の `new Date().toISOString()` をそのまま送る。窓外は
+ * 400 signature_expired、同一メッセージの再送は 409 replayed。
  */
 
 const RL_LIMIT = 10;
@@ -34,6 +38,7 @@ export async function POST(request: NextRequest) {
       verdict: typeof body.verdict === "string" ? body.verdict : "",
       httpStatus: typeof body.httpStatus === "number" ? body.httpStatus : null,
       latencyMs: typeof body.latencyMs === "number" ? body.latencyMs : null,
+      issued: typeof body.issued === "string" ? body.issued : "",
       address: typeof body.address === "string" ? body.address : "",
       signature: typeof body.signature === "string" ? body.signature : "",
     });
@@ -43,7 +48,9 @@ export async function POST(request: NextRequest) {
           ? 403
           : result.reason === "db_unavailable"
             ? 503
-            : 400;
+            : result.reason === "replayed"
+              ? 409
+              : 400;
       return NextResponse.json({ error: result.reason }, { status, headers: perCaller });
     }
     return NextResponse.json(

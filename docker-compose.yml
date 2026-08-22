@@ -5,7 +5,14 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgres://vouch:vouch_dev@postgres:5432/vouch
-      TRUST_PROXY_HEADERS: "true"
+      # 2026-08-22 audit: 既定は none（どのヘッダも信じない）。ここが
+      # TRUST_PROXY_HEADERS=true だった頃は、前段にVercelが居ない
+      # セルフホストでも x-vercel-forwarded-for を無条件に信頼していたので、
+      # クライアントがヘッダを1本足すだけで全IPレート制限（ログイン・
+      # サインアップ・admin・demo/verify の 1回/日/IP 実購入）を回避できた。
+      # 前段に X-Forwarded-For を書き換えるリバースプロキシを置いたときだけ
+      # generic へ変える。Vercel 上でのみ vercel が正しい。
+      PROXY_HEADER_SOURCE: "none"
     # 本番ビルドを動かすので env ガード（誤ラベルデプロイ防止）が実物の
     # シークレットを要求する。CONTRIBUTING.md のワンライナーで生成する。
     # 弱い既定値をここへ直書きして関門を無意味化しないこと。

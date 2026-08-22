@@ -4,6 +4,8 @@
 //  - 署名は実検証・改竄は invalid_signature
 //  - 受理と同時に本物のL0再測定が1行、trigger=dispute 付きで記帳される
 //  - 申し立てで既存記録は消えない（プローブ行が増えるだけ）
+//  - リプレイ不可（2026-08-22 監査残件）: 署名対象に issued を畳み込み、
+//    鮮度窓の外は signature_expired、同一メッセージの再送は replayed
 // ============================================================
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -49,7 +51,7 @@ if (!TEST_DB) {
       );
 
     await t.test("payTo保持者の署名で受理・再測定が trigger=dispute で記帳される", async () => {
-      const base = { endpointId: ep.id, subject: "l0", reason: "Your probe hit our maintenance window." };
+      const base = { endpointId: ep.id, subject: "l0", reason: "Your probe hit our maintenance window.", issued: new Date().toISOString() };
       const signature = await OWNER.signMessage({ message: disputeMessage(base) });
       const result = await submitDispute(
         { ...base, address: OWNER.address, signature },
@@ -66,7 +68,7 @@ if (!TEST_DB) {
     });
 
     await t.test("payTo以外の署名者は not_payto_signer", async () => {
-      const base = { endpointId: ep.id, subject: "l0", reason: "not mine though" };
+      const base = { endpointId: ep.id, subject: "l0", reason: "not mine though", issued: new Date().toISOString() };
       const signature = await STRANGER.signMessage({ message: disputeMessage(base) });
       const result = await submitDispute(
         { ...base, address: STRANGER.address, signature },
@@ -76,13 +78,72 @@ if (!TEST_DB) {
     });
 
     await t.test("本文を変えた署名は invalid_signature", async () => {
-      const base = { endpointId: ep.id, subject: "l0", reason: "original reason" };
+      const base = { endpointId: ep.id, subject: "l0", reason: "original reason", issued: new Date().toISOString() };
       const signature = await OWNER.signMessage({ message: disputeMessage(base) });
       const result = await submitDispute(
         { ...base, reason: "tampered reason", address: OWNER.address, signature },
         { fetchImpl: async () => challenge() },
       );
       assert.deepEqual(result, { ok: false, reason: "invalid_signature" });
+    });
+
+    await t.test("鮮度窓の外の署名は signature_expired——外向きHTTPも走らない", async () => {
+      const base = {
+        endpointId: ep.id,
+        subject: "l0",
+        reason: "replayed from a public ledger",
+        issued: new Date(Date.now() - 11 * 60_000).toISOString(),
+      };
+      const signature = await OWNER.signMessage({ message: disputeMessage(base) });
+      let probed = 0;
+      const result = await submitDispute(
+        { ...base, address: OWNER.address, signature },
+        {
+          fetchImpl: async () => {
+            probed++;
+            return challenge();
+          },
+        },
+      );
+      assert.deepEqual(result, { ok: false, reason: "signature_expired" });
+      assert.equal(probed, 0);
+    });
+
+    await t.test("窓の内側でも同じ署名の2回目は replayed——再測定も走らない", async () => {
+      const base = {
+        endpointId: ep.id,
+        subject: "l0",
+        reason: "one dispute, submitted twice",
+        issued: new Date().toISOString(),
+      };
+      const signature = await OWNER.signMessage({ message: disputeMessage(base) });
+      const first = await submitDispute(
+        { ...base, address: OWNER.address, signature },
+        { fetchImpl: async () => challenge() },
+      );
+      assert.equal(first.ok, true);
+
+      let probed = 0;
+      const second = await submitDispute(
+        { ...base, address: OWNER.address, signature },
+        {
+          fetchImpl: async () => {
+            probed++;
+            return challenge();
+          },
+        },
+      );
+      assert.deepEqual(second, { ok: false, reason: "replayed" });
+      assert.equal(probed, 0);
+    });
+
+    await t.test("issued の形が toISOString() と違えば invalid_input", async () => {
+      const base = { endpointId: ep.id, subject: "l0", reason: "bad clock", issued: "2026-08-22T12:00:00Z" };
+      const result = await submitDispute(
+        { ...base, address: OWNER.address, signature: "0xdead" },
+        { fetchImpl: async () => challenge() },
+      );
+      assert.deepEqual(result, { ok: false, reason: "invalid_input" });
     });
   });
 }

@@ -71,7 +71,7 @@ npm run api-key:create -- --plan free --name "my app"
 
 Use the printed `vouch_live_...` key instead of `DEV_API_KEY`.
 
-Behind a reverse proxy in production, set `TRUST_PROXY_HEADERS=true`.
+For per-IP rate limits, name the proxy in front of the app: `PROXY_HEADER_SOURCE=vercel` on Vercel, `generic` behind a reverse proxy that rewrites `X-Forwarded-For`, `none` when there is no proxy. The default is `none` — nothing is believed until you say so.
 
 ## 6. Dashboard
 

@@ -9,6 +9,10 @@ import { logServerError } from "@/lib/util/log";
  * payTo 保持者の EIP-191 署名を実検証し、受理と同時に本物の L0 を
  * 1回再測定して通常の公開ゲートへ流す。申し立てで記録は消えない——
  * 訂正も、訂正に至らない再測定も、同じ重みで公開される。
+ *
+ * 2026-08-22（監査残件）: 署名にリプレイ防止が無かったので `issued` を必須に
+ * した。呼び手は署名時の `new Date().toISOString()` をそのまま送る。窓外は
+ * 400 signature_expired、同一メッセージの再送は 409 replayed。
  */
 
 const RL_LIMIT = 5;
@@ -32,6 +36,7 @@ export async function POST(request: NextRequest) {
       endpointId: typeof body.endpointId === "string" ? body.endpointId : "",
       subject: typeof body.subject === "string" ? body.subject : "",
       reason: typeof body.reason === "string" ? body.reason : "",
+      issued: typeof body.issued === "string" ? body.issued : "",
       address: typeof body.address === "string" ? body.address : "",
       signature: typeof body.signature === "string" ? body.signature : "",
     });
@@ -43,7 +48,9 @@ export async function POST(request: NextRequest) {
             ? 403
             : result.reason === "db_unavailable"
               ? 503
-              : 400;
+              : result.reason === "replayed"
+                ? 409
+                : 400;
       return NextResponse.json({ error: result.reason }, { status, headers: perCaller });
     }
     return NextResponse.json(
