@@ -97,9 +97,31 @@ server.tool(
   },
 );
 
+// The description is the only thing the model reads before deciding what the
+// result MEANS. It used to name score / dataDepth / ALLOW-WARN-BLOCK and stop
+// there, so a model that got a `degraded` body with a stale ALLOW in it had
+// no instruction not to act on it. The raw JSON always carried the two fields
+// (the tool returns JSON.stringify of the whole body); nothing told the model
+// they outrank the recommendation. Now it does. — 2026-08-22 audit
 server.tool(
   "check_payee_trust",
-  "Buyer-side check before paying a wallet: payee trust score (0-100), dataDepth (thin/moderate/rich), and ALLOW/WARN/BLOCK recommendation.",
+  [
+    "Buyer-side check before paying a wallet: payee trust score (0-100),",
+    "dataDepth (thin/moderate/rich), and ALLOW/WARN/BLOCK recommendation.",
+    "",
+    "The result ALSO carries two fields that OVERRIDE the recommendation:",
+    "- degraded (boolean): true means an input could not be read at all, so",
+    "  the body is a refusal, not a measurement.",
+    "- signalsUnavailable (array): non-empty means some inputs were not",
+    "  measured (e.g. wallet_metrics, native_drain, usdc_drain,",
+    "  outcome_history), so the view is partial.",
+    "",
+    "DO NOT treat the payee as ALLOW if degraded is true or signalsUnavailable",
+    "is non-empty — whatever recommendation and score say. Both mean the payee",
+    "was not fully checked, and an unchecked payee is not a safe one. The same",
+    "applies when this tool returns an error (including lookup_timeout): no",
+    "answer is not an ALLOW. Re-check before paying rather than assuming.",
+  ].join("\n"),
   {
     payee: WALLET.describe("Payee wallet address (0x...) the agent is about to pay"),
   },
