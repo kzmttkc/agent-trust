@@ -58,7 +58,14 @@ import {
 export type L1BatchSummary = {
   attempted: number;
   settled: number;
+  /**
+   * 署名して支払ったが決済レシートが返らなかった件数。2026-08-22 まで
+   * `delivered_no_receipt`（品は来たがレシート無し）を吸収していて、DBの
+   * status は区別しているのに cron 応答からは判別できなかった。
+   */
   settleFailed: number;
+  /** 品は返ってきたが PAYMENT-RESPONSE が無かった件数（DBの status と1:1）。 */
+  deliveredNoReceipt: number;
   skipped: number;
   budgetDenied: number;
   spentUnitsTotal: string;
@@ -390,6 +397,7 @@ export async function runL1Batch(
     attempted: 0,
     settled: 0,
     settleFailed: 0,
+    deliveredNoReceipt: 0,
     skipped: 0,
     budgetDenied: 0,
     spentUnitsTotal: "0",
@@ -508,6 +516,7 @@ export async function runL1Batch(
     isPriority: r.is_priority === true,
   }));
 
+  const pendingHooks: Promise<void>[] = [];
   for (const [index, candidate] of candidates.entries()) {
     // Start nothing we cannot finish inside maxDuration. Purchases already in
     // flight are never interrupted — the whole point is that a signed
@@ -518,12 +527,13 @@ export async function runL1Batch(
       break;
     }
     try {
-      const outcome = await purchaseOne({ candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday });
+      const outcome = await purchaseOne({ candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday, pendingHooks });
       spentToday += outcome.spent;
       summary.spentUnitsTotal = String(BigInt(summary.spentUnitsTotal) + outcome.spent);
       if (outcome.kind === "attempted") {
         summary.attempted++;
         if (outcome.settled) summary.settled++;
+        else if (outcome.status === "delivered_no_receipt") summary.deliveredNoReceipt++;
         else summary.settleFailed++;
       } else if (outcome.kind === "budget_denied") {
         summary.budgetDenied++;
@@ -538,6 +548,10 @@ export async function runL1Batch(
     }
   }
 
+  // レジストリ書き込みを回収してから返す。allSettled なので、ここで
+  // 何が失敗しても summary（購入の事実）は変わらない。
+  await Promise.allSettled(pendingHooks);
+
   return summary;
 }
 
@@ -550,8 +564,16 @@ async function purchaseOne(input: {
   timeoutMs: number;
   db: NonNullable<ReturnType<typeof getDb>>;
   spentToday: bigint;
-}): Promise<{ kind: "attempted" | "skipped" | "budget_denied"; settled: boolean; spent: bigint }> {
-  const { candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday } = input;
+  /** バッチ末尾で待つレジストリ書き込み（registry-hook）。 */
+  pendingHooks: Promise<void>[];
+}): Promise<{
+  kind: "attempted" | "skipped" | "budget_denied";
+  settled: boolean;
+  spent: bigint;
+  /** 台帳に書いた status（attempted のときのみ）——summary の集計はこれを見る。 */
+  status?: string;
+}> {
+  const { candidate, account, solanaKeypair, getSolanaBlockhash, fetchImpl, timeoutMs, db, spentToday, pendingHooks } = input;
   const method = (candidate.method ?? "GET").toUpperCase();
   const startedAt = Date.now();
   const isSolana = candidate.network === SOLANA_MAINNET_CAIP2;
@@ -892,10 +914,12 @@ async function purchaseOne(input: {
   }
 
   // ERC-8004 への公開（C4）。フラグOFF既定・graceful——購入の記帳には
-  // 何があっても影響しない（registry-hook.ts 冒頭）。
-  fireL1RegistryHook({ endpointId: candidate.id, payTo: accept.payTo, settled });
+  // 何があっても影響しない（registry-hook.ts 冒頭）。バッチ末尾で待てるよう
+  // Promise を集める: fire-and-forget のままだと Vercel が応答後に関数を
+  // 凍結するので、最後の候補の書き込みだけが静かに消える。
+  pendingHooks.push(fireL1RegistryHook({ endpointId: candidate.id, payTo: accept.payTo, settled }));
 
-  return { kind: "attempted", settled, spent: amount };
+  return { kind: "attempted", settled, spent: amount, status };
 }
 
 /**

@@ -435,6 +435,43 @@ if (!TEST_DB) {
       }
     });
 
+    await t.test("品は来たがレシート無しは settleFailed に混ぜず deliveredNoReceipt で返す", async () => {
+      // 2026-08-22 監査・項目8: DBの status は delivered_no_receipt と
+      // settle_failed を区別しているのに、cron 応答の summary は両方を
+      // settleFailed に吸収していて外から判別できなかった。
+      await db.execute(sql`TRUNCATE x402_l1_purchases, observed_purchases`);
+      const summary = await runL1Batch({
+        fetchImpl: async (url: string, init?: RequestInit) => {
+          const headers = new Headers(init?.headers);
+          if (!headers.has("PAYMENT-SIGNATURE") && !headers.has("X-PAYMENT")) {
+            return new Response(challengeFor(url), {
+              status: 402,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          // 品は返すが PAYMENT-RESPONSE を返さない壁。
+          return new Response(JSON.stringify({ data: "the goods" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+        limit: 1,
+      });
+      assert.equal(summary.attempted, 1);
+      assert.equal(summary.settled, 0);
+      assert.equal(summary.deliveredNoReceipt, 1, "レシート無しはこの欄に立つ");
+      assert.equal(summary.settleFailed, 0, "決済失敗と混ぜない");
+
+      const rows = await db.select().from(schema.x402L1Purchases);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, "delivered_no_receipt");
+      assert.equal(rows[0].spentUnits, "3000", "署名した＝計上する");
+
+      // レシート（tx_hash）が無い購入は observed_purchases に書けない
+      // ——オンチェーンの購入として名指せないため（項目1の境界）。
+      assert.equal((await db.select().from(schema.observedPurchases)).length, 0);
+    });
+
     await t.test("daily budget from the DB stops the batch at the line", async () => {
       await db.execute(sql`TRUNCATE x402_l1_purchases`);
       // Pretend 24.999 USDC already spent today.

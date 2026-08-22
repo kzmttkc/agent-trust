@@ -73,11 +73,24 @@ export async function publishL1OutcomeToRegistry(input: L1OutcomeInput): Promise
   });
 }
 
-/** l1-runner から呼ぶ非同期版——絶対に投げない。 */
-export function fireL1RegistryHook(input: L1OutcomeInput): void {
-  // フラグOFFの通常運転で余計なPromiseすら作らない。
-  if (!isRegistryWritesEnabled()) return;
-  void publishL1OutcomeToRegistry(input).catch((error) => {
-    logServerError("registry.hook", error);
-  });
+/**
+ * l1-runner から呼ぶ版——**絶対に投げない**。
+ *
+ * 2026-08-22: 以前は fire-and-forget（void）だった。Vercel の関数は
+ * レスポンス返却後に凍結するので、バッチ最後の候補の書き込みは静かに
+ * 消える（フラグをONにした瞬間から、最後の1件だけレジストリに載らない）。
+ * 返り値を await できる形にして、runL1Batch が末尾でまとめて待つ。
+ * 待てるようになっても性質は同じ: rejection は起こさず、失敗は
+ * logServerError に残るだけで購入の記帳（正典は x402_l1_purchases）には
+ * 影響しない。
+ */
+export function fireL1RegistryHook(input: L1OutcomeInput): Promise<void> {
+  // フラグOFFの通常運転で余計な作業をしない。
+  if (!isRegistryWritesEnabled()) return Promise.resolve();
+  return publishL1OutcomeToRegistry(input).then(
+    () => undefined,
+    (error) => {
+      logServerError("registry.hook", error);
+    },
+  );
 }
