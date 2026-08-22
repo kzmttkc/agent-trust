@@ -51,6 +51,40 @@ export type ObservatoryOverview = {
   } | null;
 };
 
+/**
+ * Longest search term folded into an ILIKE pattern. Same 80 as
+ * parseObservatorySearchParams uses, restated here because this reader is
+ * exported and a caller can hand it a `q` the parser never saw.
+ */
+const SEARCH_MAX_LENGTH = 80;
+
+/**
+ * `q` → an ILIKE pattern that matches it LITERALLY.
+ *
+ * WHY (2026-08-22 audit). This was `%${q}%` interpolated straight into
+ * `ILIKE ${like}`. Not injection — the value is bound, always was — but `%`
+ * and `_` are wildcards INSIDE a bound value, and neither they nor the length
+ * were constrained on this path. `/observatory` is a keyless page, so a
+ * pattern like `%_%_%_%_%_%…` over the endpoint table is a cheap way to make
+ * the database do quadratic work on someone else's behalf. The page's own
+ * parser (parseObservatorySearchParams) strips those characters and caps the
+ * length, so the live surface was already covered — this closes the door for
+ * every OTHER caller of an exported reader, rather than trusting each one to
+ * remember.
+ *
+ * Escaped with backslash, which is Postgres's default LIKE escape character,
+ * so no ESCAPE clause is needed at the call site.
+ *
+ * Exported for the test that pins the escaping — nothing else calls it.
+ */
+export function searchLikePattern(q: string | null): string | null {
+  if (!q) return null;
+  const trimmed = q.trim().slice(0, SEARCH_MAX_LENGTH);
+  if (trimmed.length === 0) return null;
+  const literal = trimmed.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+  return `%${literal}%`;
+}
+
 export async function getObservatoryOverview(
   options: Partial<ObservatoryQuery> = {},
 ): Promise<ObservatoryOverview> {
@@ -69,7 +103,7 @@ export async function getObservatoryOverview(
   };
   if (!db) return empty;
 
-  const like = q ? `%${q}%` : null;
+  const like = searchLikePattern(q);
   const filters = sql`
     ${like ? sql`AND e.resource_key ILIKE ${like}` : sql``}
     ${network ? sql`AND e.network = ${network}` : sql``}
