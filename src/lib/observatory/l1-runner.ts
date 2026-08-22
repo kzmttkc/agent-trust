@@ -64,6 +64,8 @@ export type L1BatchSummary = {
   stoppedForDeadline: boolean;
   /** Candidates left untouched by that stop — zero on a normal full walk. */
   notAttempted: number;
+  /** Stale `in_flight` rows resolved at the top of this batch (see sweepOrphanedInFlight). */
+  orphansResolved: number;
   disabledReason: "l1_disabled" | "wallet_key_missing" | null;
 };
 
@@ -277,6 +279,56 @@ async function reserveSpend(input: {
   return { ok: false, reason: row.taken === true ? "already_purchased" : "daily_budget_exceeded" };
 }
 
+/**
+ * 孤児 `in_flight` の回収しきい値（2026-08-22 監査）。
+ *
+ * reserveSpend は署名の**前**に in_flight 行を書く（正しい——署名済み
+ * EIP-3009 は validBefore まで生きた金なので、記帳より先に予約する）。
+ * だが署名後・結果の記帳前に落ちた行を後から解決する仕組みが無く、
+ * スイープ窓（既定6日・優先1日）の重複判定は status を見ないので、
+ * 孤児が1件でもあるとそのエンドポイントは窓の間ずっと購入対象から
+ * 外れ続ける（本番実測 2026-08-22 時点では 0 件）。
+ *
+ * 30分の根拠: 1件の最悪ケースは worstCasePurchaseMs = 60s、バッチ全体でも
+ * cron の maxDuration = 300s が上限。30分はその6倍あるので、**実行中の
+ * 別インボケーションの行を誤って回収することはあり得ない**。
+ */
+export const ORPHAN_IN_FLIGHT_MINUTES = 30;
+
+/**
+ * 孤児 in_flight を解決する。変えるのは status と raw_response_meta だけで、
+ * **spent_units には触らない**——「署名したら計上する」は予算の不変条件で、
+ * ここで金額を戻すと、実際に動いたかもしれない金の分だけ当日の予算が
+ * 二重に空く。だから day 集計（runL1Batch の日次合計・reserveSpend の day
+ * CTE。どちらも status を見ずに spent_units を合計する）は回収の前後で
+ * 完全に同じ値を返す。
+ *
+ * 解決先を `request_error` にする理由: 我々のランナーが死んだという**我々側
+ * の事実**であり、売り手についての測定ではない。`settle_failed` に落とすと
+ * 測っていない失敗を売り手の決済率の分母（PAID_ATTEMPT_STATUSES）に入れて
+ * しまう。request_error は公開面（decisions / export.csv / backtest /
+ * reader）のどの分母からも既に外れている。
+ */
+export async function sweepOrphanedInFlight(
+  db: NonNullable<ReturnType<typeof getDb>>,
+  olderThanMinutes: number = ORPHAN_IN_FLIGHT_MINUTES,
+): Promise<number> {
+  const raw = await db.execute(sql`
+    UPDATE x402_l1_purchases
+    SET status = 'request_error',
+        raw_response_meta = coalesce(raw_response_meta, '{}'::jsonb) || jsonb_build_object(
+          'phase', 'sweep',
+          'reason', 'orphaned_in_flight',
+          'note', 'reserved and possibly signed; the runner died before the outcome was written',
+          'sweptAt', to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+        )
+    WHERE status = 'in_flight'
+      AND attempted_at < now() - make_interval(mins => ${olderThanMinutes}::int)
+    RETURNING id
+  `);
+  return rowsOf(raw).length;
+}
+
 export async function runL1Batch(
   options: {
     limit?: number;
@@ -318,6 +370,7 @@ export async function runL1Batch(
     spentUnitsTotal: "0",
     stoppedForDeadline: false,
     notAttempted: 0,
+    orphansResolved: 0,
     disabledReason: null,
   };
 
@@ -341,6 +394,17 @@ export async function runL1Batch(
   // （試行すらしない）。予算・台帳は Base と共有（USDC 基本単位が共通）。
   const solanaKeypair = isSolanaL1Enabled() ? loadSolanaKeypair() : null;
   const solanaReady = solanaKeypair !== null;
+
+  // 1.5 Resolve orphaned reservations from earlier runs BEFORE anything else
+  //     reads the ledger. Ordering is safe by construction: the sweep never
+  //     touches spent_units, so the day total below is identical either way.
+  //     A failure here must not stop the batch — it is housekeeping, not a
+  //     money gate — but it is never swallowed silently.
+  try {
+    summary.orphansResolved = await sweepOrphanedInFlight(db);
+  } catch (error) {
+    if (!isMissingSchemaError(error)) logServerError("observatory.l1.orphan_sweep", error);
+  }
 
   // 2. Today's spend from the ledger (UTC day).
   let spentToday = 0n;
